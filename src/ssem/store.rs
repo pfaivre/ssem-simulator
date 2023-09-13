@@ -6,7 +6,7 @@ use std::str::FromStr;
 use crate::ssem::opcode::Opcode;
 
 const ASM_COMMENT_CHAR: char = ';';
-const SSEM_STORE_WORDS: u32 = 32;
+const SSEM_STORE_WORDS: i32 = 32;
 
 /// Main memory of a SSEM-like machine
 ///
@@ -14,6 +14,7 @@ const SSEM_STORE_WORDS: u32 = 32;
 /// This is the opposite of modern computers, here we simply reverse the order during display.
 pub struct Store {
     pub words: Vec<i32>,
+    pub size: i32,
 }
 
 impl Store {
@@ -22,7 +23,8 @@ impl Store {
     /// Every word gets initialized to zero.
     pub fn new() -> Store {
         Store { 
-            words: vec![0_i32; usize::try_from(SSEM_STORE_WORDS).unwrap()]
+            words: vec![0_i32; usize::try_from(SSEM_STORE_WORDS).unwrap()],
+            size: SSEM_STORE_WORDS,
         }
     }
 
@@ -52,7 +54,8 @@ impl Store {
         let reader = BufReader::new(file);
 
         let mut store = Store { 
-            words: vec![0_i32; usize::try_from(SSEM_STORE_WORDS).unwrap()]
+            words: vec![0_i32; usize::try_from(SSEM_STORE_WORDS).unwrap()],
+            size: SSEM_STORE_WORDS,
         };
 
         for (_, line) in reader.lines().enumerate() {
@@ -66,7 +69,7 @@ impl Store {
             if let Some((instruction, _)) = line.split_once(ASM_COMMENT_CHAR) {
                 if instruction.len() > 0 {
                     // Extracting tokens "<index> <opcode> <operand>"
-                    let index: u32;
+                    let index: i32;
                     let opcode: &str;
                     let operand: i32;
                     let i: Vec<&str> = instruction.trim().split(' ').collect();
@@ -83,9 +86,9 @@ impl Store {
                         operand = 0;
                     }
 
-                    if index >= SSEM_STORE_WORDS {
+                    if index >= store.size {
                         eprintln!("Unable to read the input file: invalid instruction '{}'", instruction);
-                        eprintln!("Index '{}' is bigger than the machine size ({})", index, SSEM_STORE_WORDS);
+                        eprintln!("Index '{}' is bigger than the machine size ({})", index, store.size);
                         std::process::exit(1);
                     }
 
@@ -103,7 +106,7 @@ impl Store {
                             store.words[usize::try_from(index).unwrap()] = operand;
                         }
                         opcode => {
-                            let mut w = store.words[usize::try_from(index).unwrap()];
+                            let mut w = store.words[usize::try_from(index).unwrap()]; // TODO: make this safe
 
                             // Print the opcode
                             w = w | ((opcode as i32) << 13);
@@ -117,6 +120,21 @@ impl Store {
         }
 
         store
+    }
+
+    pub fn decode_instruction(&self, index: i32) -> Result<(Opcode, i32), String> {
+        let index = match usize::try_from(index) {
+            Ok(value) => value,
+            Err(_) => return Err("Unable to get index from number".into()),
+        };
+        let word: i32 = match self.words.get(index) {
+            Some(value) => *value,
+            None => return Err("Out of bound".into()), 
+        };
+
+        // TODO: actually decode
+
+        Ok((Opcode::LDN, 0))
     }
 }
 

@@ -1,6 +1,6 @@
 use std::env;
 
-use crate::ssem::store::Store;
+use crate::ssem::simulator::Simulator;
 
 pub mod ssem;
 
@@ -21,19 +21,15 @@ fn main() {
         has_filename = true;
     }
 
-    let ci: i32 = 0;
-    let a: i32 = 0;
-    let store: Store;
+    let mut simulator: Simulator;
     if has_filename {
-        store = Store::from_asm_file(&filename);
+        simulator = Simulator::from_file(&filename);
     }
-    else
-    {
-        store = Store::new();
+    else {
+        simulator = Simulator::new();
     }
 
-    println!(" {:032b} CI = {}", ci.reverse_bits(), ci);
-    println!(" {:032b} A = {}", a.reverse_bits(), a);
-    println!("");
-    println!("{}", store.to_string());
+    simulator.run(1_000_000);
+
+    println!("{simulator}");
 }

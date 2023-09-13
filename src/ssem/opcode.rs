@@ -4,7 +4,7 @@ use std::str::FromStr;
 /// Represents an operation code for the SSEM
 /// 
 /// Its values gives the opcode bits, except for NUM
-pub(crate) enum Opcode {
+pub enum Opcode {
     JMP  = 0b000,
     JRP  = 0b001,
     LDN  = 0b010,
