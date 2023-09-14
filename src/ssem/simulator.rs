@@ -4,9 +4,16 @@ use std::fmt;
 use super::{store::Store, opcode::Opcode};
 
 pub struct Simulator {
+    /// Accumulator, the only register of the machine
     a: i32,
+
+    /// Program counter. this points to the address currently being executed
     ci: i32,
+
+    /// The main memory. This is an array of 32-bit words
     store: Store,
+
+    /// This is set when the STP instruction is executed
     stop_flag: bool,
 }
 
@@ -20,6 +27,7 @@ impl Simulator {
         }
     }
 
+    /// Initializes an SSEM simulator with memory state described in the given file.
     pub fn from_file(filename: &str) -> Simulator {
         Simulator {
             a: 0,
@@ -30,9 +38,18 @@ impl Simulator {
     }
 
     /// Run the machine until STP is encountered or the given amount of cycles is reached.
-    pub fn run(&mut self, max_cycles: i32) {
-        // TODO: loop
-        self.instruction_cycle();
+    ///
+    /// Returns the number of cycles executed.
+    pub fn run(&mut self, max_cycles: u32) -> u32 {
+        let mut cycles = 0u32;
+        self.stop_flag = false;
+
+        while cycles < max_cycles && !self.stop_flag {
+            self.instruction_cycle();
+            cycles += 1;
+        }
+
+        cycles
     }
 
     /// Run the next instruction.
@@ -52,11 +69,44 @@ impl Simulator {
         };
 
         // Execute
+        self._execute(opcode, data);
     }
 
     /// Modify the state of the machine according to the given instruction.
     fn _execute(&mut self, command: Opcode, data: i32) {
-        todo!()
+        match command {
+            Opcode::JMP => {
+                self.ci = self.store[data];
+            },
+            Opcode::JRP => {
+                self.ci += self.store[data];
+            },
+            Opcode::LDN => {
+                self.a = -self.store[data];
+            },
+            Opcode::STO => {
+                // this indexing is safe as long as the data extracted earlier (a u5 for SSEM)
+                // is smaller than the number of addresses on the store (32 for SSEM)
+                self.store.words[data as usize] = self.a;
+            },
+            Opcode::SUB | Opcode::SUB2 => {
+                self.a -= self.store[data];
+            },
+            Opcode::CMP => {
+                if self.a < 0 {
+                    self.ci += 1;
+                }
+            },
+            Opcode::STP => {
+                self.stop_flag = true;
+            }
+            Opcode::NUM => {
+                panic!("Encountered an unexpected NUM command")
+            },
+        }
+
+        // println!("{} {} {}", self.ci, command, data);
+        // println!("{}", &self);
     }
 }
 

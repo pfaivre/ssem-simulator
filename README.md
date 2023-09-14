@@ -11,15 +11,14 @@ Checkout [manchester-baby-sim](https://github.com/pfaivre/manchester-baby-sim) f
 # Test it
 
 ```sh
-cargo run factorct.asm
+cargo run -r factorct.asm
 ```
-Note: This is a very early prototype and does not work yet.
 
 # Roadmap
 
 - [x] Read assembler files
+- [x] Run the program
 - [ ] Assembler language validation
-- [ ] Run the program
 - [ ] Read binary representation files (.snp)
 - [ ] Improve readability (display option)
 - [ ] Unit and functional tests

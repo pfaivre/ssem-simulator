@@ -8,7 +8,7 @@ fn main() {
     println!();
     println!("//// ssem-simulator ////");
     println!("");
-    println!("This is a very early build and does not work yet.");
+    println!("This is a very early build.");
     println!("Visit the following repository for a fully functional simulator:");
     println!("    https://github.com/pfaivre/manchester-baby-sim");
     println!();
@@ -29,7 +29,15 @@ fn main() {
         simulator = Simulator::new();
     }
 
-    simulator.run(1_000_000);
+    use std::time::Instant;
+    let start_time = Instant::now();
+
+    let cycles = simulator.run(100_000_000);
+
+    println!("Run completed!");
+    println!("The final state of the machine is:");
 
     println!("{simulator}");
+
+    println!("{} cycles executed in {:.2?}", cycles, start_time.elapsed());
 }
