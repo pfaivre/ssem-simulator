@@ -6,28 +6,28 @@ use std::str::FromStr;
 /// Its values gives the opcode bits, except for NUM
 pub enum Opcode {
     /// Indirect jump
-    JMP  = 0b000,
+    JMP = 0b000,
 
     /// Relative jump
-    JRP  = 0b001,
+    JRP = 0b001,
 
     /// Load negative of value from given address to accumulator
-    LDN  = 0b010,
+    LDN = 0b010,
 
     /// Store accumulator in given address
-    STO  = 0b011,
+    STO = 0b011,
 
     /// Substract value in given address from accumulator
-    SUB  = 0b100,
+    SUB = 0b100,
 
     /// Should not be used. Same effect as SUB
     SUB2 = 0b101,
 
     /// Skip next instruction if accumulator is negative
-    CMP  = 0b110,
+    CMP = 0b110,
 
     /// Halt the program
-    STP  = 0b111,
+    STP = 0b111,
 
     /// Not an instruction. Mnemonic used to set a raw number to the store
     NUM,
@@ -70,7 +70,7 @@ impl FromStr for Opcode {
 
 impl fmt::Display for Opcode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-       match self {
+        match self {
             Opcode::JMP => write!(f, "JMP"),
             Opcode::JRP => write!(f, "JRP"),
             Opcode::LDN => write!(f, "LDN"),
@@ -79,6 +79,6 @@ impl fmt::Display for Opcode {
             Opcode::CMP => write!(f, "CMP"),
             Opcode::STP => write!(f, "STP"),
             Opcode::NUM => write!(f, "NUM"),
-       }
+        }
     }
 }

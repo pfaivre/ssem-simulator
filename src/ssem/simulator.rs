@@ -1,7 +1,6 @@
-
 use std::fmt;
 
-use super::{store::Store, opcode::Opcode};
+use super::{opcode::Opcode, store::Store};
 
 pub struct Simulator {
     /// Accumulator, the only register of the machine
@@ -62,7 +61,10 @@ impl Simulator {
         let (opcode, data) = match self.store.decode_instruction(self.ci) {
             Ok(r) => r,
             Err(message) => {
-                eprintln!("Error while decoding instruction at address {}: {}", self.ci, message);
+                eprintln!(
+                    "Error while decoding instruction at address {}: {}",
+                    self.ci, message
+                );
                 self.stop_flag = true;
                 return;
             }
@@ -77,32 +79,32 @@ impl Simulator {
         match command {
             Opcode::JMP => {
                 self.ci = self.store[data];
-            },
+            }
             Opcode::JRP => {
                 self.ci += self.store[data];
-            },
+            }
             Opcode::LDN => {
                 self.a = -self.store[data];
-            },
+            }
             Opcode::STO => {
                 // this indexing is safe as long as the data extracted earlier (a u5 for SSEM)
                 // is smaller than the number of addresses on the store (32 for SSEM)
                 self.store.words[data as usize] = self.a;
-            },
+            }
             Opcode::SUB | Opcode::SUB2 => {
                 self.a -= self.store[data];
-            },
+            }
             Opcode::CMP => {
                 if self.a < 0 {
                     self.ci += 1;
                 }
-            },
+            }
             Opcode::STP => {
                 self.stop_flag = true;
             }
             Opcode::NUM => {
                 panic!("Encountered an unexpected NUM command")
-            },
+            }
         }
 
         // println!("{} {} {}", self.ci, command, data);
@@ -112,6 +114,8 @@ impl Simulator {
 
 impl fmt::Display for Simulator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // We reverse the bits for display because the SSEM stored numbers the opposite order than modern computers.
+        // All the computing is done on the modern order for efficiency reasons.
         writeln!(f, " {:032b} CI = {:6}", self.ci.reverse_bits(), self.ci).ok();
         writeln!(f, " {:032b} A  = {:6}", self.a.reverse_bits(), self.a).ok();
         writeln!(f, "").ok();

@@ -24,8 +24,7 @@ fn main() {
     let mut simulator: Simulator;
     if has_filename {
         simulator = Simulator::from_file(&filename);
-    }
-    else {
+    } else {
         simulator = Simulator::new();
     }
 

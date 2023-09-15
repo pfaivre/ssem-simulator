@@ -22,7 +22,9 @@ cargo run -r factorct.asm
 - [ ] Read binary representation files (.snp)
 - [ ] Improve readability (display option)
 - [ ] Unit and functional tests
+- [ ] Add a disassembler
 - [ ] Implement breakpoints: automatically stop at a given condition
+- [ ] Implement other similar machines
 
 # Documentation
 
