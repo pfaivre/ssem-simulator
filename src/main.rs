@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, path::Path};
 
 use crate::ssem::simulator::Simulator;
 
@@ -23,20 +23,22 @@ fn main() {
 
     let mut simulator: Simulator;
     if has_filename {
-        simulator = Simulator::from_file(&filename);
+        simulator = Simulator::from_file(&Path::new(&filename));
+        use std::time::Instant;
+        let start_time = Instant::now();
+
+        let cycles = simulator.run(100_000_000);
+
+        println!("Run completed!");
+        println!("The final state of the machine is:");
+        println!("{simulator}");
+        println!("{} cycles executed in {:.2?}", cycles, start_time.elapsed());
     } else {
-        simulator = Simulator::new();
+        print_help();
     }
+}
 
-    use std::time::Instant;
-    let start_time = Instant::now();
-
-    let cycles = simulator.run(100_000_000);
-
-    println!("Run completed!");
-    println!("The final state of the machine is:");
-
-    println!("{simulator}");
-
-    println!("{} cycles executed in {:.2?}", cycles, start_time.elapsed());
+fn print_help() {
+    println!("Usage:");
+    println!("  ssem-simulator [file]");
 }

@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, path::Path};
 
 use super::{opcode::Opcode, store::Store};
 
@@ -27,11 +27,25 @@ impl Simulator {
     }
 
     /// Initializes an SSEM simulator with memory state described in the given file.
-    pub fn from_file(filename: &str) -> Simulator {
+    /// Supported file types are .snp and .asm
+    pub fn from_file(filename: &Path) -> Simulator {
+        let store = match filename.extension() {
+            Some(ext) => {
+                if ext == "asm" {
+                    Store::from_asm_file(filename)
+                } else if ext == "snp" {
+                    Store::from_snp_file(filename)
+                } else {
+                    panic!("Unkown file format '{}'", ext.to_str().unwrap_or(""));
+                }
+            }
+            None => panic!("Unkown file format"),
+        };
+
         Simulator {
             a: 0,
             ci: 0,
-            store: Store::from_asm_file(filename),
+            store: store,
             stop_flag: false,
         }
     }

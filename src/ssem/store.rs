@@ -2,6 +2,7 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::ops::Index;
+use std::path::Path;
 use std::str::FromStr;
 
 use crate::ssem::opcode::Opcode;
@@ -48,13 +49,17 @@ impl Store {
     /// # Arguments
     ///
     /// * `filename` - Path to the file to read
-    pub fn from_asm_file(filename: &str) -> Store {
+    pub fn from_asm_file(filename: &Path) -> Store {
         // Todo return a Result for a richer explaination on the possible issues
         let file = File::open(filename);
         let file = match file {
             Ok(f) => f,
             Err(e) => {
-                panic!("Error while reading '{}': {}", filename, e);
+                panic!(
+                    "Error while reading '{}': {}",
+                    filename.to_str().unwrap_or(""),
+                    e
+                );
             }
         };
         let reader = BufReader::new(file);
@@ -66,7 +71,11 @@ impl Store {
 
         for (_, line) in reader.lines().enumerate() {
             let line = line.unwrap_or_else(|e| {
-                panic!("Error while reading '{}': {}", filename, e);
+                panic!(
+                    "Error while reading '{}': {}",
+                    filename.to_str().unwrap_or(""),
+                    e
+                );
             });
 
             // Ignoring comments
@@ -110,7 +119,8 @@ impl Store {
                     Err(_) => {
                         panic!(
                             "Error while reading '{}': opcode '{}' non valid.",
-                            filename, opcode
+                            filename.to_str().unwrap_or(""),
+                            opcode
                         );
                     }
                 };
@@ -121,15 +131,113 @@ impl Store {
                         store.words[usize::try_from(index).unwrap()] = operand;
                     }
                     opcode => {
-                        let mut w: i32 = 0;
-
                         // Print the opcode
-                        w = w | ((opcode as i32) << SSEM_OPCODE_BIT_SHIFT);
+                        let w: i32 = (opcode as i32) << SSEM_OPCODE_BIT_SHIFT;
 
                         // Print the operand
                         store.words[usize::try_from(index).unwrap()] = w | (operand as i32);
                     }
                 }
+            }
+        }
+
+        store._check();
+
+        store
+    }
+
+    /// Initializes the store with the given snp file
+    ///
+    /// A snp file has the following form:
+    /// ```
+    /// 0000: 10000000000000000000000000000000
+    /// 0001: 01010000000000100000000000000000 ; Some comment
+    /// 0002: 00000000000000010000000000000000
+    /// ...
+    /// ```
+    /// Each numbered line represents a raw word. Erverything after ';' is ignored.
+    ///
+    /// # Arguments
+    ///
+    /// * `filename` - Path to the file to read
+    pub fn from_snp_file(filename: &Path) -> Store {
+        // Todo return a Result for a richer explaination on the possible issues
+        let file = File::open(filename);
+        let file = match file {
+            Ok(f) => f,
+            Err(e) => {
+                panic!(
+                    "Error while reading '{}': {}",
+                    filename.to_str().unwrap_or(""),
+                    e
+                );
+            }
+        };
+        let reader = BufReader::new(file);
+
+        let mut store = Store {
+            words: vec![0_i32; usize::try_from(SSEM_STORE_WORDS).unwrap()],
+            size: SSEM_STORE_WORDS,
+        };
+
+        for (_, line) in reader.lines().enumerate() {
+            let line = line.unwrap_or_else(|e| {
+                panic!(
+                    "Error while reading '{}': {}",
+                    filename.to_str().unwrap_or(""),
+                    e
+                );
+            });
+
+            // Ignoring comments
+            let exploded_line: Vec<&str> = line.splitn(2, ASM_COMMENT_CHAR).collect();
+            if exploded_line.len() > 0 {
+                let instruction = exploded_line[0].clone().trim();
+                if instruction.len() == 0 {
+                    continue;
+                }
+                // Extracting tokens "<index>: <binary_word>"
+                let i: Vec<&str> = instruction.splitn(2, ':').collect();
+                if i.len() < 2 {
+                    panic!(
+                        "Unable to read the input file: invalid instruction '{}'",
+                        instruction
+                    );
+                }
+
+                let index: i32 = i[0].parse().expect("Unable to read the number");
+
+                // Reverse the bit order: SSEM is least significant bit first
+                let word = i[1].trim().chars().rev().collect::<String>();
+                if word.len() != 32 {
+                    panic!(
+                        "The word has an invalid size: '{}'. Expected 32, got {}",
+                        word,
+                        word.len()
+                    );
+                }
+                // Use a 64-bit temporarily before casting down later below, to avoid parsing errors on some cases
+                let word: i64 = match i64::from_str_radix(&word, 2) {
+                    Ok(value) => value,
+                    Err(e) => panic!(
+                        "Unable to parse the word '{}' for address {}: {}",
+                        word, index, e
+                    ),
+                };
+
+                if index >= store.size {
+                    eprintln!(
+                        "Unable to read the input file: invalid instruction '{}'",
+                        instruction
+                    );
+                    panic!(
+                        "Index '{}' is bigger than the machine size ({})",
+                        index, store.size
+                    );
+                }
+
+                // The cast to i32 is safe because we ensured before there is only 32 bits of data in the word
+                store.words[usize::try_from(index).unwrap()] = word as i32;
             }
         }
 
