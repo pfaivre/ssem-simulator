@@ -84,7 +84,10 @@ impl Simulator {
                 self.ci += self.store[data];
             }
             Opcode::LDN => {
-                self.a = -self.store[data];
+                // Was originally `self.a = -self.store[data];`
+                // But in some cases we want to ignore overflowing. This has no measureable performance impact.
+                // TODO: assert this is compliant with SSEM behavior
+                self.a = self.store[data].wrapping_neg();
             }
             Opcode::STO => {
                 // this indexing is safe as long as the data extracted earlier (a u5 for SSEM)
@@ -92,7 +95,10 @@ impl Simulator {
                 self.store.words[data as usize] = self.a;
             }
             Opcode::SUB | Opcode::SUB2 => {
-                self.a -= self.store[data];
+                // Was originally `self.a -= self.store[data];`
+                // But in some cases we want to ignore overflowing. This has no measureable performance impact.
+                // TODO: assert this is compliant with SSEM behavior
+                self.a = self.a.wrapping_add(self.store[data].wrapping_neg());
             }
             Opcode::CMP => {
                 if self.a < 0 {
