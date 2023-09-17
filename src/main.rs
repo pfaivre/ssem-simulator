@@ -1,8 +1,22 @@
-use std::{env, path::Path};
+use std::path::{Path, PathBuf};
+
+use clap::{command, Parser};
 
 use crate::ssem::simulator::Simulator;
 
 pub mod ssem;
+
+#[derive(Parser)]
+#[command(author, about, long_about = None)]
+struct Args {
+    /// Stop after this amount of cycles
+    #[arg(short, long, value_name = "NUM", default_value_t = 100_000_000)]
+    max_cycles: u32,
+
+    /// Input file to initialize the store. Can be .asm or .snp format
+    #[arg(value_name = "FILE")]
+    file: PathBuf,
+}
 
 fn main() {
     println!();
@@ -13,32 +27,16 @@ fn main() {
     println!("    https://github.com/pfaivre/manchester-baby-sim");
     println!();
 
-    let args: Vec<String> = env::args().collect();
-    let mut filename = "".into();
-    let mut has_filename = false;
-    if args.len() > 1 {
-        filename = args[1].clone();
-        has_filename = true;
-    }
+    let args = Args::parse();
 
-    let mut simulator: Simulator;
-    if has_filename {
-        simulator = Simulator::from_file(&Path::new(&filename));
-        use std::time::Instant;
-        let start_time = Instant::now();
+    let mut simulator = Simulator::from_file(&Path::new(&args.file));
+    use std::time::Instant;
+    let start_time = Instant::now();
 
-        let cycles = simulator.run(100_000_000);
+    let cycles = simulator.run(args.max_cycles);
 
-        println!("Run completed!");
-        println!("The final state of the machine is:");
-        println!("{simulator}");
-        println!("{} cycles executed in {:.2?}", cycles, start_time.elapsed());
-    } else {
-        print_help();
-    }
-}
-
-fn print_help() {
-    println!("Usage:");
-    println!("  ssem-simulator [file]");
+    println!("Run completed!");
+    println!("The final state of the machine is:");
+    println!("{simulator}");
+    println!("{} cycles executed in {:.2?}", cycles, start_time.elapsed());
 }

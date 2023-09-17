@@ -17,6 +17,7 @@ const SSEM_OPCODE_BIT_SHIFT: u8 = 13;
 ///
 /// Note: SSEM writes integers with its least significant to most significant bits from left to right.
 /// This is the opposite of modern computers, here we simply reverse the order during display.
+#[derive(Debug)]
 pub struct Store {
     pub words: Vec<i32>,
     pub size: i32,
@@ -303,6 +304,45 @@ impl Index<i32> for Store {
             None => panic!("Out of bound read at address {}", address),
         };
         word
+    }
+}
+
+impl From<Vec<String>> for Store {
+    fn from(value: Vec<String>) -> Self {
+        if value.len() != 32 {
+            panic!("Invalid store size. Expected 32, got {}", value.len());
+        }
+
+        let mut words: Vec<i32> = vec![0; 32];
+        for (index, w) in value.iter().enumerate() {
+            if w.len() != 32 {
+                panic!("Invalid word '{}'", w);
+            }
+            // Reverse bit order to match modern representation
+            let w = w.chars().rev().collect::<String>();
+            // Use a 64-bit temporarily before casting down later below, to avoid parsing errors on some cases
+            let parsed_word: i64 = match i64::from_str_radix(&w, 2) {
+                Ok(value) => value,
+                Err(e) => panic!(
+                    "Unable to parse the word '{}' for address {}: {}",
+                    w, index, e
+                ),
+            };
+            words[index] = parsed_word as i32;
+        }
+
+        let store = Store {
+            words: words,
+            size: SSEM_STORE_WORDS,
+        };
+        store._check();
+        store
+    }
+}
+
+impl PartialEq for Store {
+    fn eq(&self, other: &Self) -> bool {
+        self.words == other.words && self.size == other.size
     }
 }
 

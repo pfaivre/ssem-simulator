@@ -4,13 +4,13 @@ use super::{opcode::Opcode, store::Store};
 
 pub struct Simulator {
     /// Accumulator, the only register of the machine
-    a: i32,
+    pub a: i32,
 
     /// Program counter. this points to the address currently being executed
-    ci: i32,
+    pub ci: i32,
 
     /// The main memory. This is an array of 32-bit words
-    store: Store,
+    pub store: Store,
 
     /// This is set when the STP instruction is executed
     stop_flag: bool,
@@ -129,6 +129,17 @@ impl Simulator {
 
         // println!("{} {} {}", self.ci, command, data);
         // println!("{}", &self);
+    }
+}
+
+impl From<Vec<String>> for Simulator {
+    fn from(value: Vec<String>) -> Self {
+        Simulator {
+            a: 0,
+            ci: 0,
+            store: Store::from(value),
+            stop_flag: false,
+        }
     }
 }
 
