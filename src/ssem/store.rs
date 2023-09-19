@@ -284,7 +284,7 @@ impl Store {
         // mask: 0b00000000000000000000000000000111
         //       ----------------------------------
         //    &: 0b00000000000000000000000000000010
-        let opcode = SSEM_OPCODE_MASK & (word >> SSEM_OPCODE_BIT_SHIFT);
+        let opcode = (SSEM_OPCODE_MASK & (word >> SSEM_OPCODE_BIT_SHIFT)) as u8;
 
         Ok((Opcode::from(opcode), data))
     }

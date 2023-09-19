@@ -1,10 +1,11 @@
+use rustc_hash::FxHashMap;
 use std::fmt;
 use std::str::FromStr;
 
 /// Represents an operation code for the SSEM
 ///
 /// Its values gives the opcode bits, except for NUM
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Opcode {
     /// Indirect jump
     JMP = 0b000,
@@ -34,20 +35,25 @@ pub enum Opcode {
     NUM,
 }
 
-// TODO: Find a way to avoid all those explicit conversions
-impl From<i32> for Opcode {
-    fn from(input: i32) -> Opcode {
-        match input {
-            0b000 => Opcode::JMP,
-            0b001 => Opcode::JRP,
-            0b010 => Opcode::LDN,
-            0b011 => Opcode::STO,
-            0b100 => Opcode::SUB,
-            0b101 => Opcode::SUB2,
-            0b110 => Opcode::CMP,
-            0b111 => Opcode::STP,
-            _ => panic!("Unexpected opcode value '{:0b}'", input),
-        }
+lazy_static! {
+    pub static ref SSEM_OPCODE_TABLE: FxHashMap<u8, Opcode> = {
+        let mut m = FxHashMap::default();
+        m.insert(0b000, Opcode::JMP);
+        m.insert(0b001, Opcode::JRP);
+        m.insert(0b010, Opcode::LDN);
+        m.insert(0b011, Opcode::STO);
+        m.insert(0b100, Opcode::SUB);
+        m.insert(0b101, Opcode::SUB2);
+        m.insert(0b110, Opcode::CMP);
+        m.insert(0b111, Opcode::STP);
+        m
+    };
+}
+
+impl From<u8> for Opcode {
+    // Using a static FxHashMap instead of a match has been observed to provide about 10% performance gains
+    fn from(input: u8) -> Opcode {
+        SSEM_OPCODE_TABLE[&input]
     }
 }
 
@@ -74,5 +80,29 @@ impl fmt::Display for Opcode {
     /// Prints the mnemonic of the opcode ("LDN", "JMP", "STO", etc.)
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Opcode;
+
+    /// Ensure consistency during conversion
+    #[test]
+    fn from_u8() {
+        assert_eq!(Opcode::from(Opcode::JMP as u8) as u8, Opcode::JMP as u8);
+        assert_eq!(Opcode::from(Opcode::JRP as u8) as i8, Opcode::JRP as i8);
+        assert_eq!(Opcode::from(Opcode::LDN as u8) as i8, Opcode::LDN as i8);
+        assert_eq!(Opcode::from(Opcode::STO as u8) as i8, Opcode::STO as i8);
+        assert_eq!(Opcode::from(Opcode::SUB as u8) as i8, Opcode::SUB as i8);
+        assert_eq!(Opcode::from(Opcode::SUB2 as u8) as i8, Opcode::SUB2 as i8);
+        assert_eq!(Opcode::from(Opcode::CMP as u8) as i8, Opcode::CMP as i8);
+        assert_eq!(Opcode::from(Opcode::STP as u8) as i8, Opcode::STP as i8);
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_u8_error() {
+        let _ = Opcode::from(0b1000);
     }
 }

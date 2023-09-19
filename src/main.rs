@@ -6,6 +6,9 @@ use crate::ssem::simulator::Simulator;
 
 pub mod ssem;
 
+#[macro_use]
+extern crate lazy_static;
+
 #[derive(Parser)]
 #[command(author, about, long_about = None)]
 struct Args {
