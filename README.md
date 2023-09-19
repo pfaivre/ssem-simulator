@@ -20,7 +20,6 @@ cargo run -r samples/ssem/factorct.asm
 - [x] Run the program
 - [x] Read binary representation files (.snp)
 - [x] Integration tests
-- [ ] Assembler language validation (separate validation from parsing)
 - [ ] Improve readability (display option)
 - [ ] Unit tests
 - [ ] Add a disassembler

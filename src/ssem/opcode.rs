@@ -4,6 +4,7 @@ use std::str::FromStr;
 /// Represents an operation code for the SSEM
 ///
 /// Its values gives the opcode bits, except for NUM
+#[derive(Debug)]
 pub enum Opcode {
     /// Indirect jump
     JMP = 0b000,
@@ -45,7 +46,7 @@ impl From<i32> for Opcode {
             0b101 => Opcode::SUB2,
             0b110 => Opcode::CMP,
             0b111 => Opcode::STP,
-            _ => panic!("Unexpected opcode value"),
+            _ => panic!("Unexpected opcode value '{:0b}'", input),
         }
     }
 }
@@ -59,7 +60,8 @@ impl FromStr for Opcode {
             "JRP" => Ok(Opcode::JRP),
             "LDN" => Ok(Opcode::LDN),
             "STO" => Ok(Opcode::STO),
-            "SUB" | "SUB2" => Ok(Opcode::SUB),
+            "SUB" => Ok(Opcode::SUB),
+            "SUB2" => Ok(Opcode::SUB2),
             "CMP" => Ok(Opcode::CMP),
             "STP" => Ok(Opcode::STP),
             "NUM" => Ok(Opcode::NUM),
@@ -69,16 +71,8 @@ impl FromStr for Opcode {
 }
 
 impl fmt::Display for Opcode {
+    /// Prints the mnemonic of the opcode ("LDN", "JMP", "STO", etc.)
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Opcode::JMP => write!(f, "JMP"),
-            Opcode::JRP => write!(f, "JRP"),
-            Opcode::LDN => write!(f, "LDN"),
-            Opcode::STO => write!(f, "STO"),
-            Opcode::SUB | Opcode::SUB2 => write!(f, "SUB"),
-            Opcode::CMP => write!(f, "CMP"),
-            Opcode::STP => write!(f, "STP"),
-            Opcode::NUM => write!(f, "NUM"),
-        }
+        write!(f, "{:?}", self)
     }
 }

@@ -38,5 +38,10 @@ fn main() {
     println!("Run completed!");
     println!("The final state of the machine is:");
     println!("{simulator}");
-    println!("{} cycles executed in {:.2?}", cycles, start_time.elapsed());
+    println!(
+        "{} cycles executed in {:.2?} ({:.0?} cps)",
+        cycles,
+        start_time.elapsed(),
+        f64::from(cycles) / start_time.elapsed().as_secs_f64(),
+    );
 }

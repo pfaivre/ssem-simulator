@@ -5,7 +5,7 @@ use std::ops::Index;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::ssem::opcode::Opcode;
+use super::opcode::Opcode;
 
 const ASM_COMMENT_CHAR: char = ';';
 const SSEM_STORE_WORDS: i32 = 32;
@@ -51,7 +51,6 @@ impl Store {
     ///
     /// * `filename` - Path to the file to read
     pub fn from_asm_file(filename: &Path) -> Store {
-        // Todo return a Result for a richer explaination on the possible issues
         let file = File::open(filename);
         let file = match file {
             Ok(f) => f,
@@ -69,6 +68,8 @@ impl Store {
             words: vec![0_i32; usize::try_from(SSEM_STORE_WORDS).unwrap()],
             size: SSEM_STORE_WORDS,
         };
+
+        let mut last_index: i32 = 0;
 
         for (_, line) in reader.lines().enumerate() {
             let line = line.unwrap_or_else(|e| {
@@ -104,27 +105,30 @@ impl Store {
                     operand = 0;
                 }
 
-                if index >= store.size {
-                    eprintln!(
-                        "Unable to read the input file: invalid instruction '{}'",
-                        instruction
-                    );
+                // Ensure lines are contiguous and without duplicates
+                if index > 0 && index != last_index + 1 {
                     panic!(
-                        "Index '{}' is bigger than the machine size ({})",
-                        index, store.size
+                        "Error near line '{}': expected index '{}'",
+                        line,
+                        last_index + 1
+                    )
+                }
+                last_index = index;
+
+                // Ensure we don't write outside of the store
+                if index >= store.size {
+                    panic!(
+                        "Error near line '{}': Index '{}' is bigger than the machine size ({})",
+                        instruction, index, store.size,
                     );
                 }
 
-                let opcode = match Opcode::from_str(opcode) {
-                    Ok(code) => code,
-                    Err(_) => {
-                        panic!(
-                            "Error while reading '{}': opcode '{}' non valid.",
-                            filename.to_str().unwrap_or(""),
-                            opcode
-                        );
-                    }
-                };
+                let opcode = Opcode::from_str(opcode).unwrap_or_else(|_| {
+                    panic!(
+                        "Error near line '{}': opcode '{}' non valid.",
+                        instruction, opcode,
+                    );
+                });
 
                 match opcode {
                     Opcode::NUM => {
@@ -181,6 +185,8 @@ impl Store {
             size: SSEM_STORE_WORDS,
         };
 
+        let mut last_index: i32 = 0;
+
         for (_, line) in reader.lines().enumerate() {
             let line = line.unwrap_or_else(|e| {
                 panic!(
@@ -199,21 +205,36 @@ impl Store {
                 }
                 // Extracting tokens "<index>: <binary_word>"
                 let i: Vec<&str> = instruction.splitn(2, ':').collect();
-                if i.len() < 2 {
-                    panic!(
-                        "Unable to read the input file: invalid instruction '{}'",
-                        instruction
-                    );
+                if i.len() != 2 {
+                    panic!("Error near line '{}': invalid syntax", instruction);
                 }
 
                 let index: i32 = i[0].parse().expect("Unable to read the number");
+
+                // Ensure lines are contiguous and without duplicates
+                if index > 0 && index != last_index + 1 {
+                    panic!(
+                        "Error near line '{}': expected index '{}'",
+                        instruction,
+                        last_index + 1
+                    )
+                }
+                last_index = index;
+
+                // Ensure we don't write outside of the store
+                if index >= store.size {
+                    panic!(
+                        "Error near line '{}': Index '{}' is bigger than the machine size ({})",
+                        instruction, index, store.size,
+                    );
+                }
 
                 // Reverse the bit order: SSEM is least significant bit first
                 let word = i[1].trim().chars().rev().collect::<String>();
                 if word.len() != 32 {
                     panic!(
-                        "The word has an invalid size: '{}'. Expected 32, got {}",
-                        word,
+                        "Error near line '{}': Invalid word size, expected 32, got {}",
+                        line,
                         word.len()
                     );
                 }
@@ -221,21 +242,10 @@ impl Store {
                 let word: i64 = match i64::from_str_radix(&word, 2) {
                     Ok(value) => value,
                     Err(e) => panic!(
-                        "Unable to parse the word '{}' for address {}: {}",
-                        word, index, e
+                        "Error near line '{}': Unable to parse the word '{}': {}",
+                        instruction, word, e
                     ),
                 };
-
-                if index >= store.size {
-                    eprintln!(
-                        "Unable to read the input file: invalid instruction '{}'",
-                        instruction
-                    );
-                    panic!(
-                        "Index '{}' is bigger than the machine size ({})",
-                        index, store.size
-                    );
-                }
 
                 // The cast to i32 is safe because we ensured before there is only 32 bits of data in the word
                 store.words[usize::try_from(index).unwrap()] = word as i32;
