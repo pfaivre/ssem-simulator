@@ -5,7 +5,7 @@ use std::str::FromStr;
 /// Represents an operation code for the SSEM
 ///
 /// Its values gives the opcode bits, except for NUM
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Opcode {
     /// Indirect jump
     JMP = 0b000,
@@ -85,24 +85,39 @@ impl fmt::Display for Opcode {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::Opcode;
 
     /// Ensure consistency during conversion
     #[test]
     fn from_u8() {
-        assert_eq!(Opcode::from(Opcode::JMP as u8) as u8, Opcode::JMP as u8);
-        assert_eq!(Opcode::from(Opcode::JRP as u8) as i8, Opcode::JRP as i8);
-        assert_eq!(Opcode::from(Opcode::LDN as u8) as i8, Opcode::LDN as i8);
-        assert_eq!(Opcode::from(Opcode::STO as u8) as i8, Opcode::STO as i8);
-        assert_eq!(Opcode::from(Opcode::SUB as u8) as i8, Opcode::SUB as i8);
-        assert_eq!(Opcode::from(Opcode::SUB2 as u8) as i8, Opcode::SUB2 as i8);
-        assert_eq!(Opcode::from(Opcode::CMP as u8) as i8, Opcode::CMP as i8);
-        assert_eq!(Opcode::from(Opcode::STP as u8) as i8, Opcode::STP as i8);
+        assert_eq!(Opcode::from(Opcode::JMP as u8), Opcode::JMP);
+        assert_eq!(Opcode::from(Opcode::JRP as u8), Opcode::JRP);
+        assert_eq!(Opcode::from(Opcode::LDN as u8), Opcode::LDN);
+        assert_eq!(Opcode::from(Opcode::STO as u8), Opcode::STO);
+        assert_eq!(Opcode::from(Opcode::SUB as u8), Opcode::SUB);
+        assert_eq!(Opcode::from(Opcode::SUB2 as u8), Opcode::SUB2);
+        assert_eq!(Opcode::from(Opcode::CMP as u8), Opcode::CMP);
+        assert_eq!(Opcode::from(Opcode::STP as u8), Opcode::STP);
     }
 
     #[test]
     #[should_panic]
     fn from_u8_error() {
         let _ = Opcode::from(0b1000);
+    }
+
+    /// Ensure consistency during string conversion
+    #[test]
+    fn from_str() {
+        assert_eq!(Opcode::from_str("JMP").unwrap().to_string(), "JMP");
+        assert_eq!(Opcode::from_str("JRP").unwrap().to_string(), "JRP");
+        assert_eq!(Opcode::from_str("LDN").unwrap().to_string(), "LDN");
+        assert_eq!(Opcode::from_str("STO").unwrap().to_string(), "STO");
+        assert_eq!(Opcode::from_str("SUB").unwrap().to_string(), "SUB");
+        assert_eq!(Opcode::from_str("SUB2").unwrap().to_string(), "SUB2");
+        assert_eq!(Opcode::from_str("CMP").unwrap().to_string(), "CMP");
+        assert_eq!(Opcode::from_str("STP").unwrap().to_string(), "STP");
     }
 }
