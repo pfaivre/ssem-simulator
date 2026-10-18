@@ -26,8 +26,8 @@ cargo run -r samples/ssem/factorct.asm
 - [x] Run the program
 - [x] Read binary representation files (.snp)
 - [x] Integration tests
+- [x] Unit tests
 - [ ] Improve readability (display option)
-- [ ] Unit tests
 - [ ] Add a disassembler
 - [ ] Implement breakpoints: automatically stop at a given condition
 - [ ] Implement other similar machines

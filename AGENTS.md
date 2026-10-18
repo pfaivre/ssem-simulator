@@ -42,6 +42,15 @@ cargo test
 This runs the unit tests embedded in the `src/` modules (the same command CI
 runs in `.github/workflows/rust.yml`).
 
+## Coverage
+
+```sh
+cargo tarpaulin --skip-clean --out xml --out stdout 2>&1
+```
+
+This runs the unit tests embedded in the `src/` modules and ouputs its
+coverage.
+
 ## Lint
 
 ```sh

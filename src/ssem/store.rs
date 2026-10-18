@@ -370,9 +370,39 @@ impl fmt::Display for Store {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use crate::ssem::opcode::Opcode;
 
     use super::Store;
+
+    /// A temporary file removed when dropped, even if the test panics
+    struct TempFile(PathBuf);
+
+    impl TempFile {
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    /// Write the given content to a uniquely named temporary file
+    fn temp_file(name: &str, content: &str) -> TempFile {
+        let path = std::env::temp_dir().join(format!("ssem_store_tests_{name}"));
+        let _ = std::fs::remove_file(&path); // Remove any leftover from a previous run
+        std::fs::write(&path, content).expect("Unable to write the temporary test file");
+        TempFile(path)
+    }
+
+    /// Encode an instruction the same way `from_asm_file` does
+    fn instr(opcode: Opcode, data: i32) -> i32 {
+        (opcode as i32) << 13 | data
+    }
 
     #[test]
     fn decode_instruction() {
@@ -669,5 +699,181 @@ mod tests {
         let store = Store::from(sample_store);
 
         let _ = store[32];
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to convert integer -1 to usize")]
+    fn index_negative_error() {
+        let store = Store::new();
+        let _ = store[-1];
+    }
+
+    #[test]
+    fn from_asm_file_instructions() {
+        let file = temp_file(
+            "valid.asm",
+            "; a leading comment\n\n00 JMP 5 ; jump somewhere\n01 CMP\n02 NUM -3\n03 STO 27\n",
+        );
+        let store = Store::from_asm_file(file.path());
+
+        assert_eq!(instr(Opcode::JMP, 5), store.words[0]);
+        assert_eq!(instr(Opcode::CMP, 0), store.words[1]); // missing operand defaults to 0
+        assert_eq!(-3, store.words[2]); // NUM stores the raw value
+        assert_eq!(instr(Opcode::STO, 27), store.words[3]);
+        assert_eq!(0, store.words[4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error while reading")]
+    fn from_asm_file_missing_file() {
+        let _ = Store::from_asm_file(Path::new("samples/ssem/does_not_exist.asm"));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid instruction '00'")]
+    fn from_asm_file_invalid_instruction() {
+        let file = temp_file("invalid_instruction.asm", "00\n");
+        let _ = Store::from_asm_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to read the number")]
+    fn from_asm_file_invalid_index() {
+        let file = temp_file("invalid_index.asm", "not_a_number JMP 0\n");
+        let _ = Store::from_asm_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to read the number")]
+    fn from_asm_file_invalid_operand() {
+        let file = temp_file("invalid_operand.asm", "00 JMP not_a_number\n");
+        let _ = Store::from_asm_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "expected index '2'")]
+    fn from_asm_file_non_contiguous_lines() {
+        let file = temp_file("non_contiguous.asm", "00 JMP 0\n01 LDN 24\n03 STO 26\n");
+        let _ = Store::from_asm_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "Index '32' is bigger than the machine size (32)")]
+    fn from_asm_file_index_out_of_store() {
+        let mut content = String::new();
+        for i in 0..32 {
+            content.push_str(&format!("{i:02} NUM {i}\n"));
+        }
+        content.push_str("32 NUM 32\n");
+        let file = temp_file("out_of_store.asm", &content);
+        let _ = Store::from_asm_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "opcode 'FOO' non valid")]
+    fn from_asm_file_invalid_opcode() {
+        let file = temp_file("invalid_opcode.asm", "00 FOO 1\n");
+        let _ = Store::from_asm_file(file.path());
+    }
+
+    #[test]
+    fn from_snp_file_words() {
+        let file = temp_file(
+            "valid.snp",
+            "; a leading comment\n\n0000: 10000000000000000000000000000000 ; some comment\n0001: 11111111111111111111111111111111\n",
+        );
+        let store = Store::from_snp_file(file.path());
+
+        assert_eq!(1, store.words[0]);
+        assert_eq!(-1, store.words[1]);
+        assert_eq!(0, store.words[2]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error while reading")]
+    fn from_snp_file_missing_file() {
+        let _ = Store::from_snp_file(Path::new("samples/ssem/does_not_exist.snp"));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid syntax")]
+    fn from_snp_file_invalid_syntax() {
+        let file = temp_file(
+            "invalid_syntax.snp",
+            "0000 00000000000000000000000000000000\n",
+        );
+        let _ = Store::from_snp_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to read the number")]
+    fn from_snp_file_invalid_index() {
+        let file = temp_file(
+            "invalid_index.snp",
+            "zero: 00000000000000000000000000000000\n",
+        );
+        let _ = Store::from_snp_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "expected index '1'")]
+    fn from_snp_file_non_contiguous_lines() {
+        let file = temp_file(
+            "non_contiguous.snp",
+            "0000: 00000000000000000000000000000000\n0002: 00000000000000000000000000000000\n",
+        );
+        let _ = Store::from_snp_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "Index '32' is bigger than the machine size (32)")]
+    fn from_snp_file_index_out_of_store() {
+        let mut content = String::new();
+        for i in 0..32 {
+            content.push_str(&format!("{:04}: 00000000000000000000000000000000\n", i));
+        }
+        content.push_str("0032: 00000000000000000000000000000000\n");
+        let file = temp_file("out_of_store.snp", &content);
+        let _ = Store::from_snp_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid word size, expected 32, got 8")]
+    fn from_snp_file_invalid_word_size() {
+        let file = temp_file("invalid_word_size.snp", "0000: 10101010\n");
+        let _ = Store::from_snp_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to parse the word")]
+    fn from_snp_file_invalid_word() {
+        let file = temp_file(
+            "invalid_word.snp",
+            "0000: 0000000000000000000000000000000X\n",
+        );
+        let _ = Store::from_snp_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid store size. Expected 32, got 31")]
+    fn from_vec_wrong_store_size() {
+        let words: Vec<String> = vec!["0".repeat(32); 31];
+        let _ = Store::from(words);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid word size")]
+    fn from_vec_wrong_word_size() {
+        let mut words: Vec<String> = vec!["0".repeat(32); 32];
+        words[0] = "0".repeat(31);
+        let _ = Store::from(words);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to parse the word")]
+    fn from_vec_invalid_word() {
+        let mut words: Vec<String> = vec!["0".repeat(32); 32];
+        words[0] = "X".repeat(32);
+        let _ = Store::from(words);
     }
 }
