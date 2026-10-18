@@ -81,75 +81,72 @@ impl Store {
             });
 
             // Ignoring comments
-            let exploded_line: Vec<&str> = line.splitn(2, ASM_COMMENT_CHAR).collect();
-            if !exploded_line.is_empty() {
-                let instruction = exploded_line[0].trim();
-                if instruction.is_empty() {
-                    continue;
+            let instruction = line.split(ASM_COMMENT_CHAR).next().unwrap_or("").trim();
+            if instruction.is_empty() {
+                continue;
+            }
+            // Extracting tokens "<index> <opcode> <operand>"
+            let i: Vec<&str> = instruction.split_ascii_whitespace().collect();
+            if i.len() < 2 {
+                panic!(
+                    "Unable to read the input file: invalid instruction '{}'",
+                    instruction
+                );
+            }
+
+            let index: i32 = i[0].parse().expect("Unable to read the number");
+            let opcode: &str = i[1];
+
+            let operand: i32 = if i.len() >= 3 {
+                i[2].parse().expect("Unable to read the number")
+            } else {
+                0
+            };
+
+            // Ensure lines are contiguous and without duplicates
+            if index > 0 && index != last_index + 1 {
+                panic!(
+                    "Error near line '{}': expected index '{}'",
+                    line,
+                    last_index + 1
+                )
+            }
+            last_index = index;
+
+            // Ensure we don't write outside of the store
+            if index >= store.size {
+                panic!(
+                    "Error near line '{}': Index '{}' is bigger than the machine size ({})",
+                    instruction, index, store.size,
+                );
+            }
+
+            let opcode = Opcode::from_str(opcode).unwrap_or_else(|_| {
+                panic!(
+                    "Error near line '{}': opcode '{}' non valid.",
+                    instruction, opcode,
+                );
+            });
+
+            match opcode {
+                Opcode::NUM => {
+                    // TODO: make this safe
+                    store.words[usize::try_from(index).unwrap()] = operand;
                 }
-                // Extracting tokens "<index> <opcode> <operand>"
-                let i: Vec<&str> = instruction.split_ascii_whitespace().collect();
-                if i.len() < 2 {
-                    panic!(
-                        "Unable to read the input file: invalid instruction '{}'",
-                        instruction
-                    );
-                }
-
-                let index: i32 = i[0].parse().expect("Unable to read the number");
-                let opcode: &str = i[1];
-
-                let operand: i32 = if i.len() >= 3 {
-                    i[2].parse().expect("Unable to read the number")
-                } else {
-                    0
-                };
-
-                // Ensure lines are contiguous and without duplicates
-                if index > 0 && index != last_index + 1 {
-                    panic!(
-                        "Error near line '{}': expected index '{}'",
-                        line,
-                        last_index + 1
-                    )
-                }
-                last_index = index;
-
-                // Ensure we don't write outside of the store
-                if index >= store.size {
-                    panic!(
-                        "Error near line '{}': Index '{}' is bigger than the machine size ({})",
-                        instruction, index, store.size,
-                    );
-                }
-
-                let opcode = Opcode::from_str(opcode).unwrap_or_else(|_| {
-                    panic!(
-                        "Error near line '{}': opcode '{}' non valid.",
-                        instruction, opcode,
-                    );
-                });
-
-                match opcode {
-                    Opcode::NUM => {
-                        // TODO: make this safe
-                        store.words[usize::try_from(index).unwrap()] = operand;
+                opcode => {
+                    // Ensure the operand fits in the instruction's data bits
+                    if !(0..=SSEM_DATA_MASK).contains(&operand) {
+                        panic!(
+                            "Error near line '{}': operand '{}' non valid. Expected a value between 0 and {}",
+                            instruction, operand, SSEM_DATA_MASK,
+                        );
                     }
-                    opcode => {
-                        // Ensure the operand fits in the instruction's data bits
-                        if !(0..=SSEM_DATA_MASK).contains(&operand) {
-                            panic!(
-                                "Error near line '{}': operand '{}' non valid. Expected a value between 0 and {}",
-                                instruction, operand, SSEM_DATA_MASK,
-                            );
-                        }
 
-                        // Print the opcode
-                        let w: i32 = (opcode as i32) << SSEM_OPCODE_BIT_SHIFT;
+                    // Print the opcode
+                    let w: i32 = (opcode as i32) << SSEM_OPCODE_BIT_SHIFT;
 
-                        // Print the operand
-                        store.words[usize::try_from(index).unwrap()] = w | operand;
-                    }
+                    // Print the operand
+                    store.words[usize::try_from(index).unwrap()] = w | operand;
                 }
             }
         }
@@ -205,59 +202,56 @@ impl Store {
             });
 
             // Ignoring comments
-            let exploded_line: Vec<&str> = line.splitn(2, ASM_COMMENT_CHAR).collect();
-            if !exploded_line.is_empty() {
-                let instruction = exploded_line[0].trim();
-                if instruction.is_empty() {
-                    continue;
-                }
-                // Extracting tokens "<index>: <binary_word>"
-                let i: Vec<&str> = instruction.splitn(2, ':').collect();
-                if i.len() != 2 {
-                    panic!("Error near line '{}': invalid syntax", instruction);
-                }
-
-                let index: i32 = i[0].parse().expect("Unable to read the number");
-
-                // Ensure lines are contiguous and without duplicates
-                if index > 0 && index != last_index + 1 {
-                    panic!(
-                        "Error near line '{}': expected index '{}'",
-                        instruction,
-                        last_index + 1
-                    )
-                }
-                last_index = index;
-
-                // Ensure we don't write outside of the store
-                if index >= store.size {
-                    panic!(
-                        "Error near line '{}': Index '{}' is bigger than the machine size ({})",
-                        instruction, index, store.size,
-                    );
-                }
-
-                // Reverse the bit order: SSEM is least significant bit first
-                let word = i[1].trim().chars().rev().collect::<String>();
-                if word.len() != 32 {
-                    panic!(
-                        "Error near line '{}': Invalid word size, expected 32, got {}",
-                        line,
-                        word.len()
-                    );
-                }
-                // Use a 64-bit temporarily before casting down later below, to avoid parsing errors on some cases
-                let word: i64 = match i64::from_str_radix(&word, 2) {
-                    Ok(value) => value,
-                    Err(e) => panic!(
-                        "Error near line '{}': Unable to parse the word '{}': {}",
-                        instruction, word, e
-                    ),
-                };
-
-                // The cast to i32 is safe because we ensured before there is only 32 bits of data in the word
-                store.words[usize::try_from(index).unwrap()] = word as i32;
+            let instruction = line.split(ASM_COMMENT_CHAR).next().unwrap_or("").trim();
+            if instruction.is_empty() {
+                continue;
             }
+            // Extracting tokens "<index>: <binary_word>"
+            let i: Vec<&str> = instruction.splitn(2, ':').collect();
+            if i.len() != 2 {
+                panic!("Error near line '{}': invalid syntax", instruction);
+            }
+
+            let index: i32 = i[0].parse().expect("Unable to read the number");
+
+            // Ensure lines are contiguous and without duplicates
+            if index > 0 && index != last_index + 1 {
+                panic!(
+                    "Error near line '{}': expected index '{}'",
+                    instruction,
+                    last_index + 1
+                )
+            }
+            last_index = index;
+
+            // Ensure we don't write outside of the store
+            if index >= store.size {
+                panic!(
+                    "Error near line '{}': Index '{}' is bigger than the machine size ({})",
+                    instruction, index, store.size,
+                );
+            }
+
+            // Reverse the bit order: SSEM is least significant bit first
+            let word = i[1].trim().chars().rev().collect::<String>();
+            if word.len() != 32 {
+                panic!(
+                    "Error near line '{}': Invalid word size, expected 32, got {}",
+                    line,
+                    word.len()
+                );
+            }
+            // Use a 64-bit temporarily before casting down later below, to avoid parsing errors on some cases
+            let word: i64 = match i64::from_str_radix(&word, 2) {
+                Ok(value) => value,
+                Err(e) => panic!(
+                    "Error near line '{}': Unable to parse the word '{}': {}",
+                    instruction, word, e
+                ),
+            };
+
+            // The cast to i32 is safe because we ensured before there is only 32 bits of data in the word
+            store.words[usize::try_from(index).unwrap()] = word as i32;
         }
 
         store._check();

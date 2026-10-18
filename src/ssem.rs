@@ -4,6 +4,7 @@ mod opcode;
 pub mod simulator;
 mod store;
 
+#[cfg(test)]
 mod tests {
     // TODO: move these tests into tests/ folder
     #[test]

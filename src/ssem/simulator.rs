@@ -122,15 +122,17 @@ impl Simulator {
             }
             Opcode::CMP => {
                 if self.a < 0 {
-                    self.ci += 1;
+                    // Wrap CI into the store range, like JMP and JRP: a taken
+                    // CMP on the last line must not leave CI at 32.
+                    self.ci = (self.ci + 1).rem_euclid(self.store.size);
                 }
             }
             Opcode::STP => {
                 self.stop_flag = true;
             }
-            Opcode::NUM => {
-                panic!("Encountered an unexpected NUM command")
-            }
+            // NUM is only an assembly mnemonic to store a raw value; it is
+            // never produced by decode_instruction.
+            Opcode::NUM => unreachable!("Encountered an unexpected NUM command"),
         }
 
         // println!("{} {} {}", self.ci, command, data);
@@ -409,6 +411,21 @@ mod tests {
         sim.a = 1;
         sim.instruction_cycle();
         assert_eq!(2, sim.ci);
+    }
+
+    #[test]
+    fn cmp_on_last_line_wraps_ci_into_store_range() {
+        let mut sim = Simulator::new();
+        sim.store.words[31] = instr(Opcode::CMP, 0);
+        sim.store.words[1] = instr(Opcode::STP, 0);
+        sim.a = -1;
+        sim.ci = 30; // the next fetch executes line 31 (CMP)
+        sim.instruction_cycle();
+        // The skip wraps CI into the store instead of leaving it at 32
+        assert_eq!(0, sim.ci);
+        // Line 0 is the skipped one, so the machine stops on line 1 (STP)
+        assert_eq!(1, sim.run(10));
+        assert_eq!(1, sim.ci);
     }
 
     #[test]
