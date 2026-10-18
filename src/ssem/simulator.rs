@@ -81,17 +81,7 @@ impl Simulator {
         self.ci %= self.store.size; // CI loops back to the begining when it exceeds the store boundaries
 
         // Decode
-        let (opcode, data) = match self.store.decode_instruction(self.ci) {
-            Ok(r) => r,
-            Err(message) => {
-                eprintln!(
-                    "Error while decoding instruction at address {}: {}",
-                    self.ci, message
-                );
-                self.stop_flag = true;
-                return;
-            }
-        };
+        let (opcode, data) = self.store.decode_instruction(self.ci);
 
         // Execute
         self._execute(opcode, data);
@@ -101,10 +91,17 @@ impl Simulator {
     fn _execute(&mut self, command: Opcode, data: i32) {
         match command {
             Opcode::JMP => {
-                self.ci = self.store[data];
+                // The fetched word can hold any bit pattern, but only its low
+                // bits are significant for line addressing. Wrap CI into the
+                // store range right away: Rust's % would keep a negative value
+                // and crash the next fetch.
+                self.ci = self.store[data].rem_euclid(self.store.size);
             }
             Opcode::JRP => {
-                self.ci += self.store[data];
+                self.ci = self
+                    .ci
+                    .wrapping_add(self.store[data])
+                    .rem_euclid(self.store.size);
             }
             Opcode::LDN => {
                 // Was originally `self.a = -self.store[data];`
@@ -304,6 +301,33 @@ mod tests {
         sim.store.words[2] = 5;
         sim.instruction_cycle(); // CI goes 0 -> 1, then 5 is added
         assert_eq!(6, sim.ci);
+    }
+
+    #[test]
+    fn jmp_negative_word_wraps_ci_into_store_range() {
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::JMP, 2);
+        sim.store.words[2] = -4; // -4 selects line 28 on the SSEM
+        sim.instruction_cycle();
+        assert_eq!(28, sim.ci);
+    }
+
+    #[test]
+    fn jrp_negative_offset_wraps_ci_into_store_range() {
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::JRP, 2);
+        sim.store.words[2] = -5;
+        sim.instruction_cycle(); // CI goes 0 -> 1, then -5 is added
+        assert_eq!(28, sim.ci);
+    }
+
+    #[test]
+    fn jrp_huge_offset_does_not_overflow() {
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::JRP, 2);
+        sim.store.words[2] = i32::MAX;
+        sim.instruction_cycle(); // CI goes 0 -> 1, then i32::MAX is added
+        assert_eq!(0, sim.ci);
     }
 
     #[test]

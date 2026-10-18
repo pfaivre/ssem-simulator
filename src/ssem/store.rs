@@ -136,6 +136,14 @@ impl Store {
                         store.words[usize::try_from(index).unwrap()] = operand;
                     }
                     opcode => {
+                        // Ensure the operand fits in the instruction's data bits
+                        if !(0..=SSEM_DATA_MASK).contains(&operand) {
+                            panic!(
+                                "Error near line '{}': operand '{}' non valid. Expected a value between 0 and {}",
+                                instruction, operand, SSEM_DATA_MASK,
+                            );
+                        }
+
                         // Print the opcode
                         let w: i32 = (opcode as i32) << SSEM_OPCODE_BIT_SHIFT;
 
@@ -258,7 +266,9 @@ impl Store {
     }
 
     /// Extract the opcode and data from the word at the given address
-    pub fn decode_instruction(&self, address: i32) -> Result<(Opcode, i32), String> {
+    ///
+    /// Panics if the address is outside the store.
+    pub fn decode_instruction(&self, address: i32) -> (Opcode, i32) {
         let word = self[address];
 
         // Objective: extract opcode and data from word
@@ -286,7 +296,7 @@ impl Store {
         //    &: 0b00000000000000000000000000000010
         let opcode = (SSEM_OPCODE_MASK & (word >> SSEM_OPCODE_BIT_SHIFT)) as u8;
 
-        Ok((Opcode::from(opcode), data))
+        (Opcode::from(opcode), data)
     }
 
     fn _check(&self) {
@@ -453,7 +463,7 @@ mod tests {
         ];
 
         for (address, exp_opcode, exp_data) in expected_outputs.iter() {
-            let (opcode, data) = store.decode_instruction(*address).unwrap();
+            let (opcode, data) = store.decode_instruction(*address);
             assert_eq!(*exp_opcode, opcode);
             assert_eq!(*exp_data, data);
         }
@@ -747,6 +757,20 @@ mod tests {
     #[should_panic(expected = "Unable to read the number")]
     fn from_asm_file_invalid_operand() {
         let file = temp_file("invalid_operand.asm", "00 JMP not_a_number\n");
+        let _ = Store::from_asm_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "operand '32' non valid")]
+    fn from_asm_file_operand_too_big() {
+        let file = temp_file("operand_too_big.asm", "00 JMP 32\n");
+        let _ = Store::from_asm_file(file.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "operand '-1' non valid")]
+    fn from_asm_file_operand_negative() {
+        let file = temp_file("operand_negative.asm", "00 LDN -1\n");
         let _ = Store::from_asm_file(file.path());
     }
 
