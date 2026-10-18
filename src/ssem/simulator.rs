@@ -16,6 +16,12 @@ pub struct Simulator {
     stop_flag: bool,
 }
 
+impl Default for Simulator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Simulator {
     pub fn new() -> Simulator {
         Simulator {
@@ -45,7 +51,7 @@ impl Simulator {
         Simulator {
             a: 0,
             ci: 0,
-            store: store,
+            store,
             stop_flag: false,
         }
     }
@@ -57,9 +63,12 @@ impl Simulator {
         let mut cycles = 0u32;
         self.stop_flag = false;
 
+        // let ten_millis = std::time::Duration::from_millis(10);
+
         while cycles < max_cycles && !self.stop_flag {
             self.instruction_cycle();
             cycles += 1;
+            // std::thread::sleep(ten_millis);
         }
 
         cycles
@@ -149,7 +158,7 @@ impl fmt::Display for Simulator {
         // All the computing is done on the modern order for efficiency reasons.
         writeln!(f, " {:032b} CI = {:6}", self.ci.reverse_bits(), self.ci).ok();
         writeln!(f, " {:032b} A  = {:6}", self.a.reverse_bits(), self.a).ok();
-        writeln!(f, "").ok();
+        writeln!(f).ok();
         writeln!(f, "{}", self.store).ok();
         Ok(())
     }

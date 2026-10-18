@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use clap::{command, Parser};
+use clap::Parser;
 
 use crate::ssem::simulator::Simulator;
 
@@ -24,7 +24,7 @@ struct Args {
 fn main() {
     println!();
     println!("//// ssem-simulator ////");
-    println!("");
+    println!();
     println!("This is a very early build.");
     println!("Visit the following repository for a fully functional simulator:");
     println!("    https://github.com/pfaivre/manchester-baby-sim");
@@ -32,7 +32,7 @@ fn main() {
 
     let args = Args::parse();
 
-    let mut simulator = Simulator::from_file(&Path::new(&args.file));
+    let mut simulator = Simulator::from_file(Path::new(&args.file));
     use std::time::Instant;
     let start_time = Instant::now();
 

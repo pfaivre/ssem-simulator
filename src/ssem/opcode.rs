@@ -5,6 +5,7 @@ use std::str::FromStr;
 /// Represents an operation code for the SSEM
 ///
 /// Its values gives the opcode bits, except for NUM
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Opcode {
     /// Indirect jump

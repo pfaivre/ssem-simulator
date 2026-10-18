@@ -1,8 +1,8 @@
 //! A simulator for the Small-Scale Experimental Machine
 
-pub(self) mod opcode;
+mod opcode;
 pub mod simulator;
-pub(self) mod store;
+mod store;
 
 mod tests {
     // TODO: move these tests into tests/ folder

@@ -71,7 +71,7 @@ impl Store {
 
         let mut last_index: i32 = 0;
 
-        for (_, line) in reader.lines().enumerate() {
+        for line in reader.lines() {
             let line = line.unwrap_or_else(|e| {
                 panic!(
                     "Error while reading '{}': {}",
@@ -82,9 +82,9 @@ impl Store {
 
             // Ignoring comments
             let exploded_line: Vec<&str> = line.splitn(2, ASM_COMMENT_CHAR).collect();
-            if exploded_line.len() > 0 {
-                let instruction = exploded_line[0].clone().trim();
-                if instruction.len() == 0 {
+            if !exploded_line.is_empty() {
+                let instruction = exploded_line[0].trim();
+                if instruction.is_empty() {
                     continue;
                 }
                 // Extracting tokens "<index> <opcode> <operand>"
@@ -98,12 +98,12 @@ impl Store {
 
                 let index: i32 = i[0].parse().expect("Unable to read the number");
                 let opcode: &str = i[1];
-                let operand: i32;
-                if i.len() >= 3 {
-                    operand = i[2].parse().expect("Unable to read the number");
+
+                let operand: i32 = if i.len() >= 3 {
+                    i[2].parse().expect("Unable to read the number")
                 } else {
-                    operand = 0;
-                }
+                    0
+                };
 
                 // Ensure lines are contiguous and without duplicates
                 if index > 0 && index != last_index + 1 {
@@ -140,7 +140,7 @@ impl Store {
                         let w: i32 = (opcode as i32) << SSEM_OPCODE_BIT_SHIFT;
 
                         // Print the operand
-                        store.words[usize::try_from(index).unwrap()] = w | (operand as i32);
+                        store.words[usize::try_from(index).unwrap()] = w | operand;
                     }
                 }
             }
@@ -187,7 +187,7 @@ impl Store {
 
         let mut last_index: i32 = 0;
 
-        for (_, line) in reader.lines().enumerate() {
+        for line in reader.lines() {
             let line = line.unwrap_or_else(|e| {
                 panic!(
                     "Error while reading '{}': {}",
@@ -198,9 +198,9 @@ impl Store {
 
             // Ignoring comments
             let exploded_line: Vec<&str> = line.splitn(2, ASM_COMMENT_CHAR).collect();
-            if exploded_line.len() > 0 {
-                let instruction = exploded_line[0].clone().trim();
-                if instruction.len() == 0 {
+            if !exploded_line.is_empty() {
+                let instruction = exploded_line[0].trim();
+                if instruction.is_empty() {
                     continue;
                 }
                 // Extracting tokens "<index>: <binary_word>"
@@ -345,7 +345,7 @@ impl From<Vec<String>> for Store {
         }
 
         let store = Store {
-            words: words,
+            words,
             size: SSEM_STORE_WORDS,
         };
         store._check();
@@ -584,5 +584,90 @@ mod tests {
             "11111000000000000000000000000001".into(), // 31 difference
         ]);
         assert!(s1 != s2);
+    }
+
+    #[test]
+    fn index_i32() {
+        let sample_store: Vec<String> = vec![
+            "00000000000000000000000000000000".into(), // 00
+            "10000000000000000000000000000000".into(), // 01
+            "01000000000000000000000000000000".into(), // 02
+            "11000000000000000000000000000000".into(), // 03
+            "00000000000000000000000000000000".into(), // 04
+            "00000000000000000000000000000000".into(), // 05
+            "00000000000000000000000000000000".into(), // 06
+            "00000000000000000000000000000000".into(), // 07
+            "00000000000000000000000000000000".into(), // 08
+            "00000000000000000000000000000000".into(), // 09
+            "00000000000000000000000000000000".into(), // 10
+            "00000000000000000000000000000000".into(), // 11
+            "00000000000000000000000000000000".into(), // 12
+            "00000000000000000000000000000000".into(), // 13
+            "00000000000000000000000000000000".into(), // 14
+            "00000000000000000000000000000000".into(), // 15
+            "00000000000000000000000000000000".into(), // 16
+            "00000000000000000000000000000000".into(), // 17
+            "00000000000000000000000000000000".into(), // 18
+            "00000000000000000000000000000000".into(), // 19
+            "00000000000000000000000000000000".into(), // 20
+            "00000000000000000000000000000000".into(), // 21
+            "00000000000000000000000000000000".into(), // 22
+            "00000000000000000000000000000000".into(), // 23
+            "00000000000000000000000000000000".into(), // 24
+            "00000000000000000000000000000000".into(), // 25
+            "00000000000000000000000000000000".into(), // 26
+            "00000000000000000000000000000000".into(), // 27
+            "00000000000000000000000000000000".into(), // 28
+            "00000000000000000000000000000000".into(), // 29
+            "00000000000000000000000000000000".into(), // 30
+            "00000000000000000000000000000000".into(), // 31
+        ];
+        let store = Store::from(sample_store);
+
+        assert_eq!(1, store[1]);
+        assert_eq!(2, store[2]);
+        assert_eq!(3, store[3]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn index_i32_error() {
+        let sample_store: Vec<String> = vec![
+            "00000000000000000000000000000000".into(), // 00
+            "10000000000000000000000000000000".into(), // 01
+            "01000000000000000000000000000000".into(), // 02
+            "11000000000000000000000000000000".into(), // 03
+            "00000000000000000000000000000000".into(), // 04
+            "00000000000000000000000000000000".into(), // 05
+            "00000000000000000000000000000000".into(), // 06
+            "00000000000000000000000000000000".into(), // 07
+            "00000000000000000000000000000000".into(), // 08
+            "00000000000000000000000000000000".into(), // 09
+            "00000000000000000000000000000000".into(), // 10
+            "00000000000000000000000000000000".into(), // 11
+            "00000000000000000000000000000000".into(), // 12
+            "00000000000000000000000000000000".into(), // 13
+            "00000000000000000000000000000000".into(), // 14
+            "00000000000000000000000000000000".into(), // 15
+            "00000000000000000000000000000000".into(), // 16
+            "00000000000000000000000000000000".into(), // 17
+            "00000000000000000000000000000000".into(), // 18
+            "00000000000000000000000000000000".into(), // 19
+            "00000000000000000000000000000000".into(), // 20
+            "00000000000000000000000000000000".into(), // 21
+            "00000000000000000000000000000000".into(), // 22
+            "00000000000000000000000000000000".into(), // 23
+            "00000000000000000000000000000000".into(), // 24
+            "00000000000000000000000000000000".into(), // 25
+            "00000000000000000000000000000000".into(), // 26
+            "00000000000000000000000000000000".into(), // 27
+            "00000000000000000000000000000000".into(), // 28
+            "00000000000000000000000000000000".into(), // 29
+            "00000000000000000000000000000000".into(), // 30
+            "00000000000000000000000000000000".into(), // 31
+        ];
+        let store = Store::from(sample_store);
+
+        let _ = store[32];
     }
 }

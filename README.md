@@ -12,12 +12,9 @@ Checkout [manchester-baby-sim](https://github.com/pfaivre/manchester-baby-sim) f
 
 If you have Nix on your system, you can enter a devenv like so:
 ```sh
-nix shell nixpkgs#devenv  # Open a Nix shell with devenv
+nix shell nixpkgs#devenv -c devenv shell  # Open a Nix shell with devenv
 ```
-
-```sh
-devenv shell  # Open a shell with all the development tools needed
-```
+Now you should have a shell with all dependencies installed (rust and cargo).
 
 ```sh
 cargo run -r samples/ssem/factorct.asm
