@@ -10,6 +10,15 @@ Checkout [manchester-baby-sim](https://github.com/pfaivre/manchester-baby-sim) f
 
 # Test it
 
+If you have Nix on your system, you can enter a devenv like so:
+```sh
+nix shell nixpkgs#devenv  # Open a Nix shell with devenv
+```
+
+```sh
+devenv shell  # Open a shell with all the development tools needed
+```
+
 ```sh
 cargo run -r samples/ssem/factorct.asm
 ```
