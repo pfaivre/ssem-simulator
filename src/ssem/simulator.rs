@@ -81,10 +81,10 @@ impl Simulator {
     pub fn instruction_cycle(&mut self) {
         // Fetch
         self.ci += 1;
-        self.ci %= self.store.size; // CI loops back to the begining when it exceeds the store boundaries
+        self.ci &= Store::INDEX_MASK; // CI loops back to the begining when it exceeds the store boundaries
 
         // Decode
-        let (opcode, data) = self.store.decode_instruction(self.ci);
+        let (opcode, data) = self.store.decode_instruction(self.ci as usize);
 
         // Execute
         self._execute(opcode, data);
@@ -95,16 +95,12 @@ impl Simulator {
         match command {
             Opcode::JMP => {
                 // The fetched word can hold any bit pattern, but only its low
-                // bits are significant for line addressing. Wrap CI into the
-                // store range right away: Rust's % would keep a negative value
-                // and crash the next fetch.
-                self.ci = self.store[data].rem_euclid(self.store.size);
+                // bits are significant for line addressing. Masking wraps any
+                // value, negative included, into the store range.
+                self.ci = self.store[data] & Store::INDEX_MASK;
             }
             Opcode::JRP => {
-                self.ci = self
-                    .ci
-                    .wrapping_add(self.store[data])
-                    .rem_euclid(self.store.size);
+                self.ci = self.ci.wrapping_add(self.store[data]) & Store::INDEX_MASK;
             }
             Opcode::LDN => {
                 // Was originally `self.a = -self.store[data];`
@@ -127,7 +123,7 @@ impl Simulator {
                 if self.a < 0 {
                     // Wrap CI into the store range, like JMP and JRP: a taken
                     // CMP on the last line must not leave CI at 32.
-                    self.ci = (self.ci + 1).rem_euclid(self.store.size);
+                    self.ci = (self.ci + 1) & Store::INDEX_MASK;
                 }
             }
             Opcode::STP => {
@@ -183,7 +179,7 @@ mod tests {
         for sim in [Simulator::new(), Simulator::default()] {
             assert_eq!(0, sim.a);
             assert_eq!(0, sim.ci);
-            assert_eq!(32, sim.store.size);
+            assert_eq!(32, sim.store.words.len());
             assert!(sim.store.words.iter().all(|&word| word == 0));
         }
     }

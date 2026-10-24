@@ -1,4 +1,3 @@
-use rustc_hash::FxHashMap;
 use std::fmt;
 use std::str::FromStr;
 
@@ -36,25 +35,22 @@ pub enum Opcode {
     NUM,
 }
 
-lazy_static! {
-    pub static ref SSEM_OPCODE_TABLE: FxHashMap<u8, Opcode> = {
-        let mut m = FxHashMap::default();
-        m.insert(0b000, Opcode::JMP);
-        m.insert(0b001, Opcode::JRP);
-        m.insert(0b010, Opcode::LDN);
-        m.insert(0b011, Opcode::STO);
-        m.insert(0b100, Opcode::SUB);
-        m.insert(0b101, Opcode::SUB2);
-        m.insert(0b110, Opcode::CMP);
-        m.insert(0b111, Opcode::STP);
-        m
-    };
-}
-
 impl From<u8> for Opcode {
-    // Using a static FxHashMap instead of a match has been observed to provide about 10% performance gains
+    // decode_instruction masks the opcode bits down to 3 before calling this,
+    // so the match is a simple jump table on the hot path.
+    // Out-of-range input still panics, like the previous table lookup did.
     fn from(input: u8) -> Opcode {
-        SSEM_OPCODE_TABLE[&input]
+        match input {
+            0b000 => Opcode::JMP,
+            0b001 => Opcode::JRP,
+            0b010 => Opcode::LDN,
+            0b011 => Opcode::STO,
+            0b100 => Opcode::SUB,
+            0b101 => Opcode::SUB2,
+            0b110 => Opcode::CMP,
+            0b111 => Opcode::STP,
+            _ => panic!("Unknown opcode {}", input),
+        }
     }
 }
 

@@ -9,7 +9,7 @@ use std::str::FromStr;
 use super::opcode::Opcode;
 
 const ASM_COMMENT_CHAR: char = ';';
-const SSEM_STORE_WORDS: i32 = 32;
+const SSEM_STORE_WORDS: usize = 32;
 const SSEM_DATA_MASK: i32 = 0b00000000000000000000000000011111; // u5 equivalent
 const SSEM_OPCODE_MASK: i32 = 0b00000000000000000000000000000111; // u3 equivalent
 const SSEM_OPCODE_BIT_SHIFT: u8 = 13;
@@ -20,18 +20,22 @@ const SSEM_OPCODE_BIT_SHIFT: u8 = 13;
 /// This is the opposite of modern computers, here we simply reverse the order during display.
 #[derive(Debug)]
 pub struct Store {
-    pub words: Vec<i32>,
-    pub size: i32,
+    pub words: [i32; SSEM_STORE_WORDS],
 }
 
 impl Store {
+    /// Mask that wraps any address into the store range.
+    ///
+    /// Valid because the store size is a power of two: for any i32,
+    /// `address & INDEX_MASK` equals `address.rem_euclid(store size)`.
+    pub const INDEX_MASK: i32 = (SSEM_STORE_WORDS - 1) as i32;
+
     /// Instanciate a new store.
     ///
     /// Every word gets initialized to zero.
     pub fn new() -> Store {
         let store = Store {
-            words: vec![0_i32; usize::try_from(SSEM_STORE_WORDS).unwrap()],
-            size: SSEM_STORE_WORDS,
+            words: [0_i32; SSEM_STORE_WORDS],
         };
         store._check();
         store
@@ -66,8 +70,7 @@ impl Store {
         let reader = BufReader::new(file);
 
         let mut store = Store {
-            words: vec![0_i32; usize::try_from(SSEM_STORE_WORDS).unwrap()],
-            size: SSEM_STORE_WORDS,
+            words: [0_i32; SSEM_STORE_WORDS],
         };
 
         let mut last_index: i32 = 0;
@@ -115,10 +118,12 @@ impl Store {
             last_index = index;
 
             // Ensure we don't write outside of the store
-            if index >= store.size {
+            if index >= store.words.len() as i32 {
                 panic!(
                     "Error near line '{}': Index '{}' is bigger than the machine size ({})",
-                    instruction, index, store.size,
+                    instruction,
+                    index,
+                    store.words.len(),
                 );
             }
 
@@ -187,8 +192,7 @@ impl Store {
         let reader = BufReader::new(file);
 
         let mut store = Store {
-            words: vec![0_i32; usize::try_from(SSEM_STORE_WORDS).unwrap()],
-            size: SSEM_STORE_WORDS,
+            words: [0_i32; SSEM_STORE_WORDS],
         };
 
         let mut last_index: i32 = 0;
@@ -226,10 +230,12 @@ impl Store {
             last_index = index;
 
             // Ensure we don't write outside of the store
-            if index >= store.size {
+            if index >= store.words.len() as i32 {
                 panic!(
                     "Error near line '{}': Index '{}' is bigger than the machine size ({})",
-                    instruction, index, store.size,
+                    instruction,
+                    index,
+                    store.words.len(),
                 );
             }
 
@@ -263,8 +269,8 @@ impl Store {
     /// Extract the opcode and data from the word at the given address
     ///
     /// Panics if the address is outside the store.
-    pub fn decode_instruction(&self, address: i32) -> (Opcode, i32) {
-        let word = self[address];
+    pub fn decode_instruction(&self, address: usize) -> (Opcode, i32) {
+        let word = self.words[address];
 
         // Objective: extract opcode and data from word
         // word: 0b00000000000000000100000000011000
@@ -296,12 +302,16 @@ impl Store {
 
     fn _check(&self) {
         // Sanity checks
-        if SSEM_DATA_MASK >= SSEM_STORE_WORDS {
+        if SSEM_DATA_MASK as usize >= SSEM_STORE_WORDS {
             panic!(
                 "Invalid configuration: addressing size ({}) is bigger than store size ({})",
                 SSEM_DATA_MASK + 1,
                 SSEM_STORE_WORDS
             )
+        }
+        // INDEX_MASK only wraps correctly if the store size is a power of two
+        if SSEM_STORE_WORDS.count_ones() != 1 {
+            panic!("Invalid configuration: store size ({SSEM_STORE_WORDS}) must be a power of two")
         }
     }
 }
@@ -324,14 +334,14 @@ impl Index<i32> for Store {
 
 impl From<Vec<String>> for Store {
     fn from(value: Vec<String>) -> Self {
-        if value.len() != SSEM_STORE_WORDS as usize {
+        if value.len() != SSEM_STORE_WORDS {
             panic!(
                 "Invalid store size. Expected {SSEM_STORE_WORDS}, got {}",
                 value.len()
             );
         }
 
-        let mut words: Vec<i32> = vec![0; SSEM_STORE_WORDS as usize];
+        let mut words: [i32; SSEM_STORE_WORDS] = [0; SSEM_STORE_WORDS];
         for (index, w) in value.iter().enumerate() {
             if w.len() != 32 {
                 panic!("Invalid word size '{}'", w);
@@ -349,10 +359,7 @@ impl From<Vec<String>> for Store {
             words[index] = parsed_word as i32;
         }
 
-        let store = Store {
-            words,
-            size: SSEM_STORE_WORDS,
-        };
+        let store = Store { words };
         store._check();
         store
     }
@@ -360,7 +367,7 @@ impl From<Vec<String>> for Store {
 
 impl PartialEq for Store {
     fn eq(&self, other: &Self) -> bool {
-        self.words == other.words && self.size == other.size
+        self.words == other.words
     }
 }
 
@@ -382,7 +389,7 @@ impl fmt::Display for Store {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (index, word) in self.words.iter().enumerate() {
             // Interpret the word as an instruction, the same way the machine does at fetch time
-            let (opcode, data) = self.decode_instruction(index as i32);
+            let (opcode, data) = self.decode_instruction(index);
             writeln!(
                 f,
                 " {} {:02}:{:>12}  {} {:02}",
