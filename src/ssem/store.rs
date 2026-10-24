@@ -1,4 +1,5 @@
 use std::fmt;
+use std::fmt::Write;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::ops::Index;
@@ -363,10 +364,35 @@ impl PartialEq for Store {
     }
 }
 
+/// A word rendered as its 32 bits in SSEM order (least significant bit first),
+/// with '.' for a cleared bit and '#' for a set bit.
+pub(crate) struct Bits(pub i32);
+
+impl fmt::Display for Bits {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        const GLYPHS: [char; 2] = ['.', '#'];
+        for i in 0..32 {
+            f.write_char(GLYPHS[((self.0 >> i) & 1) as usize])?;
+        }
+        Ok(())
+    }
+}
+
 impl fmt::Display for Store {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for word in self.words.iter() {
-            writeln!(f, " {:032b}", word.reverse_bits()).ok();
+        for (index, word) in self.words.iter().enumerate() {
+            // Interpret the word as an instruction, the same way the machine does at fetch time
+            let (opcode, data) = self.decode_instruction(index as i32);
+            writeln!(
+                f,
+                " {} {:02}:{:>12}  {} {:02}",
+                Bits(*word),
+                index,
+                word,
+                opcode,
+                data
+            )
+            .ok();
         }
         Ok(())
     }
@@ -378,7 +404,7 @@ mod tests {
 
     use crate::ssem::opcode::Opcode;
 
-    use super::Store;
+    use super::{Bits, Store};
 
     /// A temporary file removed when dropped, even if the test panics
     struct TempFile(PathBuf);
@@ -406,6 +432,14 @@ mod tests {
     /// Encode an instruction the same way `from_asm_file` does
     fn instr(opcode: Opcode, data: i32) -> i32 {
         (opcode as i32) << 13 | data
+    }
+
+    #[test]
+    fn bits_display_renders_bits_as_dots_and_hashes() {
+        // Least significant bit first, like the SSEM displayed its words
+        assert_eq!(format!("#{}", ".".repeat(31)), Bits(1).to_string());
+        assert_eq!("#".repeat(32), Bits(-1).to_string());
+        assert_eq!(format!("#.#{}", ".".repeat(29)), Bits(5).to_string());
     }
 
     #[test]

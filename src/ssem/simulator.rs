@@ -1,6 +1,9 @@
 use std::{fmt, path::Path};
 
-use super::{opcode::Opcode, store::Store};
+use super::{
+    opcode::Opcode,
+    store::{Bits, Store},
+};
 
 pub struct Simulator {
     /// Accumulator, the only register of the machine
@@ -153,10 +156,10 @@ impl From<Vec<String>> for Simulator {
 
 impl fmt::Display for Simulator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // We reverse the bits for display because the SSEM stored numbers the opposite order than modern computers.
+        // We display the bits least significant first because the SSEM stored numbers the opposite order than modern computers.
         // All the computing is done on the modern order for efficiency reasons.
-        writeln!(f, " {:032b} CI = {:6}", self.ci.reverse_bits(), self.ci).ok();
-        writeln!(f, " {:032b} A  = {:6}", self.a.reverse_bits(), self.a).ok();
+        writeln!(f, " {} {:<2}:{:>12}", Bits(self.ci), "CI", self.ci).ok();
+        writeln!(f, " {} {:<2}:{:>12}", Bits(self.a), "A", self.a).ok();
         writeln!(f).ok();
         writeln!(f, "{}", self.store).ok();
         Ok(())
@@ -449,21 +452,41 @@ mod tests {
         let mut sim = Simulator::new();
         sim.ci = 1;
         sim.a = -1;
+        sim.store.words[0] = 5; // bits: 101 least significant bit first
+        sim.store.words[1] = instr(Opcode::LDN, 29);
         let display = sim.to_string();
         let mut lines = display.lines();
 
         assert_eq!(
-            Some(" 10000000000000000000000000000000 CI =      1"),
+            Some(" #............................... CI:           1"),
             lines.next()
         );
         assert_eq!(
-            Some(" 11111111111111111111111111111111 A  =     -1"),
+            Some(" ################################ A :          -1"),
             lines.next()
         );
         assert_eq!(Some(""), lines.next());
-        // The 32 store words, in reversed bit order
-        for _ in 0..32 {
-            assert_eq!(Some(" 00000000000000000000000000000000"), lines.next());
+        // The 32 store words, bits least significant bit first,
+        // with their index, integer value and instruction interpretation
+        assert_eq!(
+            Some(" #.#............................. 00:           5  JMP 05"),
+            lines.next()
+        );
+        assert_eq!(
+            Some(" #.###.........#................. 01:       16413  LDN 29"),
+            lines.next()
+        );
+        for index in 2..32 {
+            assert_eq!(
+                Some(
+                    format!(
+                        " ................................ {:02}:           0  JMP 00",
+                        index
+                    )
+                    .as_str()
+                ),
+                lines.next()
+            );
         }
         assert_eq!(Some(""), lines.next());
         assert_eq!(None, lines.next());
