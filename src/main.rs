@@ -5,6 +5,7 @@ use clap::Parser;
 use crate::ssem::simulator::Simulator;
 
 pub mod ssem;
+pub mod tui;
 
 #[derive(Parser)]
 #[command(author, about, long_about = None)]
@@ -19,29 +20,21 @@ struct Args {
 }
 
 fn main() {
-    println!();
-    println!("//// ssem-simulator ////");
-    println!();
-    println!("This is a very early build.");
-    println!("Visit the following repository for a fully functional simulator:");
-    println!("    https://github.com/pfaivre/manchester-baby-sim");
-    println!();
-
     let args = Args::parse();
 
-    let mut simulator = Simulator::from_file(Path::new(&args.file));
-    use std::time::Instant;
-    let start_time = Instant::now();
+    let simulator = Simulator::from_file(Path::new(&args.file));
 
-    let cycles = simulator.run(args.max_cycles);
+    // Launch the interactive TUI; it returns the simulator when the user quits
+    let simulator = match tui::run(simulator, args.max_cycles) {
+        Ok(sim) => sim,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            eprintln!("The interactive interface requires a terminal. Run this program in a TTY.");
+            std::process::exit(1);
+        }
+    };
 
-    println!("Run completed!");
-    println!("The final state of the machine is:");
+    // Print the final state after quitting the TUI
+    println!("Final state of the machine:");
     println!("{simulator}");
-    println!(
-        "{} cycles executed in {:.2?} ({:.0?} cps)",
-        cycles,
-        start_time.elapsed(),
-        f64::from(cycles) / start_time.elapsed().as_secs_f64(),
-    );
 }

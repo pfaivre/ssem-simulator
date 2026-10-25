@@ -23,6 +23,12 @@ pub struct Store {
     pub words: [i32; SSEM_STORE_WORDS],
 }
 
+impl Default for Store {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Store {
     /// Mask that wraps any address into the store range.
     ///
@@ -270,31 +276,27 @@ impl Store {
     ///
     /// Panics if the address is outside the store.
     pub fn decode_instruction(&self, address: usize) -> (Opcode, i32) {
-        let word = self.words[address];
+        Self::decode_word(self.words[address])
+    }
 
-        // Objective: extract opcode and data from word
-        // word: 0b00000000000000000100000000011000
-        //                         ===        =====
-        //        Operation code ---'           |
-        //                  Data ---------------'
-
+    /// Decode a raw 32-bit word into its opcode and operand.
+    ///
+    /// This is the same decoding the machine performs at fetch time, exposed
+    /// as an associated function so callers with only a raw word (e.g. the
+    /// TUI, which works from a state snapshot) can decode without a `Store`.
+    ///
+    /// # Word layout
+    /// ```text
+    /// word: 0b00000000000000000100000000011000
+    ///                         ===        =====
+    ///        Operation code ---'           |
+    ///                  Data ---------------'
+    /// ```
+    pub fn decode_word(word: i32) -> (Opcode, i32) {
         // Step 1: extract instruction data (5 bits)
-        // word: 0b00000000000000000100000000011000
-        // mask: 0b00000000000000000000000000011111
-        //       ----------------------------------
-        //    &: 0b00000000000000000000000000011000
         let data = SSEM_DATA_MASK & word;
 
-        // Step 2: Shift bits to put the opcode on the edge
-        // word: 0b00000000000000000100000000011000
-        //       ----------------------------------
-        // >>13: 0b00000000000000000000000000000010
-
-        // Step 3: Extract opcode (3 bits)
-        // word: 0b00000000000000000000000000000010
-        // mask: 0b00000000000000000000000000000111
-        //       ----------------------------------
-        //    &: 0b00000000000000000000000000000010
+        // Step 2 & 3: shift right by 13, then mask to 3 bits for the opcode
         let opcode = (SSEM_OPCODE_MASK & (word >> SSEM_OPCODE_BIT_SHIFT)) as u8;
 
         (Opcode::from(opcode), data)

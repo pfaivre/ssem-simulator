@@ -23,5 +23,5 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
 
-    - name: Run program release
-      run: cargo run --verbose --release ./samples/ssem/factorct.asm
+    # - name: Run program release
+    #   run: cargo run --verbose --release ./samples/ssem/factorct.asm

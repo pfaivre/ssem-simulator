@@ -5,6 +5,94 @@ use super::{
     store::{Bits, Store},
 };
 
+/// The default execution speed in instructions per second,
+/// matching the typical speed of the original SSEM hardware.
+pub const TYPICAL_SPEED: u32 = 700;
+
+/// The last instruction executed by the machine, kept for display.
+#[derive(Debug, Clone, Copy)]
+pub struct LastInstruction {
+    pub address: i32,
+    pub opcode: Opcode,
+    pub data: i32,
+}
+
+impl fmt::Display for LastInstruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:02} {} {:02}", self.address, self.opcode, self.data)
+    }
+}
+
+/// A condition that pauses the machine when it becomes true.
+///
+/// Breakpoints trigger on a rising edge: the machine pauses when the
+/// condition turns true, and the breakpoint stays armed — it triggers
+/// again only after the condition has turned false at least once.
+#[derive(Debug, Clone)]
+pub enum Breakpoint {
+    /// Pause when the word at `address` holds `value`.
+    WordValue {
+        address: usize,
+        value: i32,
+        was_met: bool,
+    },
+    /// Pause when the program counter holds `address`.
+    CiValue { address: i32, was_met: bool },
+}
+
+/// Two breakpoints are equal when they describe the same condition,
+/// regardless of their edge-detection state.
+impl PartialEq for Breakpoint {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Breakpoint::WordValue {
+                    address: a1,
+                    value: v1,
+                    ..
+                },
+                Breakpoint::WordValue {
+                    address: a2,
+                    value: v2,
+                    ..
+                },
+            ) => a1 == a2 && v1 == v2,
+            (Breakpoint::CiValue { address: a1, .. }, Breakpoint::CiValue { address: a2, .. }) => {
+                a1 == a2
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Breakpoint {
+    fn was_met(&self) -> bool {
+        match self {
+            Breakpoint::WordValue { was_met, .. } => *was_met,
+            Breakpoint::CiValue { was_met, .. } => *was_met,
+        }
+    }
+
+    fn set_was_met(&mut self, value: bool) {
+        match self {
+            Breakpoint::WordValue { was_met, .. } => *was_met = value,
+            Breakpoint::CiValue { was_met, .. } => *was_met = value,
+        }
+    }
+
+    /// Human-readable description shown in the breakpoint pop-up.
+    pub fn description(&self) -> String {
+        match self {
+            Breakpoint::WordValue { address, value, .. } => {
+                format!("WORD {address:02} = {value}")
+            }
+            Breakpoint::CiValue { address, .. } => {
+                format!("CI = {address:02}")
+            }
+        }
+    }
+}
+
 pub struct Simulator {
     /// Accumulator, the only register of the machine
     pub a: i32,
@@ -15,8 +103,21 @@ pub struct Simulator {
     /// The main memory. This is an array of 32-bit words
     pub store: Store,
 
-    /// This is set when the STP instruction is executed
-    stop_flag: bool,
+    /// This is set when the STP instruction is executed, or when a
+    /// breakpoint is hit, or when the user pauses the machine.
+    pub stop_flag: bool,
+
+    /// Total number of instruction cycles executed since creation.
+    pub cycle_count: u64,
+
+    /// Target execution speed in instructions per second.
+    pub speed: u32,
+
+    /// The last instruction executed, for display in the TUI.
+    pub last_instruction: Option<LastInstruction>,
+
+    /// Active breakpoints, checked after every instruction cycle.
+    pub breakpoints: Vec<Breakpoint>,
 }
 
 impl Default for Simulator {
@@ -32,6 +133,10 @@ impl Simulator {
             ci: 0,
             store: Store::new(),
             stop_flag: false,
+            cycle_count: 0,
+            speed: TYPICAL_SPEED,
+            last_instruction: None,
+            breakpoints: Vec::new(),
         }
     }
 
@@ -56,7 +161,16 @@ impl Simulator {
             ci: 0,
             store,
             stop_flag: false,
+            cycle_count: 0,
+            speed: TYPICAL_SPEED,
+            last_instruction: None,
+            breakpoints: Vec::new(),
         }
+    }
+
+    /// Whether the machine is currently running (not stopped).
+    pub fn is_running(&self) -> bool {
+        !self.stop_flag
     }
 
     /// Run the machine until STP is encountered or the given amount of cycles is reached.
@@ -66,12 +180,10 @@ impl Simulator {
         let mut cycles = 0u32;
         self.stop_flag = false;
 
-        // let ten_millis = std::time::Duration::from_millis(10);
-
         while cycles < max_cycles && !self.stop_flag {
             self.instruction_cycle();
+            self.check_breakpoints();
             cycles += 1;
-            // std::thread::sleep(ten_millis);
         }
 
         cycles
@@ -88,6 +200,46 @@ impl Simulator {
 
         // Execute
         self._execute(opcode, data);
+
+        // Track for display
+        self.last_instruction = Some(LastInstruction {
+            address: self.ci,
+            opcode,
+            data,
+        });
+        self.cycle_count += 1;
+    }
+
+    /// Check all breakpoints and stop the machine if any triggers.
+    ///
+    /// Breakpoints are edge-triggered: they fire only when their condition
+    /// transitions from false to true.
+    pub fn check_breakpoints(&mut self) {
+        if self.breakpoints.is_empty() {
+            return;
+        }
+
+        // Borrow the fields needed for checking separately from the
+        // breakpoints list to satisfy the borrow checker.
+        let store_words = &self.store.words;
+        let ci = self.ci;
+
+        let mut should_stop = false;
+        for bp in &mut self.breakpoints {
+            let met = match bp {
+                Breakpoint::WordValue { address, value, .. } => store_words[*address] == *value,
+                Breakpoint::CiValue { address, .. } => ci == *address,
+            };
+            let triggered = met && !bp.was_met();
+            bp.set_was_met(met);
+            if triggered {
+                should_stop = true;
+            }
+        }
+
+        if should_stop {
+            self.stop_flag = true;
+        }
     }
 
     /// Modify the state of the machine according to the given instruction.
@@ -146,6 +298,10 @@ impl From<Vec<String>> for Simulator {
             ci: 0,
             store: Store::from(value),
             stop_flag: false,
+            cycle_count: 0,
+            speed: TYPICAL_SPEED,
+            last_instruction: None,
+            breakpoints: Vec::new(),
         }
     }
 }
@@ -486,5 +642,221 @@ mod tests {
         }
         assert_eq!(Some(""), lines.next());
         assert_eq!(None, lines.next());
+    }
+
+    #[test]
+    fn instruction_cycle_tracks_last_instruction_and_cycle_count() {
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::LDN, 5);
+        sim.store.words[2] = instr(Opcode::STP, 0);
+
+        assert_eq!(0, sim.cycle_count);
+        assert!(sim.last_instruction.is_none());
+
+        sim.instruction_cycle();
+        assert_eq!(1, sim.cycle_count);
+        let li = sim.last_instruction.unwrap();
+        assert_eq!(1, li.address);
+        assert_eq!(Opcode::LDN, li.opcode);
+        assert_eq!(5, li.data);
+
+        sim.instruction_cycle();
+        assert_eq!(2, sim.cycle_count);
+        let li = sim.last_instruction.unwrap();
+        assert_eq!(2, li.address);
+        assert_eq!(Opcode::STP, li.opcode);
+        assert_eq!(0, li.data);
+    }
+
+    #[test]
+    fn last_instruction_display() {
+        use super::LastInstruction;
+        let li = LastInstruction {
+            address: 1,
+            opcode: Opcode::LDN,
+            data: 29,
+        };
+        assert_eq!("01 LDN 29", li.to_string());
+    }
+
+    #[test]
+    fn is_running_reflects_stop_flag() {
+        let mut sim = Simulator::new();
+        sim.stop_flag = false;
+        assert!(sim.is_running());
+        sim.stop_flag = true;
+        assert!(!sim.is_running());
+    }
+
+    #[test]
+    fn speed_defaults_to_typical() {
+        let sim = Simulator::new();
+        assert_eq!(super::TYPICAL_SPEED, sim.speed);
+        assert_eq!(700, sim.speed);
+    }
+
+    #[test]
+    fn breakpoint_description_word_value() {
+        use super::Breakpoint;
+        let bp = Breakpoint::WordValue {
+            address: 5,
+            value: -42,
+            was_met: false,
+        };
+        assert_eq!("WORD 05 = -42", bp.description());
+    }
+
+    #[test]
+    fn breakpoint_description_ci_value() {
+        use super::Breakpoint;
+        let bp = Breakpoint::CiValue {
+            address: 10,
+            was_met: false,
+        };
+        assert_eq!("CI = 10", bp.description());
+    }
+
+    #[test]
+    fn breakpoint_equality_ignores_was_met() {
+        use super::Breakpoint;
+        let bp1 = Breakpoint::WordValue {
+            address: 5,
+            value: 42,
+            was_met: false,
+        };
+        let bp2 = Breakpoint::WordValue {
+            address: 5,
+            value: 42,
+            was_met: true,
+        };
+        assert_eq!(bp1, bp2);
+
+        let bp3 = Breakpoint::WordValue {
+            address: 5,
+            value: 43,
+            was_met: false,
+        };
+        assert_ne!(bp1, bp3);
+
+        let ci1 = Breakpoint::CiValue {
+            address: 3,
+            was_met: false,
+        };
+        let ci2 = Breakpoint::CiValue {
+            address: 3,
+            was_met: true,
+        };
+        assert_eq!(ci1, ci2);
+
+        // Different kinds are never equal
+        assert_ne!(bp1, ci1);
+    }
+
+    #[test]
+    fn check_breakpoints_word_value_triggers_on_match() {
+        use super::Breakpoint;
+        let mut sim = Simulator::new();
+        sim.store.words[5] = 42;
+        sim.breakpoints.push(Breakpoint::WordValue {
+            address: 5,
+            value: 42,
+            was_met: false,
+        });
+
+        sim.check_breakpoints();
+        assert!(sim.stop_flag, "should stop when word matches");
+    }
+
+    #[test]
+    fn check_breakpoints_word_value_does_not_trigger_on_mismatch() {
+        use super::Breakpoint;
+        let mut sim = Simulator::new();
+        sim.store.words[5] = 10;
+        sim.breakpoints.push(Breakpoint::WordValue {
+            address: 5,
+            value: 42,
+            was_met: false,
+        });
+
+        sim.check_breakpoints();
+        assert!(!sim.stop_flag, "should not stop when word does not match");
+    }
+
+    #[test]
+    fn check_breakpoints_ci_value_triggers_on_match() {
+        use super::Breakpoint;
+        let mut sim = Simulator::new();
+        sim.ci = 7;
+        sim.breakpoints.push(Breakpoint::CiValue {
+            address: 7,
+            was_met: false,
+        });
+
+        sim.check_breakpoints();
+        assert!(sim.stop_flag, "should stop when CI matches");
+    }
+
+    #[test]
+    fn check_breakpoints_edge_triggered() {
+        use super::Breakpoint;
+        let mut sim = Simulator::new();
+        sim.store.words[5] = 42;
+        sim.breakpoints.push(Breakpoint::WordValue {
+            address: 5,
+            value: 42,
+            was_met: false,
+        });
+
+        // First check: condition is met, rising edge -> stop
+        sim.check_breakpoints();
+        assert!(sim.stop_flag);
+
+        // Reset stop flag, condition still met -> should NOT trigger again (no rising edge)
+        sim.stop_flag = false;
+        sim.check_breakpoints();
+        assert!(
+            !sim.stop_flag,
+            "should not trigger again while condition stays true"
+        );
+
+        // Condition goes false, then true again -> rising edge -> stop
+        sim.store.words[5] = 0;
+        sim.check_breakpoints();
+        assert!(!sim.stop_flag);
+        sim.store.words[5] = 42;
+        sim.check_breakpoints();
+        assert!(sim.stop_flag, "should trigger on new rising edge");
+    }
+
+    #[test]
+    fn check_breakpoints_empty_list_is_noop() {
+        let mut sim = Simulator::new();
+        sim.check_breakpoints();
+        assert!(!sim.stop_flag);
+    }
+
+    #[test]
+    fn run_stops_at_breakpoint() {
+        use super::Breakpoint;
+        let mut sim = Simulator::new();
+        // Line 1: STO 5 (store A=0 to address 5)
+        sim.store.words[1] = instr(Opcode::STO, 5);
+        // Line 2: STP
+        sim.store.words[2] = instr(Opcode::STP, 0);
+        // Breakpoint: word 5 becomes 0 (which it already is, so it triggers on first check)
+        sim.breakpoints.push(Breakpoint::WordValue {
+            address: 5,
+            value: 0,
+            was_met: false,
+        });
+
+        let cycles = sim.run(100);
+        // The breakpoint on word 5 = 0 triggers after the first cycle (STO 5 writes 0)
+        // Actually, word 5 starts at 0, so the breakpoint triggers immediately after cycle 1
+        assert!(
+            cycles <= 2,
+            "should stop early due to breakpoint, got {cycles}"
+        );
+        assert!(sim.stop_flag);
     }
 }

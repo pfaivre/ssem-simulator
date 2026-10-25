@@ -1,20 +1,12 @@
 # Small-Scale Experimental Machine (SSEM) simulator
 
-The SSEM, also known as the Manchester Baby was the first electronic stored-program computer.
-
-As it is very simple, it is a good subject to study the basic principles of computing.
-
+The SSEM, also known as the Manchester Baby was the first electronic stored-program computer.  
+As it is very simple, it is a good subject to study the basic principles of computing.  
 This program aims at simulating accurately the SSEM while allowing to play with it and tweak it.
 
-Checkout [manchester-baby-sim](https://github.com/pfaivre/manchester-baby-sim) for an interactive Python implementation.
+![Screenshot](docs/screenshot.png)
 
 # Test it
-
-If you have Nix on your system, you can enter a devenv like so:
-```sh
-nix shell nixpkgs#devenv -c devenv shell  # Open a Nix shell with devenv
-```
-Now you should have a shell with all dependencies installed (rust and cargo).
 
 ```sh
 cargo run -r samples/ssem/factorct.asm
@@ -27,14 +19,47 @@ cargo run -r samples/ssem/factorct.asm
 - [x] Read binary representation files (.snp)
 - [x] Integration tests
 - [x] Unit tests
-- [ ] Improve readability (display option)
-- [ ] Add a disassembler
-- [ ] Implement breakpoints: automatically stop at a given condition
+- [x] Improve readability (display option)
+- [x] Add a disassembler
+- [x] Implement breakpoints: automatically stop at a given condition
 - [ ] Implement other similar machines
 
 # Documentation
 
-Pending...
+
+## Main characteristics
+
+- 32 bits program counter called CI
+- 32 bits general purpose register called accumulator or A
+- 32 words of 32 bits each random access memory called store
+- 5 bits addressing
+- 7 instructions including jumps, load, store, substract, compare and stop
+- Integer stored least significant bit first
+
+## Instruction set
+
+| Op code | Original notation | Modern notation | Description                                        |
+| :------ | :---------------- | :-------------- | :------------------------------------------------- |
+| 000     | s,C               | JMP             | Indirect jump                                      |
+| 100     | c+s,C             | JRP             | Relative jump                                      |
+| 010     | -s,A              | LDN             | Load negative of value in address S to accumulator |
+| 110     | a,S               | STO             | Store accumulator in address S                     |
+| 001     | a-s, A            | SUB             | Substract value in address S from accumulator      |
+| 101     | -                 | -               | Same as SUB                                        |
+| 101     | Test              | CMP             | Skip next instruction if accumulator is negative   |
+| 111     | Stop              | STP             | Halt the program                                   |
+
+Format of an instruction (example here is STO 26):
+```
+._.__........__.................
+
+-----        ---
+  ^           ^
+  |           `--- Operation code
+  `--------------- S: address passed to the instruction
+```
+The other bits are not used.
+
 
 # Bibliography
 

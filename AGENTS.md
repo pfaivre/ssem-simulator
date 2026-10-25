@@ -9,13 +9,6 @@ the first stored-program computer. It loads a program from an assembler (`.asm`)
 or binary snapshot (`.snp`) file, runs it, and prints the final machine state.
 It is written in Rust (edition 2024) and uses `clap` for argument parsing.
 
-## Setup
-
-Any command should be run inside the devenv like so:
-
-```sh
-nix shell nixpkgs#devenv -c devenv shell <command to run>
-```
 
 ## Build and run
 
