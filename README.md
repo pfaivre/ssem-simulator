@@ -12,20 +12,16 @@ This program aims at simulating accurately the SSEM while allowing to play with 
 cargo run -r samples/ssem/factorct.asm
 ```
 
-# Roadmap
+# Features
 
-- [x] Read assembler files
-- [x] Run the program
-- [x] Read binary representation files (.snp)
-- [x] Integration tests
-- [x] Unit tests
-- [x] Improve readability (display option)
-- [x] Add a disassembler
-- [x] Implement breakpoints: automatically stop at a given condition
-- [ ] Implement other similar machines
+- Interactive terminual interface (TUI)
+- Variable execution speed
+- Step by step mode
+- Breakpoints to stop the machine at a given condition
+- Live edition of the machine's memory while running
+- Headless mode to only print the last state of the machine
 
 # Documentation
-
 
 ## Main characteristics
 

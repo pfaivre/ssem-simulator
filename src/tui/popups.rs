@@ -7,7 +7,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::ssem::simulator::Breakpoint;
+use crate::ssem::Store;
+use crate::ssem::simulator::{Breakpoint, Simulator};
 
 use super::KEYMAP;
 
@@ -412,6 +413,317 @@ impl BreakpointPopup {
             footer.to_string(),
             Style::default().add_modifier(Modifier::DIM),
         )));
+
+        f.render_widget(Paragraph::new(lines), content);
+    }
+}
+
+/// The target of an edit operation.
+#[derive(Clone, Copy, PartialEq)]
+enum EditTarget {
+    /// Edit the program counter (CI).
+    Ci,
+    /// Edit the accumulator (A).
+    A,
+    /// Edit a store word.
+    Word,
+}
+
+/// Which field is being typed in the editor.
+#[derive(Clone, Copy, PartialEq)]
+enum EditField {
+    /// The store word address (only for Word target).
+    Address,
+    /// The value to write.
+    Value,
+}
+
+/// The editor pop-up for modifying registers and store words.
+///
+/// While open, all key events are routed here by the main event loop.
+/// Press T to cycle the target (CI → A → WORD → CI), type a number, and
+/// press Enter to apply.
+pub struct EditorPopup {
+    open: bool,
+    target: EditTarget,
+    field: EditField,
+    buffer: String,
+    address: usize,
+    message: String,
+}
+
+impl EditorPopup {
+    pub fn new() -> Self {
+        EditorPopup {
+            open: false,
+            target: EditTarget::Word,
+            field: EditField::Address,
+            buffer: String::new(),
+            address: 0,
+            message: String::new(),
+        }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// Open the pop-up, resetting the editing state.
+    pub fn open(&mut self) {
+        self.open = true;
+        self.target = EditTarget::Word;
+        self.field = EditField::Address;
+        self.buffer.clear();
+        self.message.clear();
+    }
+
+    /// Open the pop-up pre-configured to edit CI (double-click on the CI line).
+    pub fn open_for_ci(&mut self) {
+        self.open = true;
+        self.target = EditTarget::Ci;
+        self.field = EditField::Value;
+        self.buffer.clear();
+        self.message.clear();
+    }
+
+    /// Open the pop-up pre-configured to edit the accumulator (double-click on the A line).
+    pub fn open_for_a(&mut self) {
+        self.open = true;
+        self.target = EditTarget::A;
+        self.field = EditField::Value;
+        self.buffer.clear();
+        self.message.clear();
+    }
+
+    /// Open the pop-up pre-configured to edit a store word (double-click on a store line).
+    pub fn open_for_word(&mut self, address: usize) {
+        self.open = true;
+        self.target = EditTarget::Word;
+        self.field = EditField::Value;
+        self.address = address;
+        self.buffer.clear();
+        self.message.clear();
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+
+    /// Handle a key press while the pop-up is open.
+    pub fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        if key.kind != KeyEventKind::Press {
+            return;
+        }
+
+        match key.code {
+            KeyCode::Backspace => {
+                self.buffer.pop();
+                self.message.clear();
+            }
+            KeyCode::Enter => {
+                self.apply(sim);
+            }
+            KeyCode::Char('t') | KeyCode::Char('T') => {
+                self.target = match self.target {
+                    EditTarget::Ci => EditTarget::A,
+                    EditTarget::A => EditTarget::Word,
+                    EditTarget::Word => EditTarget::Ci,
+                };
+                self.field = if self.target == EditTarget::Word {
+                    EditField::Address
+                } else {
+                    EditField::Value
+                };
+                self.buffer.clear();
+                self.message.clear();
+            }
+            KeyCode::Char(ch) => {
+                // Accept digits everywhere; letters, spaces, and minus only in Value field
+                let accepted = match ch {
+                    '-' => self.field == EditField::Value && self.buffer.is_empty(),
+                    ' ' => {
+                        self.field == EditField::Value
+                            && !self.buffer.is_empty()
+                            && !self.buffer.ends_with(' ')
+                    }
+                    c if c.is_ascii_digit() => true,
+                    c if c.is_ascii_alphabetic() => self.field == EditField::Value,
+                    _ => false,
+                };
+                if accepted && self.buffer.len() < 15 {
+                    let ch = if ch.is_ascii_alphabetic() {
+                        ch.to_ascii_uppercase()
+                    } else {
+                        ch
+                    };
+                    self.buffer.push(ch);
+                    self.message.clear();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Parse the buffer and apply the edit to the simulator.
+    fn apply(&mut self, sim: &mut Simulator) {
+        let buffer = std::mem::take(&mut self.buffer);
+
+        match self.target {
+            EditTarget::Ci => {
+                let value: i32 = match buffer.parse() {
+                    Ok(n) => n,
+                    Err(_) => {
+                        self.message = "TYPE A NUMBER".to_string();
+                        return;
+                    }
+                };
+                sim.ci = value;
+                self.message = format!("CI = {value}");
+            }
+            EditTarget::A => {
+                let value: i32 = match buffer.parse() {
+                    Ok(n) => n,
+                    Err(_) => {
+                        self.message = "TYPE A NUMBER".to_string();
+                        return;
+                    }
+                };
+                sim.a = value;
+                self.message = format!("A = {value}");
+            }
+            EditTarget::Word => {
+                if self.field == EditField::Address {
+                    let value: i32 = match buffer.parse() {
+                        Ok(n) => n,
+                        Err(_) => {
+                            self.message = "TYPE A NUMBER".to_string();
+                            return;
+                        }
+                    };
+                    if !(0..32).contains(&value) {
+                        self.message = "ADDRESS MUST BE 0 TO 31".to_string();
+                        return;
+                    }
+                    self.address = value as usize;
+                    self.field = EditField::Value;
+                    return;
+                }
+                // Value field: accept a number or an instruction (LDN 24, STO 26, …)
+                match Store::parse_word(&buffer) {
+                    Ok(word) => {
+                        sim.store.words[self.address] = word;
+                        let (opcode, data) = Store::decode_word(word);
+                        self.message =
+                            format!("WORD {:02} = {word}  ({opcode} {data:02})", self.address);
+                        self.field = EditField::Address;
+                    }
+                    Err(msg) => {
+                        self.message = msg;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The input line showing the current editing state.
+    fn input_line(&self) -> String {
+        match self.target {
+            EditTarget::Ci => format!("CI   VALUE: {}_", self.buffer),
+            EditTarget::A => format!("A    VALUE: {}_", self.buffer),
+            EditTarget::Word => match self.field {
+                EditField::Address => format!("WORD {}_  VALUE/INSTR:", self.buffer),
+                EditField::Value => {
+                    format!("WORD {:02}  VALUE/INSTR: {}_", self.address, self.buffer)
+                }
+            },
+        }
+    }
+
+    /// A live preview of what the current input would parse to.
+    ///
+    /// Only shown for the WORD value field when the buffer is non-empty
+    /// and parses successfully. For plain numbers, shows just the value;
+    /// for instructions, shows the decoded opcode and operand.
+    fn preview_line(&self) -> String {
+        if self.target != EditTarget::Word
+            || self.field != EditField::Value
+            || self.buffer.is_empty()
+        {
+            return String::new();
+        }
+
+        match Store::parse_word(&self.buffer) {
+            Ok(word) => {
+                if self.buffer.parse::<i32>().is_ok() {
+                    // Plain number — no need to decode
+                    format!("\u{2192} {word:>12}")
+                } else {
+                    let (opcode, data) = Store::decode_word(word);
+                    format!("\u{2192} {word:>12}  ({opcode} {data:02})")
+                }
+            }
+            Err(_) => String::new(),
+        }
+    }
+
+    pub fn draw(&self, f: &mut Frame, area: Rect, ci: i32, a: i32, store: &[i32; 32]) {
+        let explanation = "Edit a register or store word";
+        let footer = "ENTER apply \u{b7} T target \u{b7} ESC close";
+
+        let input = self.input_line();
+        let preview = self.preview_line();
+
+        // Show the current value of the selected target
+        let current = match self.target {
+            EditTarget::Ci => format!("current CI:  {ci:>12}"),
+            EditTarget::A => format!("current A:   {a:>12}"),
+            EditTarget::Word => {
+                let word = store.get(self.address).copied().unwrap_or(0);
+                format!("current [{:02}]: {word:>12}", self.address)
+            }
+        };
+
+        let content_width = display_width(explanation)
+            .max(display_width(footer))
+            .max(display_width(&input))
+            .max(display_width(&current))
+            .max(display_width(&preview));
+
+        // 2 border columns, 1 left margin, 1 right margin
+        let width = (content_width + 4) as u16;
+        // Title in border. Interior: explanation, blank, current, blank, input,
+        // preview, message, blank, footer = 9. Plus 2 border rows.
+        let height = 11u16;
+
+        let rect = popup_rect(height, width, area);
+        f.render_widget(Clear, rect);
+
+        let block = Block::default().title(" EDIT ").borders(Borders::ALL);
+        let content = content_area(&block, rect);
+        f.render_widget(block, rect);
+
+        let lines: Vec<Line<'static>> = vec![
+            Line::from(explanation.to_string()),
+            Line::from(""),
+            Line::from(Span::styled(
+                current,
+                Style::default().add_modifier(Modifier::DIM),
+            )),
+            Line::from(""),
+            Line::from(input),
+            Line::from(Span::styled(
+                preview,
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::DIM),
+            )),
+            Line::from(self.message.clone()),
+            Line::from(""),
+            Line::from(Span::styled(
+                footer.to_string(),
+                Style::default().add_modifier(Modifier::DIM),
+            )),
+        ];
 
         f.render_widget(Paragraph::new(lines), content);
     }

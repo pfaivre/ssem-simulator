@@ -302,6 +302,61 @@ impl Store {
         (Opcode::from(opcode), data)
     }
 
+    /// Parse a word from human-readable input.
+    ///
+    /// Accepts either a decimal number (`42`, `-3`) or an instruction
+    /// (`LDN 24`, `STO 26`, `CMP`). The `NUM` prefix stores the raw operand
+    /// value, matching the assembler syntax. Opcode mnemonics are
+    /// case-insensitive.
+    ///
+    /// # Examples
+    /// ```text
+    /// "42"      → 42
+    /// "-3"      → -3
+    /// "LDN 24"  → (2 << 13) | 24
+    /// "CMP"     → (6 << 13) | 0
+    /// "NUM 100" → 100
+    /// ```
+    pub fn parse_word(input: &str) -> Result<i32, String> {
+        let input = input.trim();
+        if input.is_empty() {
+            return Err("EMPTY INPUT".to_string());
+        }
+
+        // Try a plain decimal number first
+        if let Ok(n) = input.parse::<i32>() {
+            return Ok(n);
+        }
+
+        // Try an instruction: "OPCODE [operand]"
+        let tokens: Vec<&str> = input.split_ascii_whitespace().collect();
+        match tokens.len() {
+            1 | 2 => {
+                let mnemonic = tokens[0].to_uppercase();
+                let opcode = Opcode::from_str(&mnemonic)
+                    .map_err(|_| format!("UNKNOWN OPCODE '{mnemonic}'"))?;
+                let operand: i32 = if tokens.len() == 2 {
+                    tokens[1]
+                        .parse()
+                        .map_err(|_| format!("INVALID OPERAND '{}'", tokens[1]))?
+                } else {
+                    0
+                };
+
+                match opcode {
+                    Opcode::NUM => Ok(operand),
+                    opcode => {
+                        if !(0..=SSEM_DATA_MASK).contains(&operand) {
+                            return Err(format!("OPERAND MUST BE 0 TO {SSEM_DATA_MASK}"));
+                        }
+                        Ok((opcode as i32) << SSEM_OPCODE_BIT_SHIFT | operand)
+                    }
+                }
+            }
+            _ => Err("EXPECTED A NUMBER OR 'OPCODE [OPERAND]'".to_string()),
+        }
+    }
+
     fn _check(&self) {
         // Sanity checks
         if SSEM_DATA_MASK as usize >= SSEM_STORE_WORDS {
@@ -936,5 +991,53 @@ mod tests {
         let mut words: Vec<String> = vec!["0".repeat(32); 32];
         words[0] = "X".repeat(32);
         let _ = Store::from(words);
+    }
+
+    #[test]
+    fn parse_word_number() {
+        assert_eq!(Ok(42), Store::parse_word("42"));
+        assert_eq!(Ok(-3), Store::parse_word("-3"));
+        assert_eq!(Ok(0), Store::parse_word("0"));
+        assert_eq!(Ok(i32::MAX), Store::parse_word(&i32::MAX.to_string()));
+        assert_eq!(Ok(i32::MIN), Store::parse_word(&i32::MIN.to_string()));
+        // Leading/trailing whitespace is trimmed
+        assert_eq!(Ok(42), Store::parse_word("  42  "));
+    }
+
+    #[test]
+    fn parse_word_instruction() {
+        assert_eq!(Ok(instr(Opcode::JMP, 5)), Store::parse_word("JMP 5"));
+        assert_eq!(Ok(instr(Opcode::LDN, 24)), Store::parse_word("LDN 24"));
+        assert_eq!(Ok(instr(Opcode::STO, 26)), Store::parse_word("STO 26"));
+        assert_eq!(Ok(instr(Opcode::CMP, 0)), Store::parse_word("CMP"));
+        assert_eq!(Ok(instr(Opcode::STP, 0)), Store::parse_word("STP"));
+        assert_eq!(Ok(instr(Opcode::SUB, 27)), Store::parse_word("SUB 27"));
+        assert_eq!(Ok(instr(Opcode::SUB2, 1)), Store::parse_word("SUB2 1"));
+        assert_eq!(Ok(instr(Opcode::JRP, 20)), Store::parse_word("JRP 20"));
+    }
+
+    #[test]
+    fn parse_word_instruction_case_insensitive() {
+        assert_eq!(Ok(instr(Opcode::LDN, 24)), Store::parse_word("ldn 24"));
+        assert_eq!(Ok(instr(Opcode::STO, 26)), Store::parse_word("Sto 26"));
+    }
+
+    #[test]
+    fn parse_word_num() {
+        assert_eq!(Ok(42), Store::parse_word("NUM 42"));
+        assert_eq!(Ok(-3), Store::parse_word("NUM -3"));
+        assert_eq!(Ok(0), Store::parse_word("NUM 0"));
+    }
+
+    #[test]
+    fn parse_word_errors() {
+        assert!(Store::parse_word("").is_err());
+        assert!(Store::parse_word("   ").is_err());
+        assert!(Store::parse_word("FOO 1").is_err());
+        assert!(Store::parse_word("LDN 32").is_err());
+        assert!(Store::parse_word("LDN -1").is_err());
+        assert!(Store::parse_word("LDN abc").is_err());
+        assert!(Store::parse_word("LDN 1 2").is_err());
+        assert!(Store::parse_word("STO 99").is_err());
     }
 }

@@ -22,6 +22,10 @@
 //! - A bottom bar showing the keyboard shortcuts
 //!
 //! Two pop-ups are available: a help pop-up (H key) and a breakpoint editor (B key).
+//! A third pop-up, the memory/register editor (E key), lets you modify CI, A, or store words.
+//!
+//! Mouse: double-click a line (CI, A, or a store word) to open the editor for it;
+//! scroll wheel scrolls the store view.
 
 mod popups;
 
@@ -31,7 +35,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    MouseButton, MouseEvent, MouseEventKind,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -45,7 +52,7 @@ use ratatui::{Frame, Terminal};
 
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, LastInstruction, Simulator};
-use popups::{BreakpointPopup, HelpPopup};
+use popups::{BreakpointPopup, EditorPopup, HelpPopup};
 
 /// Bit representations cycled through with the D key: (on_char, off_char).
 const BIT_REPRESENTATIONS: [(char, char); 4] = [
@@ -65,6 +72,11 @@ const KEYMAP: &[(&str, &str, &str)] = &[
     ("I", "SPEED UP", "Increase the execution speed"),
     ("K", "SPEED DOWN", "Decrease the execution speed"),
     ("D", "DISPLAY", "Cycle the bit representations"),
+    (
+        "E",
+        "EDIT",
+        "Edit a register or store word (or double-click a line)",
+    ),
     ("B", "BREAKPT", "Open the breakpoint pop-up"),
     ("H", "HELP", "Toggle this help pop-up"),
 ];
@@ -99,6 +111,9 @@ const MAX_BATCH_SIZE: u64 = 10_000;
 /// How long the machine thread sleeps when the simulation is stopped,
 /// to avoid busy-waiting.
 const IDLE_SLEEP: Duration = Duration::from_millis(10);
+
+/// Maximum time between two left-clicks for them to count as a double-click.
+const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 
 /// A snapshot of the simulator state, taken by the UI thread under a brief lock.
 ///
@@ -146,6 +161,10 @@ struct App {
 
     help_popup: HelpPopup,
     breakpoint_popup: BreakpointPopup,
+    editor_popup: EditorPopup,
+
+    /// The last left-click, for double-click detection: (time, column, row).
+    last_click: Option<(Instant, u16, u16)>,
 
     should_quit: bool,
 }
@@ -164,6 +183,8 @@ impl App {
             last_cycles: 0,
             help_popup: HelpPopup::new(),
             breakpoint_popup: BreakpointPopup::new(),
+            editor_popup: EditorPopup::new(),
+            last_click: None,
             should_quit: false,
         }
     }
@@ -212,6 +233,19 @@ impl App {
             return;
         }
 
+        // While the editor pop-up is open, keys go to it
+        if self.editor_popup.is_open() {
+            if key.code == KeyCode::Esc
+                || key.code == KeyCode::Char('e')
+                || key.code == KeyCode::Char('E')
+            {
+                self.editor_popup.close();
+            } else {
+                self.editor_popup.handle_key(key, sim);
+            }
+            return;
+        }
+
         // While the help pop-up is open, only H or Esc closes it
         if self.help_popup.is_open() {
             if key.code == KeyCode::Char('h')
@@ -234,6 +268,7 @@ impl App {
                         (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
                 }
                 'b' => self.breakpoint_popup.open(),
+                'e' => self.editor_popup.open(),
                 'h' => self.help_popup.open(),
                 _ => {}
             },
@@ -252,6 +287,67 @@ impl App {
                 self.store_scroll = (self.store_scroll as usize + 1).min(max_scroll) as u16;
             }
             KeyCode::Esc => self.should_quit = true,
+            _ => {}
+        }
+    }
+
+    /// Handle a mouse event: double-click to edit, scroll wheel to scroll.
+    fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let now = Instant::now();
+                let is_double_click = self
+                    .last_click
+                    .map(|(time, col, row)| {
+                        now.duration_since(time) < DOUBLE_CLICK_THRESHOLD
+                            && col == mouse.column
+                            && row == mouse.row
+                    })
+                    .unwrap_or(false);
+
+                self.last_click = Some((now, mouse.column, mouse.row));
+
+                if is_double_click {
+                    self.try_open_editor_at(mouse.row);
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                self.store_scroll = self.store_scroll.saturating_sub(1);
+            }
+            MouseEventKind::ScrollDown => {
+                let visible_height = self.last_area.height.saturating_sub(2) as usize;
+                let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
+                self.store_scroll = (self.store_scroll as usize + 1).min(max_scroll) as u16;
+            }
+            _ => {}
+        }
+    }
+
+    /// Open the editor pop-up if the given screen row corresponds to CI, A, or a store word.
+    ///
+    /// The main body starts at row 1 (below the top bar). Content rows:
+    /// 0 = blank, 1 = CI, 2 = A, 3 = blank, 4..=35 = store words 0..=31.
+    /// The store view is scrolled by `store_scroll` lines.
+    fn try_open_editor_at(&mut self, screen_row: u16) {
+        // Ignore clicks outside the main body or when the terminal is too small
+        if self.last_area.width < MIN_WIDTH || self.last_area.height < MIN_HEIGHT {
+            return;
+        }
+        let body_top = 1u16;
+        let body_height = self.last_area.height.saturating_sub(2);
+        if screen_row < body_top || screen_row >= body_top + body_height {
+            return;
+        }
+
+        let content_row =
+            (screen_row as usize).saturating_sub(body_top as usize) + self.store_scroll as usize;
+
+        match content_row {
+            1 => self.editor_popup.open_for_ci(),
+            2 => self.editor_popup.open_for_a(),
+            row if (4..=35).contains(&row) => {
+                self.editor_popup.open_for_word(row - 4);
+            }
             _ => {}
         }
     }
@@ -329,6 +425,10 @@ impl App {
         }
         if self.breakpoint_popup.is_open() {
             self.breakpoint_popup.draw(f, area, &snap.breakpoints);
+        }
+        if self.editor_popup.is_open() {
+            self.editor_popup
+                .draw(f, area, snap.ci, snap.a, &snap.store);
         }
     }
 
@@ -527,7 +627,7 @@ pub fn run(simulator: Simulator, max_cycles: u32) -> io::Result<Simulator> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
@@ -536,7 +636,11 @@ pub fn run(simulator: Simulator, max_cycles: u32) -> io::Result<Simulator> {
 
     // Always restore the terminal, even on error
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
 
     result
@@ -566,11 +670,17 @@ fn run_app(
 
     loop {
         // Handle input (non-blocking with a short timeout)
-        if event::poll(FRAME_INTERVAL)?
-            && let Event::Key(key) = event::read()?
-        {
-            let mut s = sim.lock().unwrap();
-            app.handle_key(key, &mut s);
+        if event::poll(FRAME_INTERVAL)? {
+            match event::read()? {
+                Event::Key(key) => {
+                    let mut s = sim.lock().unwrap();
+                    app.handle_key(key, &mut s);
+                }
+                Event::Mouse(mouse) => {
+                    app.handle_mouse(mouse);
+                }
+                _ => {}
+            }
         }
 
         // Take a snapshot under a brief lock, then draw without holding it.
