@@ -19,6 +19,7 @@ cargo run -r samples/ssem/factorct.asm
 - Step by step mode
 - Breakpoints to stop the machine at a given condition
 - Live edition of the machine's memory while running
+- Heatmap showing the most executed lines
 - Headless mode to only print the last state of the machine
 
 # Documentation

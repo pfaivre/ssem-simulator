@@ -26,6 +26,9 @@
 //!
 //! Mouse: double-click a line (CI, A, or a store word) to open the editor for it;
 //! scroll wheel scrolls the store view.
+//!
+//! Press M to toggle the execution heatmap: a colored bar next to each store
+//! word shows how often it has been executed (green = cold, red = hot).
 
 mod popups;
 
@@ -77,6 +80,7 @@ const KEYMAP: &[(&str, &str, &str)] = &[
         "EDIT",
         "Edit a register or store word (or double-click a line)",
     ),
+    ("M", "HEATMAP", "Toggle the execution heatmap"),
     ("B", "BREAKPT", "Open the breakpoint pop-up"),
     ("H", "HELP", "Toggle this help pop-up"),
 ];
@@ -115,6 +119,12 @@ const IDLE_SLEEP: Duration = Duration::from_millis(10);
 /// Maximum time between two left-clicks for them to count as a double-click.
 const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 
+/// Width of the heatmap bar (in cells) shown next to each store word.
+const HEATMAP_BAR_WIDTH: usize = 6;
+
+/// Extra width required when the heatmap is shown (bar + leading space).
+const HEATMAP_EXTRA_WIDTH: u16 = (HEATMAP_BAR_WIDTH + 2) as u16;
+
 /// A snapshot of the simulator state, taken by the UI thread under a brief lock.
 ///
 /// Drawing uses this snapshot instead of the live simulator so that the
@@ -129,6 +139,7 @@ struct Snapshot {
     stop_flag: bool,
     last_instruction: Option<LastInstruction>,
     breakpoints: Vec<Breakpoint>,
+    exec_counts: [u64; 32],
 }
 
 impl Snapshot {
@@ -142,6 +153,7 @@ impl Snapshot {
             stop_flag: sim.stop_flag,
             last_instruction: sim.last_instruction,
             breakpoints: sim.breakpoints.clone(),
+            exec_counts: sim.exec_counts,
         }
     }
 }
@@ -166,6 +178,9 @@ struct App {
     /// The last left-click, for double-click detection: (time, column, row).
     last_click: Option<(Instant, u16, u16)>,
 
+    /// Whether the execution heatmap is shown in the store view.
+    show_heatmap: bool,
+
     should_quit: bool,
 }
 
@@ -185,6 +200,7 @@ impl App {
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
             last_click: None,
+            show_heatmap: false,
             should_quit: false,
         }
     }
@@ -269,6 +285,7 @@ impl App {
                 }
                 'b' => self.breakpoint_popup.open(),
                 'e' => self.editor_popup.open(),
+                'm' => self.show_heatmap = !self.show_heatmap,
                 'h' => self.help_popup.open(),
                 _ => {}
             },
@@ -386,6 +403,39 @@ impl App {
         s
     }
 
+    /// Compute the heatmap bar and its color for the store word at `index`.
+    ///
+    /// Returns `(bar_string, color)`. The bar is `HEATMAP_BAR_WIDTH` cells wide,
+    /// filled proportionally to the execution count relative to the hottest line.
+    /// Cold lines (zero executions) are dim; hot lines are red.
+    fn heatmap_bar(&self, index: usize, exec_counts: &[u64; 32]) -> (String, Color) {
+        let count = exec_counts[index];
+        if count == 0 {
+            return ("\u{b7}".repeat(HEATMAP_BAR_WIDTH), Color::DarkGray);
+        }
+
+        let max = *exec_counts.iter().max().unwrap_or(&1);
+        let ratio = count as f64 / max as f64;
+        let filled =
+            ((ratio * HEATMAP_BAR_WIDTH as f64).ceil() as usize).clamp(1, HEATMAP_BAR_WIDTH);
+
+        let bar = format!(
+            "{}{}",
+            "\u{2588}".repeat(filled),
+            "\u{b7}".repeat(HEATMAP_BAR_WIDTH - filled),
+        );
+
+        let color = if ratio > 0.75 {
+            Color::Red
+        } else if ratio > 0.25 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+
+        (bar, color)
+    }
+
     /// Draw the entire interface from a state snapshot.
     fn draw(&mut self, f: &mut Frame, snap: &Snapshot) {
         let area = f.area();
@@ -396,11 +446,16 @@ impl App {
         let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
         self.store_scroll = (self.store_scroll as usize).min(max_scroll) as u16;
 
-        // Check minimum terminal size
-        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+        // Check minimum terminal size (wider when the heatmap is shown)
+        let min_width = if self.show_heatmap {
+            MIN_WIDTH + HEATMAP_EXTRA_WIDTH
+        } else {
+            MIN_WIDTH
+        };
+        if area.width < min_width || area.height < MIN_HEIGHT {
             let msg = format!(
                 "Terminal too small: {}x{}, needs at least {}x{}",
-                area.width, area.height, MIN_WIDTH, MIN_HEIGHT
+                area.width, area.height, min_width, MIN_HEIGHT
             );
             let paragraph = Paragraph::new(msg);
             f.render_widget(paragraph, area);
@@ -450,6 +505,10 @@ impl App {
             text.push_str(&format!(" [ BREAKPOINTS: {} ] ", snap.breakpoints.len()));
         }
 
+        if self.show_heatmap {
+            text.push_str(" [ HEATMAP ] ");
+        }
+
         let line = Line::from(Span::styled(text, Style::default().fg(Color::Blue)));
         f.render_widget(Paragraph::new(line), area);
     }
@@ -458,6 +517,13 @@ impl App {
     fn draw_main_body(&self, f: &mut Frame, area: Rect, snap: &Snapshot) {
         let mut lines: Vec<Line<'static>> = Vec::with_capacity(CONTENT_HEIGHT);
 
+        // Spacer to align CI/A bits with store-word bits when the heatmap is on
+        let heatmap_spacer = if self.show_heatmap {
+            " ".repeat(HEATMAP_EXTRA_WIDTH as usize)
+        } else {
+            String::new()
+        };
+
         // Row 0: blank
         lines.push(Line::from(""));
 
@@ -465,7 +531,7 @@ impl App {
         let ci_bits = self.format_bits(snap.ci);
         lines.push(Line::from(vec![
             Span::styled(
-                format!(" {ci_bits}"),
+                format!("{heatmap_spacer} {ci_bits}"),
                 Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD),
@@ -477,7 +543,7 @@ impl App {
         let a_bits = self.format_bits(snap.a);
         lines.push(Line::from(vec![
             Span::styled(
-                format!(" {a_bits}"),
+                format!("{heatmap_spacer} {a_bits}"),
                 Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD),
@@ -503,11 +569,20 @@ impl App {
                     .add_modifier(Modifier::BOLD)
             };
 
+            // Heatmap bar (empty span when the heatmap is off)
+            let (bar, bar_color) = if self.show_heatmap {
+                let (b, c) = self.heatmap_bar(index, &snap.exec_counts);
+                (format!(" {b} "), c)
+            } else {
+                (String::new(), Color::Reset)
+            };
+
             lines.push(Line::from(vec![
                 Span::styled(
                     pointer.to_string(),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
+                Span::styled(bar, Style::default().fg(bar_color)),
                 Span::styled(bits, bits_style),
                 Span::raw(format!(
                     " {:02}: {:>11}  {:<4} {:02}",

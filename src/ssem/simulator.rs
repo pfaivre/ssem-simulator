@@ -118,6 +118,10 @@ pub struct Simulator {
 
     /// Active breakpoints, checked after every instruction cycle.
     pub breakpoints: Vec<Breakpoint>,
+
+    /// How many times each store word has been fetched and executed as an
+    /// instruction. Indexed by store address (0..32). Used by the TUI heatmap.
+    pub exec_counts: [u64; 32],
 }
 
 impl Default for Simulator {
@@ -137,6 +141,7 @@ impl Simulator {
             speed: TYPICAL_SPEED,
             last_instruction: None,
             breakpoints: Vec::new(),
+            exec_counts: [0; 32],
         }
     }
 
@@ -165,6 +170,7 @@ impl Simulator {
             speed: TYPICAL_SPEED,
             last_instruction: None,
             breakpoints: Vec::new(),
+            exec_counts: [0; 32],
         }
     }
 
@@ -198,12 +204,17 @@ impl Simulator {
         // Decode
         let (opcode, data) = self.store.decode_instruction(self.ci as usize);
 
+        // Capture the address before execution: JMP, JRP, and CMP modify CI,
+        // so recording after _execute would attribute the cycle to the wrong line.
+        let address = self.ci;
+        self.exec_counts[address as usize] += 1;
+
         // Execute
         self._execute(opcode, data);
 
         // Track for display
         self.last_instruction = Some(LastInstruction {
-            address: self.ci,
+            address,
             opcode,
             data,
         });
@@ -302,6 +313,7 @@ impl From<Vec<String>> for Simulator {
             speed: TYPICAL_SPEED,
             last_instruction: None,
             breakpoints: Vec::new(),
+            exec_counts: [0; 32],
         }
     }
 }
@@ -666,6 +678,79 @@ mod tests {
         assert_eq!(2, li.address);
         assert_eq!(Opcode::STP, li.opcode);
         assert_eq!(0, li.data);
+    }
+
+    #[test]
+    fn instruction_cycle_increments_exec_counts() {
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::STP, 0);
+        sim.store.words[2] = instr(Opcode::STP, 0);
+
+        assert!(sim.exec_counts.iter().all(|&c| c == 0));
+
+        sim.instruction_cycle(); // executes line 1
+        assert_eq!(1, sim.exec_counts[1]);
+        assert_eq!(0, sim.exec_counts[2]);
+
+        sim.instruction_cycle(); // executes line 2
+        assert_eq!(1, sim.exec_counts[1]);
+        assert_eq!(1, sim.exec_counts[2]);
+
+        // Run a loop: line 1 jumps to itself
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::JMP, 3);
+        sim.store.words[3] = 1; // JMP reads store[3] which holds 1
+        sim.run(10);
+        assert!(
+            sim.exec_counts[1] > 1,
+            "line 1 should be executed multiple times"
+        );
+    }
+
+    #[test]
+    fn exec_counts_attributed_to_executed_line_not_target() {
+        // CMP with negative A skips the next instruction.
+        // The count must land on the CMP line, not the skipped line.
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::CMP, 0);
+        sim.store.words[2] = instr(Opcode::STP, 0); // will be skipped
+        sim.store.words[3] = instr(Opcode::STP, 0);
+        sim.a = -1; // negative → CMP skips line 2
+
+        sim.instruction_cycle(); // fetch→line 1 (CMP), skip→CI=2
+        assert_eq!(1, sim.exec_counts[1], "CMP line should be counted");
+        assert_eq!(0, sim.exec_counts[2], "skipped line should not be counted");
+        assert_eq!(2, sim.ci, "CI points past the skipped line");
+
+        // last_instruction should show the CMP, not the skip target
+        let li = sim.last_instruction.unwrap();
+        assert_eq!(1, li.address);
+        assert_eq!(Opcode::CMP, li.opcode);
+
+        sim.instruction_cycle(); // fetch→line 3 (STP)
+        assert_eq!(1, sim.exec_counts[3]);
+        assert_eq!(0, sim.exec_counts[2], "line 2 was never executed");
+    }
+
+    #[test]
+    fn exec_counts_attributed_to_jmp_line_not_target() {
+        // JMP sets CI from the store. The count must land on the JMP line.
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::JMP, 2);
+        sim.store.words[2] = 5; // jump target
+        sim.store.words[5] = instr(Opcode::STP, 0);
+
+        sim.instruction_cycle(); // executes line 1 (JMP 2), CI → 5
+        assert_eq!(1, sim.exec_counts[1], "JMP line should be counted");
+        assert_eq!(
+            0, sim.exec_counts[5],
+            "jump target should not be counted yet"
+        );
+        assert_eq!(5, sim.ci);
+
+        let li = sim.last_instruction.unwrap();
+        assert_eq!(1, li.address, "last_instruction should show the JMP line");
+        assert_eq!(Opcode::JMP, li.opcode);
     }
 
     #[test]
