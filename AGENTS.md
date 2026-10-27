@@ -24,6 +24,11 @@ The CLI accepts one input file (`.asm` or `.snp`) and an optional `--max-cycles`
 cargo run -r -- --max-cycles 1000 samples/ssem/nightmare.snp
 ```
 
+The interactive TUI records an execution history for time-travel (scrub the
+timeline bar with the mouse, or use `,` `.` `Home` `End`), capped by
+`--history-size` past states (default 100,000, 0 to disable). Headless mode
+never records.
+
 Sample programs live in `samples/ssem/`.
 
 ## Test

@@ -16,9 +16,10 @@
 //! Shared state lives in an `Arc<Mutex<Simulator>>`; a separate
 //! `Arc<AtomicBool>` signals the machine thread to exit.
 //!
-//! The interface is composed of three areas:
+//! The interface is composed of four areas:
 //! - A top bar showing status indicators (status, cycles, last instruction, speed, breakpoints)
 //! - A main body showing the machine state (CI, accumulator, and store words)
+//! - A timeline bar showing the retained execution history
 //! - A bottom bar showing the keyboard shortcuts
 //!
 //! Two pop-ups are available: a help pop-up (H key) and a breakpoint editor (B key).
@@ -26,6 +27,14 @@
 //!
 //! Mouse: double-click a line (CI, A, or a store word) to open the editor for it;
 //! scroll wheel scrolls the store view.
+//!
+//! Time-travel: the timeline bar shows the retained execution history. Drag it
+//! with the mouse (or use , . Home End, or the scroll wheel over it) to move
+//! through the recorded cycles; the machine pauses and its state is restored to
+//! the scrubbed cycle, and a small pop-up above the bar's position marker shows
+//! the current cycle. Press P to resume from there — re-executing overwrites
+//! the previously recorded future. Browsing the history resets the heatmap and
+//! the last-instruction display.
 //!
 //! Press M to toggle the execution heatmap: a colored bar next to each store
 //! word shows how often it has been executed (green = cold, red = hot).
@@ -50,10 +59,11 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Clear, Paragraph};
 use ratatui::{Frame, Terminal};
 
 use crate::ssem::Store;
+use crate::ssem::history::History;
 use crate::ssem::simulator::{Breakpoint, LastInstruction, Simulator};
 use popups::{BreakpointPopup, EditorPopup, HelpPopup};
 
@@ -71,6 +81,13 @@ const KEYMAP: &[(&str, &str, &str)] = &[
     ("Q", "QUIT", "Quit the simulator"),
     ("P", "RUN/STOP", "Run the program or pause it"),
     ("F10", "STEP", "Execute one instruction"),
+    (",", "BACK", "Step back one cycle in the execution history"),
+    (
+        ".",
+        "FWD",
+        "Step forward one cycle in the execution history",
+    ),
+    ("HOME/END", "", "Jump to the oldest / newest recorded cycle"),
     ("\u{2191}/\u{2193}", "", "Scroll the store view"),
     ("I", "SPEED UP", "Increase the execution speed"),
     ("K", "SPEED DOWN", "Decrease the execution speed"),
@@ -83,13 +100,54 @@ const KEYMAP: &[(&str, &str, &str)] = &[
     ("M", "HEATMAP", "Toggle the execution heatmap"),
     ("B", "BREAKPT", "Open the breakpoint pop-up"),
     ("H", "HELP", "Toggle this help pop-up"),
+    (
+        "MOUSE",
+        "",
+        "Drag the timeline bar to scrub through the history",
+    ),
 ];
 
 /// Minimum terminal width to display the store in full.
 const MIN_WIDTH: u16 = 59;
 
-/// Minimum terminal height (top bar + content + bottom bar).
-const MIN_HEIGHT: u16 = 12;
+/// Minimum terminal height (top bar + content + timeline + bottom bar).
+const MIN_HEIGHT: u16 = 13;
+
+/// Total height of the fixed bars: top bar + timeline + bottom bar.
+const CHROME_HEIGHT: u16 = 3;
+
+/// Maximum width of the timeline bar (in cells).
+const MAX_TIMELINE_BAR_WIDTH: usize = 100;
+
+/// Column and width of the timeline bar within the timeline area.
+fn timeline_bar_geometry(area: Rect, start: u64, head: u64) -> (u16, u16) {
+    const PREFIX: &str = " HISTORY [";
+    let suffix_len = format!("] {start}..{head}").len();
+    let width = (area.width as usize)
+        .saturating_sub(PREFIX.len() + suffix_len)
+        .min(MAX_TIMELINE_BAR_WIDTH);
+    (area.x + PREFIX.len() as u16, width as u16)
+}
+
+/// Offset (in cells) of the current-position marker within the timeline bar:
+/// the current cycle's position between the oldest retained cycle and the
+/// tip. Returns None when there is no bar or no retained history.
+fn timeline_marker_offset(
+    bar_width: u16,
+    start: u64,
+    head: u64,
+    cycle_count: u64,
+) -> Option<usize> {
+    if bar_width == 0 || head < start {
+        return None;
+    }
+    let pos = cycle_count.clamp(start, head);
+    let span = head - start;
+    let offset = ((pos - start) * (u64::from(bar_width) - 1))
+        .checked_div(span)
+        .unwrap_or(0) as usize;
+    Some(offset.min(usize::from(bar_width) - 1))
+}
 
 /// Total number of lines in the main body content:
 /// 1 blank + CI + A + 1 blank + 32 store words.
@@ -140,10 +198,18 @@ struct Snapshot {
     last_instruction: Option<LastInstruction>,
     breakpoints: Vec<Breakpoint>,
     exec_counts: [u64; 32],
+    history_capacity: u64,
+    history_start: u64,
+    history_head: u64,
+    history_len: u64,
 }
 
 impl Snapshot {
     fn from_sim(sim: &Simulator) -> Self {
+        let (history_capacity, history_start, history_head, history_len) = match &sim.history {
+            Some(h) => (h.capacity(), h.start(), h.head(), h.len()),
+            None => (0, 0, 0, 0),
+        };
         Snapshot {
             ci: sim.ci,
             a: sim.a,
@@ -154,6 +220,10 @@ impl Snapshot {
             last_instruction: sim.last_instruction,
             breakpoints: sim.breakpoints.clone(),
             exec_counts: sim.exec_counts,
+            history_capacity,
+            history_start,
+            history_head,
+            history_len,
         }
     }
 }
@@ -181,6 +251,12 @@ struct App {
     /// Whether the execution heatmap is shown in the store view.
     show_heatmap: bool,
 
+    /// Whether the user is currently dragging the timeline scrubber.
+    scrubbing: bool,
+
+    /// Screen area of the timeline bar, for mouse hit-testing.
+    timeline_area: Rect,
+
     should_quit: bool,
 }
 
@@ -201,6 +277,8 @@ impl App {
             editor_popup: EditorPopup::new(),
             last_click: None,
             show_heatmap: false,
+            scrubbing: false,
+            timeline_area: Rect::default(),
             should_quit: false,
         }
     }
@@ -212,7 +290,8 @@ impl App {
         self.last_refresh_time = now;
 
         if is_running {
-            let cycles_delta = cycle_count - self.last_cycles;
+            // saturating_sub: rewinding the history makes cycle_count jump backward
+            let cycles_delta = cycle_count.saturating_sub(self.last_cycles);
             let measured = cycles_delta as f64 / elapsed.as_secs_f64().max(1e-9);
             let alpha = 1.0 - (-elapsed.as_secs_f64() / SPEED_SMOOTHING).exp();
             self.current_speed += alpha * (measured - self.current_speed);
@@ -231,7 +310,19 @@ impl App {
 
     /// Handle a keyboard event, mutating the simulator as needed.
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        // Only handle key press events (ignore release/repeat on platforms that report them)
+        // Holding a scrub key repeats it, for continuous time-travel.
+        // Pop-ups keep priority over the scrub keys.
+        if key.kind == KeyEventKind::Repeat {
+            if !self.breakpoint_popup.is_open()
+                && !self.editor_popup.is_open()
+                && !self.help_popup.is_open()
+            {
+                self.handle_scrub_key(key.code, sim);
+            }
+            return;
+        }
+
+        // Only handle key press events (ignore release on platforms that report them)
         if key.kind != KeyEventKind::Press {
             return;
         }
@@ -287,6 +378,7 @@ impl App {
                 'e' => self.editor_popup.open(),
                 'm' => self.show_heatmap = !self.show_heatmap,
                 'h' => self.help_popup.open(),
+                ',' | '.' => self.handle_scrub_key(key.code, sim),
                 _ => {}
             },
             KeyCode::F(10) => {
@@ -295,11 +387,12 @@ impl App {
                 sim.instruction_cycle();
                 sim.check_breakpoints();
             }
+            KeyCode::Home | KeyCode::End => self.handle_scrub_key(key.code, sim),
             KeyCode::Up => {
                 self.store_scroll = self.store_scroll.saturating_sub(1);
             }
             KeyCode::Down => {
-                let visible_height = self.last_area.height.saturating_sub(2) as usize;
+                let visible_height = self.last_area.height.saturating_sub(CHROME_HEIGHT) as usize;
                 let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
                 self.store_scroll = (self.store_scroll as usize + 1).min(max_scroll) as u16;
             }
@@ -308,8 +401,111 @@ impl App {
         }
     }
 
-    /// Handle a mouse event: double-click to edit, scroll wheel to scroll.
-    fn handle_mouse(&mut self, mouse: MouseEvent) {
+    /// Handle a history-scrubbing key: `,` `.` Home End.
+    fn handle_scrub_key(&mut self, code: KeyCode, sim: &mut Simulator) {
+        match code {
+            KeyCode::Char(',') => self.scrub_relative(-1, sim),
+            KeyCode::Char('.') => self.scrub_relative(1, sim),
+            KeyCode::Home => {
+                if let Some(target) = sim.history.as_ref().map(History::start)
+                    && target != sim.cycle_count
+                {
+                    sim.rewind_to(target);
+                }
+            }
+            KeyCode::End => {
+                if let Some(target) = sim.history.as_ref().map(History::head)
+                    && target != sim.cycle_count
+                {
+                    sim.rewind_to(target);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Scrub the history by `delta` cycles (negative goes back in time).
+    fn scrub_relative(&mut self, delta: i64, sim: &mut Simulator) {
+        let Some(history) = &sim.history else {
+            return;
+        };
+        if history.is_empty() {
+            return;
+        }
+        let target = (sim.cycle_count as i64 + delta)
+            .clamp(history.start() as i64, history.head() as i64) as u64;
+        if target != sim.cycle_count {
+            sim.rewind_to(target);
+        }
+    }
+
+    /// Rewind to the cycle under the given screen column on the timeline bar.
+    fn scrub_to_column(&mut self, column: u16, sim: &mut Simulator) {
+        let Some(history) = &sim.history else {
+            return;
+        };
+        if history.is_empty() {
+            return;
+        }
+        let (start, head) = (history.start(), history.head());
+        let (bar_x, bar_width) = timeline_bar_geometry(self.timeline_area, start, head);
+        let cycle = if bar_width <= 1 {
+            start
+        } else {
+            let offset = (column as i32 - bar_x as i32).clamp(0, bar_width as i32 - 1) as u64;
+            start + offset * (head - start) / (bar_width as u64 - 1)
+        };
+        if cycle != sim.cycle_count {
+            sim.rewind_to(cycle);
+        }
+    }
+
+    /// Handle a mouse event: scrub the timeline, double-click to edit,
+    /// scroll wheel to scroll.
+    fn handle_mouse(&mut self, mouse: MouseEvent, sim: &mut Simulator) {
+        // Releasing the left button ends a scrub, wherever the cursor is
+        if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) {
+            self.scrubbing = false;
+            return;
+        }
+
+        // While scrubbing, drags anywhere on screen move the cursor
+        // (scrub_to_column clamps the column to the bar)
+        if self.scrubbing && matches!(mouse.kind, MouseEventKind::Drag(MouseButton::Left)) {
+            self.scrub_to_column(mouse.column, sim);
+            return;
+        }
+
+        // The timeline row: click to scrub, scroll wheel to step
+        if self.timeline_area.height > 0 && mouse.row == self.timeline_area.y {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) => {
+                    // Scrubbing requires a non-empty history
+                    if sim.history.as_ref().is_some_and(|h| !h.is_empty()) {
+                        self.scrubbing = true;
+                        self.scrub_to_column(mouse.column, sim);
+                    }
+                }
+                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                    let direction = if matches!(mouse.kind, MouseEventKind::ScrollUp) {
+                        -1
+                    } else {
+                        1
+                    };
+                    let step = sim
+                        .history
+                        .as_ref()
+                        .map(|h| (h.len() / 100).max(1))
+                        .unwrap_or(0);
+                    if step > 0 {
+                        self.scrub_relative(direction * step as i64, sim);
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let now = Instant::now();
@@ -332,7 +528,7 @@ impl App {
                 self.store_scroll = self.store_scroll.saturating_sub(1);
             }
             MouseEventKind::ScrollDown => {
-                let visible_height = self.last_area.height.saturating_sub(2) as usize;
+                let visible_height = self.last_area.height.saturating_sub(CHROME_HEIGHT) as usize;
                 let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
                 self.store_scroll = (self.store_scroll as usize + 1).min(max_scroll) as u16;
             }
@@ -351,7 +547,7 @@ impl App {
             return;
         }
         let body_top = 1u16;
-        let body_height = self.last_area.height.saturating_sub(2);
+        let body_height = self.last_area.height.saturating_sub(CHROME_HEIGHT);
         if screen_row < body_top || screen_row >= body_top + body_height {
             return;
         }
@@ -442,7 +638,7 @@ impl App {
         self.last_area = area;
 
         // Clamp scroll to keep the content within the visible area
-        let visible_height = area.height.saturating_sub(2) as usize;
+        let visible_height = area.height.saturating_sub(CHROME_HEIGHT) as usize;
         let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
         self.store_scroll = (self.store_scroll as usize).min(max_scroll) as u16;
 
@@ -459,20 +655,24 @@ impl App {
             );
             let paragraph = Paragraph::new(msg);
             f.render_widget(paragraph, area);
+            self.timeline_area = Rect::default();
             return;
         }
 
-        // Layout: top bar (1 line), main body (flexible), bottom bar (1 line)
+        // Layout: top bar (1 line), main body (flexible), timeline (1 line), bottom bar (1 line)
         let chunks = Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(0),
             Constraint::Length(1),
+            Constraint::Length(1),
         ])
         .split(area);
 
+        self.timeline_area = chunks[2];
         self.draw_top_bar(f, chunks[0], snap);
         self.draw_main_body(f, chunks[1], snap);
-        self.draw_bottom_bar(f, chunks[2]);
+        self.draw_timeline(f, chunks[2], snap);
+        self.draw_bottom_bar(f, chunks[3]);
 
         // Draw pop-ups on top
         if self.help_popup.is_open() {
@@ -485,11 +685,22 @@ impl App {
             self.editor_popup
                 .draw(f, area, snap.ci, snap.a, &snap.store);
         }
+
+        // While scrubbing the timeline, show the current cycle above the cursor
+        if self.scrubbing {
+            self.draw_scrub_popup(f, area, snap);
+        }
     }
 
     /// Draw the top bar with status indicators.
     fn draw_top_bar(&self, f: &mut Frame, area: Rect, snap: &Snapshot) {
-        let status = if snap.stop_flag { "STOPPED" } else { "RUNNING" };
+        let status = if self.scrubbing {
+            "REWIND"
+        } else if snap.stop_flag {
+            "STOPPED"
+        } else {
+            "RUNNING"
+        };
 
         let last_instr = snap
             .last_instruction
@@ -596,6 +807,100 @@ impl App {
 
         let paragraph = Paragraph::new(lines).scroll((self.store_scroll, 0));
         f.render_widget(paragraph, area);
+    }
+
+    /// Draw the timeline bar: how much history is retained (filled bar) and
+    /// where the machine currently is (marker). Dragging it scrubs the history.
+    fn draw_timeline(&self, f: &mut Frame, area: Rect, snap: &Snapshot) {
+        if snap.history_capacity == 0 {
+            let line = Line::from(Span::styled(
+                " HISTORY [disabled]",
+                Style::default().fg(Color::DarkGray),
+            ));
+            f.render_widget(Paragraph::new(line), area);
+            return;
+        }
+
+        let (_, bar_width) = timeline_bar_geometry(area, snap.history_start, snap.history_head);
+
+        // Filled portion = fraction of the capacity still retained
+        let filled = (snap.history_len * u64::from(bar_width) / snap.history_capacity) as usize;
+
+        // Marker at the current position (the tip, or the scrub position)
+        let marker = timeline_marker_offset(
+            bar_width,
+            snap.history_start,
+            snap.history_head,
+            snap.cycle_count,
+        );
+
+        let blue = Style::default().fg(Color::Blue);
+        let mut spans = vec![Span::styled(" HISTORY [".to_string(), blue)];
+        if bar_width > 0 {
+            let segment = |from: usize, to: usize| -> String {
+                (from..to)
+                    .map(|i| if i < filled { '\u{2588}' } else { '\u{b7}' })
+                    .collect()
+            };
+            let marker = marker.unwrap_or(0);
+            spans.push(Span::styled(segment(0, marker), blue));
+            spans.push(Span::styled(
+                ">".to_string(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(
+                segment(marker + 1, usize::from(bar_width)),
+                blue,
+            ));
+        }
+        spans.push(Span::styled(
+            format!("] {}..{}", snap.history_start, snap.history_head),
+            blue,
+        ));
+
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
+    }
+
+    /// Draw a small pop-up above the timeline cursor, showing the current cycle.
+    fn draw_scrub_popup(&self, f: &mut Frame, area: Rect, snap: &Snapshot) {
+        if self.timeline_area.height == 0 {
+            return;
+        }
+
+        // Center the pop-up on the bar's position marker, so it stays above
+        // the marker even when the mouse is dragged past the bar's ends
+        // (only the screen edges clamp it).
+        let (bar_x, bar_width) =
+            timeline_bar_geometry(self.timeline_area, snap.history_start, snap.history_head);
+        let Some(offset) = timeline_marker_offset(
+            bar_width,
+            snap.history_start,
+            snap.history_head,
+            snap.cycle_count,
+        ) else {
+            return;
+        };
+        let center = bar_x + offset as u16;
+
+        let text = format!(" cycle {} ", snap.cycle_count);
+        let width = text.len() as u16;
+        let x = center
+            .saturating_sub(width / 2)
+            .clamp(area.x, area.x + area.width.saturating_sub(width));
+        let popup_area = Rect {
+            x,
+            y: self.timeline_area.y.saturating_sub(1),
+            width,
+            height: 1,
+        };
+
+        f.render_widget(Clear, popup_area);
+        f.render_widget(
+            Paragraph::new(text).style(Style::default().fg(Color::Black).bg(Color::Yellow)),
+            popup_area,
+        );
     }
 
     /// Draw the bottom bar with keyboard shortcuts.
@@ -752,7 +1057,8 @@ fn run_app(
                     app.handle_key(key, &mut s);
                 }
                 Event::Mouse(mouse) => {
-                    app.handle_mouse(mouse);
+                    let mut s = sim.lock().unwrap();
+                    app.handle_mouse(mouse, &mut s);
                 }
                 _ => {}
             }
@@ -785,4 +1091,192 @@ fn run_app(
         .into_inner()
         .unwrap_or_else(|e| e.into_inner());
     Ok(sim)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+
+    /// A simulator that never halts: an empty store executes `JMP 0` forever.
+    fn looping_sim(cycles: u32) -> Simulator {
+        let mut sim = Simulator::new();
+        sim.enable_history(100);
+        sim.run(cycles);
+        sim
+    }
+
+    /// A snapshot with history enabled, as the UI would see it while paused.
+    fn snapshot_with_history(cycle_count: u64) -> Snapshot {
+        Snapshot {
+            ci: 0,
+            a: 0,
+            store: [0; 32],
+            cycle_count,
+            speed: 700,
+            stop_flag: true,
+            last_instruction: None,
+            breakpoints: Vec::new(),
+            exec_counts: [0; 32],
+            history_capacity: 100,
+            history_start: 0,
+            history_head: 99,
+            history_len: 100,
+        }
+    }
+
+    /// Render the app into a test terminal and return the resulting buffer.
+    fn render(app: &mut App, snap: &Snapshot, width: u16, height: u16) -> Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|f| app.draw(f, snap)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    /// The text of one screen row, one character per cell.
+    fn row_text(buffer: &Buffer, row: u16) -> String {
+        (0..buffer.area.width)
+            .map(|x| buffer[(x, row)].symbol())
+            .collect()
+    }
+
+    #[test]
+    fn timeline_column_maps_to_cycle() {
+        let mut sim = looping_sim(10);
+        let mut app = App::new();
+        app.timeline_area = Rect::new(0, 10, 80, 1);
+
+        let (bar_x, bar_width) = timeline_bar_geometry(app.timeline_area, 0, 10);
+        assert_eq!(10, bar_x);
+        assert!(bar_width > 1);
+
+        // Far right of the bar: the tip
+        app.scrub_to_column(bar_x + bar_width - 1, &mut sim);
+        assert_eq!(10, sim.cycle_count);
+
+        // Left edge: the oldest retained cycle
+        app.scrub_to_column(bar_x, &mut sim);
+        assert_eq!(0, sim.cycle_count);
+
+        // Middle
+        app.scrub_to_column(bar_x + bar_width / 2, &mut sim);
+        assert_eq!(5, sim.cycle_count);
+
+        // Columns past the bar's ends clamp to the retained range,
+        // so the marker (and the pop-up centered on it) stays on the bar
+        app.scrub_to_column(bar_x + bar_width + 50, &mut sim);
+        assert_eq!(10, sim.cycle_count);
+        app.scrub_to_column(0, &mut sim);
+        assert_eq!(0, sim.cycle_count);
+        app.scrub_to_column(bar_x.saturating_sub(50), &mut sim);
+        assert_eq!(0, sim.cycle_count);
+    }
+
+    #[test]
+    fn scrub_relative_clamps_to_history_range() {
+        let mut sim = looping_sim(10);
+        let mut app = App::new();
+
+        app.scrub_relative(-1000, &mut sim);
+        assert_eq!(0, sim.cycle_count);
+        assert!(sim.stop_flag, "scrubbing pauses the machine");
+
+        app.scrub_relative(1000, &mut sim);
+        assert_eq!(10, sim.cycle_count);
+
+        // At the tip, stepping forward is a no-op and does not pause
+        sim.stop_flag = false;
+        app.scrub_relative(1, &mut sim);
+        assert_eq!(10, sim.cycle_count);
+        assert!(!sim.stop_flag);
+    }
+
+    #[test]
+    fn scrub_keys_step_through_history() {
+        let mut sim = looping_sim(10);
+        let mut app = App::new();
+
+        app.handle_scrub_key(KeyCode::Char(','), &mut sim);
+        assert_eq!(9, sim.cycle_count);
+        app.handle_scrub_key(KeyCode::Char('.'), &mut sim);
+        assert_eq!(10, sim.cycle_count);
+        app.handle_scrub_key(KeyCode::Home, &mut sim);
+        assert_eq!(0, sim.cycle_count);
+        app.handle_scrub_key(KeyCode::End, &mut sim);
+        assert_eq!(10, sim.cycle_count);
+    }
+
+    #[test]
+    fn scrub_without_history_is_noop() {
+        let mut sim = Simulator::new();
+        sim.run(10);
+        let mut app = App::new();
+
+        app.handle_scrub_key(KeyCode::Char(','), &mut sim);
+        assert_eq!(10, sim.cycle_count);
+        assert!(!sim.stop_flag);
+    }
+
+    #[test]
+    fn scrub_popup_centers_on_the_bar_marker() {
+        // On an 80-column terminal the bar spans x=10, width 63
+        let timeline = Rect::new(0, 18, 80, 1);
+        let (bar_x, bar_width) = timeline_bar_geometry(timeline, 0, 99);
+        assert_eq!(10, bar_x);
+        assert_eq!(63, bar_width);
+
+        for cycle_count in [0, 42, 99] {
+            let mut app = App::new();
+            app.scrubbing = true;
+            let snap = snapshot_with_history(cycle_count);
+            let buffer = render(&mut app, &snap, 80, 20);
+
+            // The timeline row is 18 on a 20-row terminal; the pop-up sits on row 17
+            let row = row_text(&buffer, 17);
+            let text = format!(" cycle {cycle_count} ");
+            let pos = row
+                .find(&text)
+                .unwrap_or_else(|| panic!("pop-up missing at cycle {cycle_count}, row: {row:?}"));
+            let center = pos as u16 + text.len() as u16 / 2;
+            let marker =
+                bar_x + timeline_marker_offset(bar_width, 0, 99, cycle_count).unwrap() as u16;
+            assert_eq!(
+                marker, center,
+                "pop-up should center on the marker at cycle {cycle_count}"
+            );
+        }
+    }
+
+    #[test]
+    fn scrub_popup_hidden_when_not_scrubbing() {
+        let mut app = App::new();
+        let snap = snapshot_with_history(42);
+        let buffer = render(&mut app, &snap, 80, 20);
+
+        let all: String = (0..buffer.area.height)
+            .map(|y| row_text(&buffer, y))
+            .collect();
+        assert!(!all.contains(" cycle 42 "), "no pop-up when not scrubbing");
+    }
+
+    #[test]
+    fn scrub_popup_stays_on_screen_at_the_bar_ends() {
+        // Narrowest supported terminal, pop-up at both ends of the bar
+        for cycle_count in [0, 99] {
+            let mut app = App::new();
+            app.scrubbing = true;
+            let snap = snapshot_with_history(cycle_count);
+            let buffer = render(&mut app, &snap, MIN_WIDTH, 20);
+
+            let row = row_text(&buffer, 17);
+            let text = format!(" cycle {cycle_count} ");
+            let pos = row
+                .find(&text)
+                .unwrap_or_else(|| panic!("pop-up missing at cycle {cycle_count}, row: {row:?}"));
+            assert!(
+                pos + text.len() <= buffer.area.width as usize,
+                "pop-up must stay on screen at cycle {cycle_count}"
+            );
+        }
+    }
 }

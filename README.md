@@ -14,13 +14,34 @@ cargo run -r samples/ssem/factorct.asm
 
 # Features
 
-- Interactive terminual interface (TUI)
-- Variable execution speed
-- Step by step mode
-- Breakpoints to stop the machine at a given condition
-- Live edition of the machine's memory while running
-- Heatmap showing the most executed lines
-- Headless mode to only print the last state of the machine
+## Rewind
+
+Use the mouse to navigate in previous states of the machine. Or use the `,` and `.` keys to step back and forth.
+The machine can then be modified and restarted from any point.
+
+![Screenshot](docs/rewind_history.png)
+
+## Heatmap
+
+Visualise the execution path of the program. The heatmap shows the relative frequency of word execution.
+
+![Screenshot](docs/heatmap.png)
+
+## Live edit
+
+Double click on any word to edit it, either by entering an instruction or by setting a numeric value.
+
+![Screenshot](docs/edit_word.png)
+
+## Breakpoints
+
+Set conditions that will stop the machines if one of them is met.
+
+![Screenshot](docs/breakpoints.png)
+
+## Headless mode
+
+Run the machine as fast as possible without any graphical interface and only print the last state of the machine
 
 # Documentation
 

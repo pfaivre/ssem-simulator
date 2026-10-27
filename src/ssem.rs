@@ -1,5 +1,6 @@
 //! A simulator for the Small-Scale Experimental Machine
 
+pub mod history;
 mod opcode;
 pub mod simulator;
 mod store;

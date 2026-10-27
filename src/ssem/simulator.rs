@@ -1,6 +1,7 @@
 use std::{fmt, path::Path};
 
 use super::{
+    history::{History, Snapshot},
     opcode::Opcode,
     store::{Bits, Store},
 };
@@ -122,6 +123,9 @@ pub struct Simulator {
     /// How many times each store word has been fetched and executed as an
     /// instruction. Indexed by store address (0..32). Used by the TUI heatmap.
     pub exec_counts: [u64; 32],
+
+    /// Execution history for time-travel, when enabled via `enable_history`.
+    pub history: Option<History>,
 }
 
 impl Default for Simulator {
@@ -142,6 +146,7 @@ impl Simulator {
             last_instruction: None,
             breakpoints: Vec::new(),
             exec_counts: [0; 32],
+            history: None,
         }
     }
 
@@ -171,12 +176,55 @@ impl Simulator {
             last_instruction: None,
             breakpoints: Vec::new(),
             exec_counts: [0; 32],
+            history: None,
         }
     }
 
     /// Whether the machine is currently running (not stopped).
     pub fn is_running(&self) -> bool {
         !self.stop_flag
+    }
+
+    /// Enable execution history, retaining up to `capacity` past states.
+    ///
+    /// The current state is recorded as cycle 0; every subsequent instruction
+    /// cycle appends a snapshot. History is disabled (None) by default, so
+    /// headless runs pay no memory or CPU cost.
+    pub fn enable_history(&mut self, capacity: usize) {
+        let mut history = History::new(capacity);
+        history.record(
+            self.cycle_count,
+            Snapshot {
+                a: self.a,
+                ci: self.ci,
+                store: self.store.words,
+            },
+        );
+        self.history = Some(history);
+    }
+
+    /// Restore the machine to the state recorded at `cycle`.
+    ///
+    /// Resets the heatmap counters and the last-instruction display, and
+    /// pauses the machine. The retained history is preserved, so the position
+    /// can be scrubbed forward again; re-executing from the rewound position
+    /// overwrites the previously recorded future. Returns false when history
+    /// is disabled or `cycle` is not retained.
+    pub fn rewind_to(&mut self, cycle: u64) -> bool {
+        let Some(history) = &self.history else {
+            return false;
+        };
+        let Some(snapshot) = history.get(cycle).copied() else {
+            return false;
+        };
+        self.a = snapshot.a;
+        self.ci = snapshot.ci;
+        self.store.words = snapshot.store;
+        self.cycle_count = cycle;
+        self.exec_counts = [0; 32];
+        self.last_instruction = None;
+        self.stop_flag = true;
+        true
     }
 
     /// Run the machine until STP is encountered or the given amount of cycles is reached.
@@ -219,6 +267,18 @@ impl Simulator {
             data,
         });
         self.cycle_count += 1;
+
+        // Record for time-travel
+        if let Some(history) = &mut self.history {
+            history.record(
+                self.cycle_count,
+                Snapshot {
+                    a: self.a,
+                    ci: self.ci,
+                    store: self.store.words,
+                },
+            );
+        }
     }
 
     /// Check all breakpoints and stop the machine if any triggers.
@@ -314,6 +374,7 @@ impl From<Vec<String>> for Simulator {
             last_instruction: None,
             breakpoints: Vec::new(),
             exec_counts: [0; 32],
+            history: None,
         }
     }
 }
@@ -943,5 +1004,148 @@ mod tests {
             "should stop early due to breakpoint, got {cycles}"
         );
         assert!(sim.stop_flag);
+    }
+
+    /// A small program: a = -(store[6] + store[7]), stored to word 8.
+    fn history_test_program() -> Simulator {
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::LDN, 6);
+        sim.store.words[2] = instr(Opcode::SUB, 7);
+        sim.store.words[3] = instr(Opcode::STO, 8);
+        sim.store.words[4] = instr(Opcode::STP, 0);
+        sim.store.words[6] = 5;
+        sim.store.words[7] = 3;
+        sim
+    }
+
+    #[test]
+    fn enable_history_records_initial_state() {
+        let mut sim = history_test_program();
+        sim.enable_history(10);
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(1, h.len());
+        assert_eq!(0, h.head());
+        let s = h.get(0).unwrap();
+        assert_eq!(0, s.a);
+        assert_eq!(0, s.ci);
+        assert_eq!(instr(Opcode::LDN, 6), s.store[1]);
+        assert_eq!(None, h.get(1));
+    }
+
+    #[test]
+    fn instruction_cycle_records_history() {
+        let mut sim = history_test_program();
+        sim.enable_history(10);
+        sim.instruction_cycle(); // LDN 6
+        sim.instruction_cycle(); // SUB 7
+
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(3, h.len()); // initial state + 2 cycles
+        assert_eq!(2, h.head());
+        assert_eq!(-5, h.get(1).unwrap().a);
+        assert_eq!(1, h.get(1).unwrap().ci);
+        assert_eq!(-8, h.get(2).unwrap().a);
+        assert_eq!(2, h.get(2).unwrap().ci);
+    }
+
+    #[test]
+    fn history_disabled_by_default() {
+        let mut sim = history_test_program();
+        sim.run(4);
+        assert!(sim.history.is_none());
+    }
+
+    #[test]
+    fn rewind_restores_state_and_resets_display() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(3); // LDN, SUB, STO
+        assert_eq!(-8, sim.a);
+        assert_eq!(3, sim.cycle_count);
+        assert_eq!(-8, sim.store.words[8]);
+        assert!(sim.exec_counts.iter().any(|&c| c > 0));
+        assert!(sim.last_instruction.is_some());
+
+        assert!(sim.rewind_to(0));
+        assert_eq!(0, sim.a);
+        assert_eq!(0, sim.ci);
+        assert_eq!(0, sim.cycle_count);
+        assert_eq!(0, sim.store.words[8]);
+        assert!(sim.exec_counts.iter().all(|&c| c == 0));
+        assert!(sim.last_instruction.is_none());
+        assert!(sim.stop_flag, "browsing the history pauses the machine");
+        // The retained history is preserved for forward scrubbing
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(4, h.len()); // initial state + 3 cycles
+        assert_eq!(3, h.head());
+    }
+
+    #[test]
+    fn rewind_preserves_history_for_forward_scrubbing() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(4);
+
+        assert!(sim.rewind_to(1));
+        assert_eq!(1, sim.cycle_count);
+        // The retained history is still browsable in both directions
+        assert!(sim.rewind_to(3));
+        assert_eq!(3, sim.cycle_count);
+        assert!(sim.rewind_to(1));
+        assert_eq!(1, sim.cycle_count);
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(4, h.head());
+        assert_eq!(5, h.len());
+    }
+
+    #[test]
+    fn rewind_out_of_range_returns_false() {
+        let mut sim = history_test_program();
+        sim.enable_history(10);
+        sim.instruction_cycle();
+        assert!(!sim.rewind_to(99));
+        assert_eq!(1, sim.ci, "state must be unchanged");
+    }
+
+    #[test]
+    fn rewind_without_history_returns_false() {
+        let mut sim = Simulator::new();
+        assert!(!sim.rewind_to(0));
+    }
+
+    #[test]
+    fn rewind_then_rerun_reproduces_recorded_states() {
+        // The machine is deterministic: re-executing from a rewound cycle
+        // reproduces exactly the states that were recorded before.
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(4);
+        let final_a = sim.a;
+        let final_store = sim.store.words;
+
+        assert!(sim.rewind_to(1));
+        assert_eq!(1, sim.cycle_count);
+        sim.run(3);
+        assert_eq!(final_a, sim.a);
+        assert_eq!(final_store, sim.store.words);
+        assert_eq!(4, sim.cycle_count);
+    }
+
+    #[test]
+    fn rewind_then_edit_truncates_future() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(3); // head = 3
+        let old_cycle2_a = sim.history.as_ref().unwrap().get(2).unwrap().a;
+
+        assert!(sim.rewind_to(1));
+        sim.store.words[7] = 100; // change what the future will compute
+        sim.instruction_cycle(); // executes line 2 (SUB 7) with the edited word
+
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(2, h.head());
+        assert_eq!(None, h.get(3), "stale future must be truncated");
+        assert_ne!(old_cycle2_a, h.get(2).unwrap().a);
+        assert_eq!(-105, h.get(2).unwrap().a); // -5 - 100
     }
 }
