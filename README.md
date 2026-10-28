@@ -19,25 +19,31 @@ cargo run -r samples/ssem/factorct.asm
 Use the mouse to navigate in previous states of the machine. Or use the `,` and `.` keys to step back and forth.
 The machine can then be modified and restarted from any point.
 
-![Screenshot](docs/rewind_history.png)
+![Scrub bar to rewind the history](docs/rewind_history.png)
 
 ## Heatmap
 
 Visualise the execution path of the program. The heatmap shows the relative frequency of word execution.
 
-![Screenshot](docs/heatmap.png)
+![Heatmap](docs/heatmap.png)
+
+## Flow visualisation
+
+Show where the data moves.
+
+![The arrow illustrates the effect of STO 04](docs/arrows.png)
 
 ## Live edit
 
 Double click on any word to edit it, either by entering an instruction or by setting a numeric value.
 
-![Screenshot](docs/edit_word.png)
+![Pop-up to edit a word](docs/edit_word.png)
 
 ## Breakpoints
 
 Set conditions that will stop the machines if one of them is met.
 
-![Screenshot](docs/breakpoints.png)
+![Pop-up to set breakpoints](docs/breakpoints.png)
 
 ## Headless mode
 

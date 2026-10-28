@@ -43,7 +43,7 @@ fn main() {
             let history_size = args.history_size.min(MAX_CAPACITY);
             if history_size < args.history_size {
                 eprintln!(
-                    "Warning: --history-size {} is too large, clamped to {MAX_CAPACITY} (~13.6 GB max)",
+                    "Warning: --history-size {} is too large, clamped to {MAX_CAPACITY} (~14.8 GB max)",
                     args.history_size,
                 );
             }

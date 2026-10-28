@@ -33,11 +33,20 @@
 //! through the recorded cycles; the machine pauses and its state is restored to
 //! the scrubbed cycle, and a small pop-up above the bar's position marker shows
 //! the current cycle. Press P to resume from there — re-executing overwrites
-//! the previously recorded future. Browsing the history resets the heatmap and
-//! the last-instruction display.
+//! the previously recorded future. Browsing the history resets the heatmap;
+//! the last-instruction display follows the browsed cycle.
 //!
 //! Press M to toggle the execution heatmap: a colored bar next to each store
 //! word shows how often it has been executed (green = cold, red = hot).
+//!
+//! Pointer arrows are shown by default (press A to toggle them): an arrow in
+//! the right margin follows the data flow of the last executed instruction
+//! (the line marked `>`). STO points from the accumulator to the destination
+//! word, LDN from the source word to the accumulator, and the jumps from the
+//! word holding the target value to CI. Magenta marks a load or store, cyan
+//! an arithmetic combination (SUB, JRP). The destination is highlighted.
+//! After a jump, CI holds the target value rather than the executed line, so
+//! the marker and the arrow follow the executed instruction, not CI.
 
 mod popups;
 
@@ -62,9 +71,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 use ratatui::{Frame, Terminal};
 
-use crate::ssem::Store;
 use crate::ssem::history::History;
 use crate::ssem::simulator::{Breakpoint, LastInstruction, Simulator};
+use crate::ssem::{Opcode, Store};
 use popups::{BreakpointPopup, EditorPopup, HelpPopup};
 
 /// Bit representations cycled through with the D key: (on_char, off_char).
@@ -98,6 +107,11 @@ const KEYMAP: &[(&str, &str, &str)] = &[
         "Edit a register or store word (or double-click a line)",
     ),
     ("M", "HEATMAP", "Toggle the execution heatmap"),
+    (
+        "A",
+        "ARROWS",
+        "Toggle the pointer arrow following the last executed instruction",
+    ),
     ("B", "BREAKPT", "Open the breakpoint pop-up"),
     ("H", "HELP", "Toggle this help pop-up"),
     (
@@ -183,6 +197,28 @@ const HEATMAP_BAR_WIDTH: usize = 6;
 /// Extra width required when the heatmap is shown (bar + leading space).
 const HEATMAP_EXTRA_WIDTH: u16 = (HEATMAP_BAR_WIDTH + 2) as u16;
 
+/// Extra width required when pointer arrows are shown
+/// (separator + horizontal segment + arrowhead + gutter column).
+const ARROW_EXTRA_WIDTH: u16 = 4;
+
+/// Content row of the CI register in the main body
+/// (0 blank, 1 CI, 2 A, 3 blank, 4..=35 store words 0..=31).
+const CI_ROW: usize = 1;
+
+/// Content row of the accumulator in the main body.
+const A_ROW: usize = 2;
+
+/// Content row of store word 0; word `i` is at content row `STORE_ROW_OFFSET + i`.
+const STORE_ROW_OFFSET: usize = 4;
+
+/// Width of a store line's text: pointer column (1) + bits (32) + suffix (25),
+/// excluding the optional heatmap bar.
+const STORE_TEXT_WIDTH: usize = 58;
+
+/// Width of the CI and accumulator lines' text: bits with leading space (33)
+/// + label (16), excluding the optional heatmap spacer.
+const REGISTER_TEXT_WIDTH: usize = 49;
+
 /// A snapshot of the simulator state, taken by the UI thread under a brief lock.
 ///
 /// Drawing uses this snapshot instead of the live simulator so that the
@@ -228,6 +264,14 @@ impl Snapshot {
     }
 }
 
+/// A pointer arrow: where it starts and ends (in content rows of the main
+/// body) and its color.
+struct PointerArrow {
+    source: usize,
+    target: usize,
+    color: Color,
+}
+
 /// The application state for the TUI (UI thread only).
 struct App {
     bit_representation: usize,
@@ -250,6 +294,9 @@ struct App {
 
     /// Whether the execution heatmap is shown in the store view.
     show_heatmap: bool,
+
+    /// Whether the pointer arrow is shown next to the store view.
+    show_pointers: bool,
 
     /// Whether the user is currently dragging the timeline scrubber.
     scrubbing: bool,
@@ -277,6 +324,7 @@ impl App {
             editor_popup: EditorPopup::new(),
             last_click: None,
             show_heatmap: false,
+            show_pointers: true,
             scrubbing: false,
             timeline_area: Rect::default(),
             should_quit: false,
@@ -377,6 +425,7 @@ impl App {
                 'b' => self.breakpoint_popup.open(),
                 'e' => self.editor_popup.open(),
                 'm' => self.show_heatmap = !self.show_heatmap,
+                'a' => self.show_pointers = !self.show_pointers,
                 'h' => self.help_popup.open(),
                 ',' | '.' => self.handle_scrub_key(key.code, sim),
                 _ => {}
@@ -632,6 +681,42 @@ impl App {
         (bar, color)
     }
 
+    /// The pointer arrow for the last executed instruction, following its
+    /// data flow:
+    ///
+    /// - STO: from the accumulator to the destination word
+    /// - LDN: from the source word to the accumulator
+    /// - SUB/SUB2: like LDN, in a different color
+    /// - JMP: from the word holding the target value to CI (a copy)
+    /// - JRP: like JMP, in a different color (the value is added to CI)
+    ///
+    /// Every arrow is a data movement, so the color matches the operation:
+    /// magenta when a value is loaded or stored, cyan when it is
+    /// arithmetically combined. The arrow follows the executed instruction
+    /// rather than CI: after a jump, CI holds the target value, so the word
+    /// at CI is neither the last nor the next instruction to execute (CI is
+    /// incremented before each fetch). Returns `None` when no instruction
+    /// has executed yet, or when the instruction moves no store data (CMP
+    /// and STP ignore their data field).
+    fn current_arrow(snap: &Snapshot) -> Option<PointerArrow> {
+        let li = snap.last_instruction?;
+        let word_row = STORE_ROW_OFFSET + li.data as usize;
+        let (source, target, color) = match li.opcode {
+            Opcode::STO => (A_ROW, word_row, Color::Magenta),
+            Opcode::LDN => (word_row, A_ROW, Color::Magenta),
+            Opcode::SUB | Opcode::SUB2 => (word_row, A_ROW, Color::Cyan),
+            Opcode::JMP => (word_row, CI_ROW, Color::Magenta),
+            Opcode::JRP => (word_row, CI_ROW, Color::Cyan),
+            // CMP and STP ignore their data field
+            _ => return None,
+        };
+        Some(PointerArrow {
+            source,
+            target,
+            color,
+        })
+    }
+
     /// Draw the entire interface from a state snapshot.
     fn draw(&mut self, f: &mut Frame, snap: &Snapshot) {
         let area = f.area();
@@ -642,12 +727,15 @@ impl App {
         let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
         self.store_scroll = (self.store_scroll as usize).min(max_scroll) as u16;
 
-        // Check minimum terminal size (wider when the heatmap is shown)
-        let min_width = if self.show_heatmap {
-            MIN_WIDTH + HEATMAP_EXTRA_WIDTH
-        } else {
-            MIN_WIDTH
-        };
+        // Check minimum terminal size (wider when the heatmap or the
+        // pointer arrows are shown)
+        let mut min_width = MIN_WIDTH;
+        if self.show_heatmap {
+            min_width += HEATMAP_EXTRA_WIDTH;
+        }
+        if self.show_pointers {
+            min_width += ARROW_EXTRA_WIDTH;
+        }
         if area.width < min_width || area.height < MIN_HEIGHT {
             let msg = format!(
                 "Terminal too small: {}x{}, needs at least {}x{}",
@@ -720,6 +808,10 @@ impl App {
             text.push_str(" [ HEATMAP ] ");
         }
 
+        if self.show_pointers {
+            text.push_str(" [ ARROWS ] ");
+        }
+
         let line = Line::from(Span::styled(text, Style::default().fg(Color::Blue)));
         f.render_widget(Paragraph::new(line), area);
     }
@@ -738,42 +830,164 @@ impl App {
         // Row 0: blank
         lines.push(Line::from(""));
 
+        // Pointer arrow: gutter cells appended after a line's text, following
+        // the data flow of the last executed instruction
+        let arrow = if self.show_pointers {
+            Self::current_arrow(snap)
+        } else {
+            None
+        };
+        let arrow_target = arrow.as_ref().map(|a| a.target);
+
+        // Gutter cells for the rows whose text spans the full store width
+        // (store words, and the blank row the arrow's vertical may cross).
+        // The register rows' cells (CI, accumulator) are built separately,
+        // since their text is shorter and the arrow must connect back to it.
+        let heatmap_extra = if self.show_heatmap {
+            HEATMAP_EXTRA_WIDTH as usize
+        } else {
+            0
+        };
+        let mut gutter: Vec<Option<Span<'static>>> = vec![None; CONTENT_HEIGHT];
+        if let Some(arrow) = &arrow {
+            let style = Style::default().fg(arrow.color);
+            let (top, bottom) = (
+                arrow.source.min(arrow.target),
+                arrow.source.max(arrow.target),
+            );
+            // The corner leaving the source line turns toward the target;
+            // the corner at the target line turns toward the arrowhead
+            let (src_corner, dst_corner) = if arrow.target > arrow.source {
+                ('\u{256e}', '\u{256f}') // ╮ ╯
+            } else {
+                ('\u{256f}', '\u{256e}') // ╯ ╮
+            };
+            if !matches!(arrow.source, CI_ROW | A_ROW) {
+                gutter[arrow.source] = Some(Span::styled(format!(" ──{src_corner}"), style));
+            }
+            for cell in gutter.iter_mut().take(bottom).skip(top + 1) {
+                *cell = Some(Span::styled("   \u{2502}".to_string(), style));
+            }
+            if !matches!(arrow.target, CI_ROW | A_ROW) {
+                gutter[arrow.target] = Some(Span::styled(
+                    format!(" \u{25c0}\u{2500}{dst_corner}"),
+                    style,
+                ));
+            }
+        }
+
+        // A register row's (CI, accumulator) gutter cell: a run of dashes
+        // connects the arrow back to the register's text. When the arrow's
+        // vertical crosses a register row that is not an endpoint (an arrow
+        // to CI crosses the accumulator), that row carries the vertical.
+        let register_gutter = |row: usize| -> Option<Span<'static>> {
+            let arrow = arrow.as_ref()?;
+            let style = Style::default().fg(arrow.color);
+            // Cells between the register's text and the store gutter
+            let pad = STORE_TEXT_WIDTH - REGISTER_TEXT_WIDTH;
+            if arrow.source == row {
+                // The arrow leaves the register (STO)
+                let corner = if arrow.target > arrow.source {
+                    '\u{256e}'
+                } else {
+                    '\u{256f}'
+                };
+                Some(Span::styled(
+                    format!(" {}{corner}", "\u{2500}".repeat(pad + 2)),
+                    style,
+                ))
+            } else if arrow.target == row {
+                // The arrow arrives at the register (LDN/SUB to A, JMP/JRP to CI)
+                let corner = if arrow.target > arrow.source {
+                    '\u{256f}'
+                } else {
+                    '\u{256e}'
+                };
+                Some(Span::styled(
+                    format!(" \u{25c0}{}{corner}", "\u{2500}".repeat(pad + 1)),
+                    style,
+                ))
+            } else if arrow.source.min(arrow.target) < row && row < arrow.source.max(arrow.target) {
+                // The arrow's vertical crosses this register row
+                Some(Span::styled(
+                    format!("{}   \u{2502}", " ".repeat(pad)),
+                    style,
+                ))
+            } else {
+                None
+            }
+        };
+
         // Row 1: CI
         let ci_bits = self.format_bits(snap.ci);
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("{heatmap_spacer} {ci_bits}"),
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
+        let ci_style = if arrow_target == Some(CI_ROW) {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD)
+        };
+        let mut ci_spans = vec![
+            Span::styled(format!("{heatmap_spacer} {ci_bits}"), ci_style),
             Span::raw(format!(" CI: {:>11}", snap.ci)),
-        ]));
+        ];
+        if let Some(cell) = &register_gutter(CI_ROW) {
+            ci_spans.push(cell.clone());
+        }
+        lines.push(Line::from(ci_spans));
 
         // Row 2: Accumulator
         let a_bits = self.format_bits(snap.a);
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("{heatmap_spacer} {a_bits}"),
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
+        let a_style = if arrow_target == Some(A_ROW) {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD)
+        };
+        let mut a_spans = vec![
+            Span::styled(format!("{heatmap_spacer} {a_bits}"), a_style),
             Span::raw(format!(" A : {:>11}", snap.a)),
-        ]));
+        ];
+        if let Some(cell) = &register_gutter(A_ROW) {
+            a_spans.push(cell.clone());
+        }
+        lines.push(Line::from(a_spans));
 
-        // Row 3: blank
-        lines.push(Line::from(""));
+        // Row 3: blank (carries the arrow's vertical segment when it crosses)
+        let mut blank_spans: Vec<Span<'static>> = Vec::new();
+        if let Some(cell) = &gutter[3] {
+            blank_spans.push(Span::raw(" ".repeat(STORE_TEXT_WIDTH + heatmap_extra)));
+            blank_spans.push(cell.clone());
+        }
+        lines.push(Line::from(blank_spans));
+
+        // The line of the last executed instruction, marked `>`: after a
+        // jump CI holds the target value, so the marker follows the executed
+        // line rather than CI. Nothing is marked before the first cycle.
+        let current_line = snap
+            .last_instruction
+            .map(|li| (li.address & Store::INDEX_MASK) as usize);
 
         // Rows 4-35: store words
         for (index, word) in snap.store.iter().enumerate() {
-            let is_ci = index as i32 == snap.ci;
-            let pointer = if is_ci { ">" } else { " " };
+            let row = STORE_ROW_OFFSET + index;
+            let is_current = current_line == Some(index);
+            let is_target = arrow_target == Some(row);
+            let pointer = if is_current { ">" } else { " " };
             let bits = self.format_bits(*word);
             let (opcode, data) = Store::decode_word(*word);
 
-            let bits_style = if is_ci {
+            let bits_style = if is_current {
                 Style::default().add_modifier(Modifier::BOLD)
+            } else if is_target {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
                     .fg(Color::Green)
@@ -788,7 +1002,7 @@ impl App {
                 (String::new(), Color::Reset)
             };
 
-            lines.push(Line::from(vec![
+            let mut spans = vec![
                 Span::styled(
                     pointer.to_string(),
                     Style::default().add_modifier(Modifier::BOLD),
@@ -802,7 +1016,11 @@ impl App {
                     opcode.to_string(),
                     data
                 )),
-            ]));
+            ];
+            if let Some(cell) = &gutter[row] {
+                spans.push(cell.clone());
+            }
+            lines.push(Line::from(spans));
         }
 
         let paragraph = Paragraph::new(lines).scroll((self.store_scroll, 0));
@@ -1096,6 +1314,7 @@ fn run_app(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::KeyModifiers;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
 
@@ -1138,6 +1357,35 @@ mod tests {
         (0..buffer.area.width)
             .map(|x| buffer[(x, row)].symbol())
             .collect()
+    }
+
+    /// A snapshot whose last executed instruction is the word at `line`,
+    /// for pointer-arrow tests. CI is set to `line`, as the machine leaves
+    /// it after executing a non-jump instruction.
+    fn pointer_snapshot(line: i32, store: [i32; 32]) -> Snapshot {
+        let (opcode, data) = Store::decode_word(store[line as usize]);
+        Snapshot {
+            ci: line,
+            last_instruction: Some(LastInstruction {
+                address: line,
+                opcode,
+                data,
+            }),
+            store,
+            ..snapshot_with_history(0)
+        }
+    }
+
+    /// Screen column of the pointer arrow's gutter (right after the 58-cell
+    /// line text, a separator, and the horizontal segment). Store line `index`
+    /// is drawn on screen row `5 + index`, the accumulator on row 3.
+    const GUTTER_COLUMN: usize = 61;
+    const ARROWHEAD_COLUMN: usize = 59;
+
+    /// Whether a pointer-arrow glyph is drawn anywhere in the given row text.
+    fn has_arrow_glyph(text: &str) -> bool {
+        text.chars()
+            .any(|c| matches!(c, '╮' | '╯' | '│' | '◀' | '↺'))
     }
 
     #[test]
@@ -1261,12 +1509,13 @@ mod tests {
 
     #[test]
     fn scrub_popup_stays_on_screen_at_the_bar_ends() {
-        // Narrowest supported terminal, pop-up at both ends of the bar
+        // Narrowest supported terminal (wider with the default pointer
+        // arrows), pop-up at both ends of the bar
         for cycle_count in [0, 99] {
             let mut app = App::new();
             app.scrubbing = true;
             let snap = snapshot_with_history(cycle_count);
-            let buffer = render(&mut app, &snap, MIN_WIDTH, 20);
+            let buffer = render(&mut app, &snap, MIN_WIDTH + ARROW_EXTRA_WIDTH, 20);
 
             let row = row_text(&buffer, 17);
             let text = format!(" cycle {cycle_count} ");
@@ -1278,5 +1527,499 @@ mod tests {
                 "pop-up must stay on screen at cycle {cycle_count}"
             );
         }
+    }
+
+    #[test]
+    fn pointer_arrow_sto_points_from_accumulator_to_word() {
+        let mut store = [0; 32];
+        store[2] = Store::parse_word("STO 24").unwrap();
+        let snap = pointer_snapshot(2, store);
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // The arrow leaves the accumulator (row 3), one space after its
+        // value, connected by a run of dashes, and turns down into the gutter
+        let source = row_text(&buffer, 3);
+        assert_eq!(
+            ' ',
+            source.chars().nth(49).unwrap(),
+            "source row: {source:?}"
+        );
+        assert_eq!(
+            '─',
+            source.chars().nth(50).unwrap(),
+            "source row: {source:?}"
+        );
+        assert_eq!(
+            '─',
+            source.chars().nth(ARROWHEAD_COLUMN + 1).unwrap(),
+            "source row: {source:?}"
+        );
+        assert_eq!('╮', source.chars().nth(GUTTER_COLUMN).unwrap());
+        assert_eq!(Color::Magenta, buffer[(GUTTER_COLUMN as u16, 3)].fg);
+
+        // Intermediate rows hold the vertical segment (including the blank row 4)
+        for row in 4..29 {
+            let text = row_text(&buffer, row);
+            assert_eq!(
+                '│',
+                text.chars().nth(GUTTER_COLUMN).unwrap(),
+                "row {row}: {text:?}"
+            );
+        }
+
+        // The destination word (row 29) receives the arrowhead, one cell
+        // left of the gutter corner and connected to it by a dash
+        let target = row_text(&buffer, 29);
+        assert_eq!(
+            '◀',
+            target.chars().nth(ARROWHEAD_COLUMN).unwrap(),
+            "target row: {target:?}"
+        );
+        assert_eq!(
+            '─',
+            target.chars().nth(ARROWHEAD_COLUMN + 1).unwrap(),
+            "target row: {target:?}"
+        );
+        assert_eq!('╯', target.chars().nth(GUTTER_COLUMN).unwrap());
+        assert_eq!(Color::Yellow, buffer[(5, 29)].fg);
+
+        // The accumulator is the source, not the destination: it stays green
+        assert_eq!(Color::Green, buffer[(5, 3)].fg);
+    }
+
+    #[test]
+    fn pointer_arrow_ldn_points_from_word_to_accumulator() {
+        let mut store = [0; 32];
+        store[2] = Store::parse_word("LDN 10").unwrap();
+        let snap = pointer_snapshot(2, store);
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // The source word (row 15) leaves the text and turns up
+        let source = row_text(&buffer, 15);
+        assert_eq!(
+            '─',
+            source.chars().nth(59).unwrap(),
+            "source row: {source:?}"
+        );
+        assert_eq!('╯', source.chars().nth(GUTTER_COLUMN).unwrap());
+        assert_eq!(Color::Magenta, buffer[(GUTTER_COLUMN as u16, 15)].fg);
+
+        // Intermediate rows hold the vertical segment
+        for row in 4..15 {
+            let text = row_text(&buffer, row);
+            assert_eq!(
+                '│',
+                text.chars().nth(GUTTER_COLUMN).unwrap(),
+                "row {row}: {text:?}"
+            );
+        }
+
+        // The arrow arrives at the accumulator (row 3), connected to its
+        // text by a run of dashes, and the accumulator is highlighted
+        let target = row_text(&buffer, 3);
+        assert_eq!(
+            '◀',
+            target.chars().nth(50).unwrap(),
+            "target row: {target:?}"
+        );
+        assert_eq!(
+            '─',
+            target.chars().nth(55).unwrap(),
+            "target row: {target:?}"
+        );
+        assert_eq!('╮', target.chars().nth(GUTTER_COLUMN).unwrap());
+        assert_eq!(Color::Yellow, buffer[(5, 3)].fg);
+
+        // The source word is not the destination: it stays green
+        assert_eq!(Color::Green, buffer[(5, 15)].fg);
+    }
+
+    #[test]
+    fn pointer_arrow_sub_uses_a_different_color() {
+        let mut store = [0; 32];
+        store[2] = Store::parse_word("SUB 10").unwrap();
+        let snap = pointer_snapshot(2, store);
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // Like LDN, but the arrow is cyan instead of magenta
+        assert_eq!(Color::Cyan, buffer[(GUTTER_COLUMN as u16, 15)].fg);
+        assert_eq!(Color::Cyan, buffer[(GUTTER_COLUMN as u16, 10)].fg);
+        // The accumulator is still the highlighted destination
+        assert_eq!(Color::Yellow, buffer[(5, 3)].fg);
+    }
+
+    #[test]
+    fn pointer_arrow_jmp_points_from_word_to_ci() {
+        // JMP copies the operand word into CI: the arrow is a data movement
+        // from that word up to the CI register, not from the instruction.
+        let mut store = [0; 32];
+        store[2] = Store::parse_word("JMP 24").unwrap();
+        let snap = pointer_snapshot(2, store);
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // The source word (screen row 29) leaves the text and turns up
+        let source = row_text(&buffer, 29);
+        assert_eq!(
+            '─',
+            source.chars().nth(59).unwrap(),
+            "source row: {source:?}"
+        );
+        assert_eq!('╯', source.chars().nth(GUTTER_COLUMN).unwrap());
+        assert_eq!(Color::Magenta, buffer[(GUTTER_COLUMN as u16, 29)].fg);
+
+        // The vertical crosses the blank row and the accumulator row
+        for row in 3..29 {
+            let text = row_text(&buffer, row);
+            assert_eq!(
+                '│',
+                text.chars().nth(GUTTER_COLUMN).unwrap(),
+                "row {row}: {text:?}"
+            );
+        }
+        // The accumulator is crossed, not an endpoint: it stays green
+        assert_eq!(Color::Green, buffer[(5, 3)].fg);
+
+        // The arrow arrives at the CI row (screen row 2), the highlighted
+        // destination; the source word is not the destination
+        let target = row_text(&buffer, 2);
+        assert_eq!('◀', target.chars().nth(50).unwrap(), "CI row: {target:?}");
+        assert_eq!('╮', target.chars().nth(GUTTER_COLUMN).unwrap());
+        assert_eq!(Color::Yellow, buffer[(5, 2)].fg);
+        assert_eq!(Color::Green, buffer[(5, 29)].fg);
+    }
+
+    #[test]
+    fn pointer_arrow_jrp_adds_the_word_to_ci_in_cyan() {
+        // JRP adds the word to CI: the same data flow as JMP (word to CI),
+        // but cyan like SUB, marking an arithmetic combination.
+        let mut store = [0; 32];
+        store[10] = Store::parse_word("JRP 3").unwrap();
+        let snap = pointer_snapshot(10, store);
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // The source word (screen row 8) leaves the text and turns up
+        let source = row_text(&buffer, 8);
+        assert_eq!(
+            '╯',
+            source.chars().nth(GUTTER_COLUMN).unwrap(),
+            "source row: {source:?}"
+        );
+
+        // The vertical crosses the accumulator row (screen row 3)
+        for row in 3..8 {
+            let text = row_text(&buffer, row);
+            assert_eq!(
+                '│',
+                text.chars().nth(GUTTER_COLUMN).unwrap(),
+                "row {row}: {text:?}"
+            );
+        }
+        assert_eq!(Color::Cyan, buffer[(GUTTER_COLUMN as u16, 3)].fg);
+        assert_eq!(Color::Cyan, buffer[(GUTTER_COLUMN as u16, 8)].fg);
+
+        // The arrow arrives at the CI row, the highlighted destination
+        let target = row_text(&buffer, 2);
+        assert_eq!('◀', target.chars().nth(50).unwrap(), "CI row: {target:?}");
+        assert_eq!(Color::Cyan, buffer[(GUTTER_COLUMN as u16, 2)].fg);
+        assert_eq!(Color::Yellow, buffer[(5, 2)].fg);
+    }
+
+    #[test]
+    fn pointer_arrow_aligns_with_the_heatmap() {
+        let mut store = [0; 32];
+        store[2] = Store::parse_word("STO 10").unwrap();
+        let snap = pointer_snapshot(2, store);
+
+        let mut app = App::new();
+        app.show_heatmap = true;
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // With the heatmap on, the gutter shifts right by the heatmap width
+        let gutter = GUTTER_COLUMN + HEATMAP_EXTRA_WIDTH as usize;
+        let arrowhead = ARROWHEAD_COLUMN + HEATMAP_EXTRA_WIDTH as usize;
+
+        // The arrow leaves the accumulator (row 3) and turns down
+        let source = row_text(&buffer, 3);
+        assert_eq!('╮', source.chars().nth(gutter).unwrap(), "row: {source:?}");
+
+        // Intermediate rows hold the vertical segment
+        for row in 4..15 {
+            let text = row_text(&buffer, row);
+            assert_eq!(
+                '│',
+                text.chars().nth(gutter).unwrap(),
+                "row {row}: {text:?}"
+            );
+        }
+
+        // The destination word (row 15) receives the arrowhead
+        let target = row_text(&buffer, 15);
+        assert_eq!(
+            '◀',
+            target.chars().nth(arrowhead).unwrap(),
+            "target row: {target:?}"
+        );
+        assert_eq!('╯', target.chars().nth(gutter).unwrap());
+    }
+
+    #[test]
+    fn pointer_arrow_jmp_zero_points_from_word_zero_to_ci() {
+        // Line 0 holds JMP 0 (an empty store word): the target value comes
+        // from word 0 itself, so the arrow runs from row 5 up to the CI row.
+        let snap = pointer_snapshot(0, [0; 32]);
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        let source = row_text(&buffer, 5);
+        assert_eq!(
+            '╯',
+            source.chars().nth(GUTTER_COLUMN).unwrap(),
+            "source row: {source:?}"
+        );
+        let target = row_text(&buffer, 2);
+        assert_eq!('◀', target.chars().nth(50).unwrap(), "CI row: {target:?}");
+    }
+
+    #[test]
+    fn pointer_arrow_and_marker_ignore_ci() {
+        // The editor can set CI anywhere; the marker and the arrow follow
+        // the last executed instruction, not CI. CI 99 (out of range)
+        // changes nothing.
+        let mut store = [0; 32];
+        store[2] = Store::parse_word("STO 24").unwrap();
+        let mut snap = pointer_snapshot(2, store);
+        snap.ci = 99;
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // The marker stays on the executed line (screen row 7)
+        assert!(row_text(&buffer, 7).starts_with('>'));
+        // The arrow still runs from the accumulator to word 24
+        let source = row_text(&buffer, 3);
+        assert_eq!(
+            '╮',
+            source.chars().nth(GUTTER_COLUMN).unwrap(),
+            "source row: {source:?}"
+        );
+        let target = row_text(&buffer, 29);
+        assert_eq!(
+            '◀',
+            target.chars().nth(ARROWHEAD_COLUMN).unwrap(),
+            "target row: {target:?}"
+        );
+    }
+
+    #[test]
+    fn marker_and_arrow_follow_the_jump_not_its_target() {
+        // After `JMP 2` at line 1 executes with store[2] = 20, CI = 20.
+        // The word at line 20 is neither the last nor the next instruction
+        // (CI is incremented before the next fetch), so the marker and the
+        // arrow must describe the JMP at line 1.
+        let mut store = [0; 32];
+        store[1] = Store::parse_word("JMP 2").unwrap();
+        store[2] = 20; // the value JMP loads into CI
+        store[20] = Store::parse_word("STO 25").unwrap();
+        let snap = Snapshot {
+            ci: 20,
+            ..pointer_snapshot(1, store)
+        };
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // The marker is on the JMP line (screen row 6), not on line 20 (row 25)
+        assert!(row_text(&buffer, 6).starts_with('>'));
+        assert!(!row_text(&buffer, 25).starts_with('>'));
+
+        // The arrow is the JMP's data flow: from the word holding the target
+        // value (line 2, row 7) up to the CI register (row 2)
+        let source = row_text(&buffer, 7);
+        assert_eq!(
+            '╯',
+            source.chars().nth(GUTTER_COLUMN).unwrap(),
+            "source row: {source:?}"
+        );
+        let target = row_text(&buffer, 2);
+        assert_eq!('◀', target.chars().nth(50).unwrap(), "CI row: {target:?}");
+        assert_eq!(Color::Yellow, buffer[(5, 2)].fg, "CI is the destination");
+
+        // The word CI points at gets no marker and no arrow: its STO would
+        // otherwise draw an arrow from the accumulator to that word
+        let ci_line = row_text(&buffer, 25);
+        assert!(!has_arrow_glyph(&ci_line), "CI line row: {ci_line:?}");
+        // The accumulator row only carries the arrow's vertical segment:
+        // no arrowhead, and its bits stay green
+        let accumulator = row_text(&buffer, 3);
+        assert_eq!(
+            '│',
+            accumulator.chars().nth(GUTTER_COLUMN).unwrap(),
+            "accumulator row: {accumulator:?}"
+        );
+        assert!(
+            !accumulator.contains('◀'),
+            "accumulator row: {accumulator:?}"
+        );
+        assert_eq!(Color::Green, buffer[(5, 3)].fg);
+    }
+
+    #[test]
+    fn no_marker_or_arrow_before_the_first_cycle() {
+        // Nothing has executed yet (fresh machine, or scrubbed back to
+        // cycle 0): no store line is marked and no arrow is drawn.
+        let snap = snapshot_with_history(0);
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        for row in 5..=36 {
+            let text = row_text(&buffer, row);
+            assert!(
+                !text.starts_with('>'),
+                "row {row} should not be marked: {text:?}"
+            );
+            assert!(!has_arrow_glyph(&text), "row {row}: {text:?}");
+        }
+    }
+
+    #[test]
+    fn marker_and_arrow_survive_history_scrubbing() {
+        // A jump is recorded in the history; rewinding to the post-jump
+        // cycle restores the last instruction, so the marker and the arrow
+        // still describe the JMP instead of the word CI points at.
+        let mut sim = Simulator::new();
+        sim.store.words[1] = Store::parse_word("JMP 2").unwrap();
+        sim.store.words[2] = 5; // CI becomes 5; the next fetch is line 6
+        sim.store.words[5] = Store::parse_word("STO 25").unwrap();
+        sim.store.words[6] = Store::parse_word("STP").unwrap();
+        sim.enable_history(100);
+        sim.run(2); // cycle 1: JMP at line 1, CI → 5; cycle 2: STP at line 6
+
+        assert!(sim.rewind_to(1));
+        assert_eq!(5, sim.ci);
+        let snap = Snapshot::from_sim(&sim);
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // The marker is on the JMP line (screen row 6), not on line 5 (row 10)
+        assert!(row_text(&buffer, 6).starts_with('>'));
+        assert!(!row_text(&buffer, 10).starts_with('>'));
+        // The arrow is the JMP's data flow: from word 2 (row 7) up to the
+        // CI register (row 2)
+        assert_eq!(
+            '╯',
+            row_text(&buffer, 7).chars().nth(GUTTER_COLUMN).unwrap()
+        );
+        assert_eq!('◀', row_text(&buffer, 2).chars().nth(50).unwrap());
+    }
+
+    #[test]
+    fn pointer_arrow_hidden_for_operandless_instructions() {
+        let mut store = [0; 32];
+        store[1] = Store::parse_word("STP").unwrap();
+        let snap = pointer_snapshot(1, store);
+
+        let mut app = App::new();
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // No arrow glyph anywhere in the main body
+        for row in 1..=37 {
+            let text = row_text(&buffer, row);
+            assert!(!has_arrow_glyph(&text), "row {row}: {text:?}");
+        }
+    }
+
+    #[test]
+    fn pointer_arrow_hidden_when_toggled_off() {
+        let mut store = [0; 32];
+        store[2] = Store::parse_word("STO 24").unwrap();
+        let snap = pointer_snapshot(2, store);
+
+        let mut app = App::new();
+        app.show_pointers = false;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        for row in 1..=37 {
+            let text = row_text(&buffer, row);
+            assert!(!has_arrow_glyph(&text), "row {row}: {text:?}");
+        }
+    }
+
+    #[test]
+    fn pointer_arrows_shown_by_default() {
+        let mut store = [0; 32];
+        store[2] = Store::parse_word("STO 24").unwrap();
+        let snap = pointer_snapshot(2, store);
+
+        // No toggle needed: the arrow is drawn from the start
+        let mut app = App::new();
+        assert!(app.show_pointers);
+        let buffer = render(&mut app, &snap, 80, 40);
+        let source = row_text(&buffer, 3);
+        assert_eq!(
+            '╮',
+            source.chars().nth(GUTTER_COLUMN).unwrap(),
+            "source row: {source:?}"
+        );
+    }
+
+    #[test]
+    fn pointer_arrows_toggle_with_a_key() {
+        let mut sim = Simulator::new();
+        let mut app = App::new();
+        assert!(app.show_pointers);
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+            &mut sim,
+        );
+        assert!(!app.show_pointers);
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE),
+            &mut sim,
+        );
+        assert!(app.show_pointers);
+    }
+
+    #[test]
+    fn pointer_arrows_require_extra_width() {
+        let snap = pointer_snapshot(0, [0; 32]);
+        let mut app = App::new();
+        app.show_pointers = true;
+
+        // Too narrow: the "too small" message is shown instead of the store
+        let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
+        assert!(row_text(&buffer, 0).contains("Terminal too small"));
+
+        // Wide enough: the store and the arrow are drawn
+        let buffer = render(&mut app, &snap, MIN_WIDTH + ARROW_EXTRA_WIDTH, 40);
+        assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+        let row = row_text(&buffer, 5);
+        assert_eq!('╯', row.chars().nth(GUTTER_COLUMN).unwrap(), "row: {row:?}");
     }
 }

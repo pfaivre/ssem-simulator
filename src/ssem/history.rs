@@ -4,21 +4,25 @@
 //! words), so the history keeps a full snapshot per cycle in a ring buffer.
 //! When the buffer is full, the oldest snapshots are overwritten.
 
-/// Upper bound on history capacity. Each `Snapshot` is 136 bytes
-/// (two `i32` plus `[i32; 32]`), so this cap keeps the pre-allocated
-/// ring buffer under ~13.6 GB.
+use super::simulator::LastInstruction;
+
+/// Upper bound on history capacity. Each `Snapshot` is 148 bytes
+/// (two `i32`, `[i32; 32]`, and the last instruction), so this cap keeps
+/// the pre-allocated ring buffer under ~14.8 GB.
 pub const MAX_CAPACITY: usize = 100_000_000;
 
 /// A snapshot of the machine's architectural state at one cycle.
 ///
-/// Only the core state is stored: the heatmap counters and the
-/// last-instruction display are derived state and are reset when the
-/// history is browsed.
+/// The last executed instruction is stored alongside the core state, so
+/// the display can mark the executed line even after a jump (when CI no
+/// longer points at it). Only the heatmap counters are derived state and
+/// are reset when the history is browsed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Snapshot {
     pub a: i32,
     pub ci: i32,
     pub store: [i32; 32],
+    pub last_instruction: Option<LastInstruction>,
 }
 
 /// A ring buffer of snapshots, indexed by absolute cycle number.
@@ -46,6 +50,7 @@ impl History {
                     a: 0,
                     ci: 0,
                     store: [0; 32],
+                    last_instruction: None,
                 };
                 capacity
             ],
@@ -111,13 +116,43 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::{History, Snapshot};
+    use crate::ssem::Opcode;
+    use crate::ssem::simulator::LastInstruction;
 
     fn snap(ci: i32) -> Snapshot {
         Snapshot {
             a: ci * 10,
             ci,
             store: [ci; 32],
+            last_instruction: None,
         }
+    }
+
+    #[test]
+    fn snapshot_size_is_stable() {
+        // The ring buffer pre-allocates capacity × size_of::<Snapshot>();
+        // keep the documented memory budget in sync with the real size.
+        assert_eq!(148, std::mem::size_of::<Snapshot>());
+    }
+
+    #[test]
+    fn snapshot_round_trips_last_instruction() {
+        let li = LastInstruction {
+            address: 3,
+            opcode: Opcode::STO,
+            data: 7,
+        };
+        let mut h = History::new(4);
+        h.record(
+            0,
+            Snapshot {
+                a: 1,
+                ci: 2,
+                store: [0; 32],
+                last_instruction: Some(li),
+            },
+        );
+        assert_eq!(Some(li), h.get(0).unwrap().last_instruction);
     }
 
     #[test]

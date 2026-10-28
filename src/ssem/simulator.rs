@@ -11,7 +11,7 @@ use super::{
 pub const TYPICAL_SPEED: u32 = 700;
 
 /// The last instruction executed by the machine, kept for display.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LastInstruction {
     pub address: i32,
     pub opcode: Opcode,
@@ -98,7 +98,9 @@ pub struct Simulator {
     /// Accumulator, the only register of the machine
     pub a: i32,
 
-    /// Program counter. this points to the address currently being executed
+    /// Program counter. Incremented before each fetch, so the next
+    /// instruction executes at `ci + 1` (wrapping at the store end);
+    /// JMP, JRP and a taken CMP overwrite it with the jump target.
     pub ci: i32,
 
     /// The main memory. This is an array of 32-bit words
@@ -198,6 +200,7 @@ impl Simulator {
                 a: self.a,
                 ci: self.ci,
                 store: self.store.words,
+                last_instruction: self.last_instruction,
             },
         );
         self.history = Some(history);
@@ -205,11 +208,11 @@ impl Simulator {
 
     /// Restore the machine to the state recorded at `cycle`.
     ///
-    /// Resets the heatmap counters and the last-instruction display, and
-    /// pauses the machine. The retained history is preserved, so the position
-    /// can be scrubbed forward again; re-executing from the rewound position
-    /// overwrites the previously recorded future. Returns false when history
-    /// is disabled or `cycle` is not retained.
+    /// Resets the heatmap counters and restores the last-instruction display
+    /// from the snapshot, and pauses the machine. The retained history is
+    /// preserved, so the position can be scrubbed forward again; re-executing
+    /// from the rewound position overwrites the previously recorded future.
+    /// Returns false when history is disabled or `cycle` is not retained.
     pub fn rewind_to(&mut self, cycle: u64) -> bool {
         let Some(history) = &self.history else {
             return false;
@@ -222,7 +225,7 @@ impl Simulator {
         self.store.words = snapshot.store;
         self.cycle_count = cycle;
         self.exec_counts = [0; 32];
-        self.last_instruction = None;
+        self.last_instruction = snapshot.last_instruction;
         self.stop_flag = true;
         true
     }
@@ -276,6 +279,7 @@ impl Simulator {
                     a: self.a,
                     ci: self.ci,
                     store: self.store.words,
+                    last_instruction: self.last_instruction,
                 },
             );
         }
@@ -1029,6 +1033,7 @@ mod tests {
         assert_eq!(0, s.a);
         assert_eq!(0, s.ci);
         assert_eq!(instr(Opcode::LDN, 6), s.store[1]);
+        assert_eq!(None, s.last_instruction, "nothing executed at cycle 0");
         assert_eq!(None, h.get(1));
     }
 
@@ -1056,7 +1061,7 @@ mod tests {
     }
 
     #[test]
-    fn rewind_restores_state_and_resets_display() {
+    fn rewind_restores_state_and_resets_heatmap() {
         let mut sim = history_test_program();
         sim.enable_history(100);
         sim.run(3); // LDN, SUB, STO
@@ -1072,12 +1077,54 @@ mod tests {
         assert_eq!(0, sim.cycle_count);
         assert_eq!(0, sim.store.words[8]);
         assert!(sim.exec_counts.iter().all(|&c| c == 0));
-        assert!(sim.last_instruction.is_none());
+        assert!(
+            sim.last_instruction.is_none(),
+            "cycle 0 predates any executed instruction"
+        );
         assert!(sim.stop_flag, "browsing the history pauses the machine");
         // The retained history is preserved for forward scrubbing
         let h = sim.history.as_ref().unwrap();
         assert_eq!(4, h.len()); // initial state + 3 cycles
         assert_eq!(3, h.head());
+    }
+
+    #[test]
+    fn rewind_restores_last_instruction() {
+        // After a JMP, CI points at the jump's target value, not at the
+        // executed line. Rewinding to that cycle must restore the last
+        // instruction (the JMP) so the display can mark the executed line.
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::JMP, 2);
+        sim.store.words[2] = 5; // the value JMP loads into CI
+        sim.store.words[6] = instr(Opcode::STP, 0);
+        sim.enable_history(100);
+        sim.run(2); // cycle 1: JMP at line 1, CI → 5; cycle 2: STP at line 6
+        assert_eq!(6, sim.ci);
+        assert_eq!(6, sim.last_instruction.unwrap().address);
+
+        assert!(sim.rewind_to(1));
+        assert_eq!(5, sim.ci);
+        let li = sim.last_instruction.unwrap();
+        assert_eq!(1, li.address);
+        assert_eq!(Opcode::JMP, li.opcode);
+        assert_eq!(2, li.data);
+    }
+
+    #[test]
+    fn history_records_last_instruction() {
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::JMP, 2);
+        sim.store.words[2] = 5;
+        sim.enable_history(10);
+        sim.instruction_cycle(); // executes line 1 (JMP 2), CI → 5
+
+        let h = sim.history.as_ref().unwrap();
+        let s = h.get(1).unwrap();
+        assert_eq!(5, s.ci);
+        let li = s.last_instruction.unwrap();
+        assert_eq!(1, li.address, "the recorded instruction is the JMP line");
+        assert_eq!(Opcode::JMP, li.opcode);
+        assert_eq!(2, li.data);
     }
 
     #[test]

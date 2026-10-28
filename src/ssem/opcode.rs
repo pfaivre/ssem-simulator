@@ -35,6 +35,18 @@ pub enum Opcode {
     NUM,
 }
 
+impl Opcode {
+    /// Whether the instruction's data field is a store address.
+    ///
+    /// CMP and STP ignore their data field; NUM is not an instruction.
+    pub fn uses_address(&self) -> bool {
+        matches!(
+            self,
+            Opcode::JMP | Opcode::JRP | Opcode::LDN | Opcode::STO | Opcode::SUB | Opcode::SUB2
+        )
+    }
+}
+
 impl From<u8> for Opcode {
     // decode_instruction masks the opcode bits down to 3 before calling this,
     // so the match is a simple jump table on the hot path.
@@ -103,6 +115,20 @@ mod tests {
     #[should_panic]
     fn from_u8_error() {
         let _ = Opcode::from(0b1000);
+    }
+
+    /// Instructions whose data field references a store line
+    #[test]
+    fn uses_address() {
+        assert!(Opcode::JMP.uses_address());
+        assert!(Opcode::JRP.uses_address());
+        assert!(Opcode::LDN.uses_address());
+        assert!(Opcode::STO.uses_address());
+        assert!(Opcode::SUB.uses_address());
+        assert!(Opcode::SUB2.uses_address());
+        assert!(!Opcode::CMP.uses_address());
+        assert!(!Opcode::STP.uses_address());
+        assert!(!Opcode::NUM.uses_address());
     }
 
     /// Ensure consistency during string conversion
