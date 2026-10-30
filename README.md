@@ -30,9 +30,14 @@ Press `M` again to switch to the read/write heatmap, which shows per word how of
 
 ## Flow visualisation
 
-Show where the data moves.
+Show where the data moves. Press `F` to cycle the flow view: data flow (the pointer arrow, default), control flow (the graph below), or off.
 
 ![The arrow illustrates the effect of STO 04](docs/arrows.png)
+
+The second flow mode. Each store line becomes a node of a static graph: jumps (JMP/JRP) in yellow, a taken CMP skip in white, with backward edges (loops) highlighted in bold red. Fall-through to the next line is left implicit. STP lines are marked with a red `■`, and self-loops with a red `↺`.
+Only lines reachable from the entry line get edges, so data words do not spawn spurious ones.
+
+![Graph view of the control flow](docs/graph.png)
 
 ## Syntax highlighting
 

@@ -119,12 +119,21 @@ impl HelpPopup {
                 Span::raw(description),
             ]));
         }
-        lines.push(Line::from(
-            "Markers when paused: > last  \u{bb} next  \u{2022} executed",
-        ));
+        lines.push(Line::from(vec![
+            Span::raw("Markers when paused: > last  "),
+            Span::styled(
+                "\u{bb}",
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" next  "),
+            Span::styled("\u{2022}", Style::default().fg(Color::DarkGray)),
+            Span::raw(" executed"),
+        ]));
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::raw("Heatmap, M cycles off/exec/rw: "),
+            Span::raw("Heatmap: "),
             Span::styled(
                 "exec",
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -144,6 +153,19 @@ impl HelpPopup {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" store reads vs writes per word"),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("Control-flow graph: "),
+            Span::styled("╮ jump", Style::default().fg(Color::Yellow)),
+            Span::raw("  "),
+            Span::styled("╮ CMP skip", Style::default().fg(Color::White)),
+            Span::raw("  "),
+            Span::styled(
+                "↺ loop",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled("■ halt", Style::default().fg(Color::Red)),
         ]));
 
         // Blank line before footer

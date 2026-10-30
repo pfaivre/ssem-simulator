@@ -41,14 +41,25 @@
 //! executed; green = cold, red = hot), or the read/write heatmap (two small
 //! labeled bars per word: `r` for reads, `w` for writes).
 //!
-//! Pointer arrows are shown by default (press A to toggle them): an arrow in
-//! the right margin follows the data flow of the last executed instruction
-//! (the line marked `>`). STO points from the accumulator to the destination
-//! word, LDN from the source word to the accumulator, and the jumps from the
-//! word holding the target value to CI. Magenta marks a load or store, cyan
-//! an arithmetic combination (SUB, JRP). The destination is highlighted.
-//! After a jump, CI holds the target value rather than the executed line, so
-//! the marker and the arrow follow the executed instruction, not CI.
+//! Press F to cycle the flow visualization shown in the right margin, like
+//! the heatmap. The default mode, data, draws a pointer arrow following the
+//! data flow of the last executed instruction (the line marked `>`) — STO points from the
+//! accumulator to the destination word, LDN from the source word to the
+//! accumulator, and the jumps from the word holding the target value to CI.
+//! Magenta marks a load or store, cyan an arithmetic combination (SUB, JRP).
+//! The destination is highlighted. After a jump, CI holds the target value
+//! rather than the executed line, so the marker and the arrow follow the
+//! executed instruction, not CI.
+//!
+//! The second mode, control, draws the static graph of the non-sequential
+//! edges between the store lines — JMP/JRP jumps in yellow,
+//! a taken CMP skip in white — with backward edges (loops) highlighted in
+//! bold red and STP lines marked with a red `■`. Fall-through to the next
+//! line is left implicit. Only lines reachable from the entry line (line 1)
+//! get edges, so data words do not spawn spurious ones. Edges that would
+//! need more lanes than available are labeled `⇢NN` on their source line.
+//! The graph is computed from the current store contents, so it follows live
+//! edits and history scrubbing. The third mode hides the visualization.
 //!
 //! Mnemonics are syntax-highlighted by category, reusing the arrows' palette
 //! so the two stay coherent: magenta for a data movement (LDN, STO, JMP),
@@ -126,9 +137,9 @@ const KEYMAP: &[(&str, &str, &str)] = &[
         "Cycle the heatmap: off, execution frequency, reads/writes",
     ),
     (
-        "A",
-        "ARROWS",
-        "Toggle the pointer arrow following the last executed instruction",
+        "F",
+        "FLOW",
+        "Cycle the flow view: data flow, control flow, off",
     ),
     ("B", "BREAKPT", "Open the breakpoint pop-up"),
     ("H", "HELP", "Toggle this help pop-up"),
@@ -286,9 +297,55 @@ const EXEC_RAMP: [Color; 3] = [Color::Green, Color::Yellow, Color::Red];
 const READ_RAMP: [Color; 3] = [Color::Blue, Color::Cyan, Color::LightCyan];
 const WRITE_RAMP: [Color; 3] = [Color::Yellow, Color::Red, Color::LightRed];
 
+/// Which flow visualization (if any) is shown next to the store view,
+/// cycled with the A key like the heatmap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FlowMode {
+    /// The data flow of the last executed instruction, drawn as a pointer arrow.
+    Data,
+    /// The control flow between the store lines, drawn as a static graph.
+    Control,
+    /// No flow visualization.
+    Off,
+}
+
+impl FlowMode {
+    /// The next mode when the key is pressed: data → control → off → data.
+    fn cycle(self) -> Self {
+        match self {
+            FlowMode::Data => FlowMode::Control,
+            FlowMode::Control => FlowMode::Off,
+            FlowMode::Off => FlowMode::Data,
+        }
+    }
+
+    /// The label shown in the top bar, or None when the visualization is off.
+    fn label(self) -> Option<&'static str> {
+        match self {
+            FlowMode::Data => Some("DATA"),
+            FlowMode::Control => Some("CONTROL"),
+            FlowMode::Off => None,
+        }
+    }
+}
+
 /// Extra width required when pointer arrows are shown
 /// (separator + horizontal segment + arrowhead + gutter column).
 const ARROW_EXTRA_WIDTH: u16 = 4;
+
+/// Maximum number of edge lanes drawn side by side in the graph gutter.
+const MAX_EDGE_LANES: usize = 4;
+
+/// Columns in the graph gutter: a separator, then per lane an arrowhead
+/// column, a dash column, and the corner/vertical column.
+const GUTTER_COLS: usize = 1 + 3 * MAX_EDGE_LANES;
+
+/// Width of the overflow label ("⇢31") drawn after the lanes for an edge
+/// that finds no free lane.
+const OVERFLOW_LABEL_WIDTH: usize = 3;
+
+/// Extra screen width required by the control-flow graph view.
+const GRAPH_EXTRA_WIDTH: u16 = (GUTTER_COLS + OVERFLOW_LABEL_WIDTH) as u16;
 
 /// Content row of the CI register in the main body
 /// (0 blank, 1 CI, 2 A, 3 blank, 4..=35 store words 0..=31).
@@ -365,6 +422,321 @@ struct PointerArrow {
     color: Color,
 }
 
+/// The kind of a control-flow edge, which decides its color in the graph view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EdgeKind {
+    /// Straight-line execution to the next line
+    /// (LDN, STO, SUB, SUB2, and CMP when not taken).
+    FallThrough,
+    /// JMP or JRP: control moves to the jump's target line.
+    Jump,
+    /// CMP taken: control skips the next line (i → i+2).
+    Skip,
+}
+
+/// A static control-flow edge from one store line to another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CfgEdge {
+    source: usize,
+    target: usize,
+    kind: EdgeKind,
+}
+
+/// The static control-flow edges of the program held in `store`.
+///
+/// CI is incremented before each fetch, so the line executed after a jump is
+/// the target value plus one: JMP `d` lands on `(store[d] + 1) & 31`, and a
+/// JRP `d` at line `i` lands on `(i + store[d] + 1) & 31`. CMP has two
+/// successors (fall-through and skip); STP has none.
+fn control_flow_edges(store: &[i32; 32]) -> Vec<CfgEdge> {
+    const MASK: i32 = Store::INDEX_MASK;
+    let mut edges = Vec::with_capacity(32);
+    for i in 0..32 {
+        let (opcode, data) = Store::decode_word(store[i]);
+        let line = i as i32;
+        match opcode {
+            Opcode::JMP => {
+                let target = ((store[data as usize] & MASK) + 1) & MASK;
+                edges.push(CfgEdge {
+                    source: i,
+                    target: target as usize,
+                    kind: EdgeKind::Jump,
+                });
+            }
+            Opcode::JRP => {
+                let ci = line.wrapping_add(store[data as usize]) & MASK;
+                edges.push(CfgEdge {
+                    source: i,
+                    target: ((ci + 1) & MASK) as usize,
+                    kind: EdgeKind::Jump,
+                });
+            }
+            Opcode::CMP => {
+                edges.push(CfgEdge {
+                    source: i,
+                    target: ((line + 1) & MASK) as usize,
+                    kind: EdgeKind::FallThrough,
+                });
+                edges.push(CfgEdge {
+                    source: i,
+                    target: ((line + 2) & MASK) as usize,
+                    kind: EdgeKind::Skip,
+                });
+            }
+            Opcode::STP => {}
+            _ => edges.push(CfgEdge {
+                source: i,
+                target: ((line + 1) & MASK) as usize,
+                kind: EdgeKind::FallThrough,
+            }),
+        }
+    }
+    edges
+}
+
+/// The store line executed first on a fresh machine: CI starts at 0 and is
+/// incremented before the first fetch, so execution starts at line 1.
+const ENTRY_LINE: usize = 1;
+
+/// Restrict the control-flow edges to the lines reachable from the entry
+/// line.
+///
+/// Data words decode as arbitrary instructions, so without this filter every
+/// NUM line would spawn a spurious edge. Returns the edges whose source is
+/// reachable, along with the reachable set itself (used to mark STP lines).
+fn reachable_edges(store: &[i32; 32]) -> (Vec<CfgEdge>, [bool; 32]) {
+    let edges = control_flow_edges(store);
+    let mut reachable = [false; 32];
+    reachable[ENTRY_LINE] = true;
+    let mut stack = vec![ENTRY_LINE];
+    while let Some(line) = stack.pop() {
+        for edge in &edges {
+            if edge.source == line && !reachable[edge.target] {
+                reachable[edge.target] = true;
+                stack.push(edge.target);
+            }
+        }
+    }
+    let edges = edges
+        .into_iter()
+        .filter(|edge| reachable[edge.source])
+        .collect();
+    (edges, reachable)
+}
+
+/// The style of a control-flow edge: a backward edge (target at or above the
+/// source) closes a loop and is highlighted in bold red; forward edges take
+/// the color of their kind.
+fn edge_style(edge: &CfgEdge) -> Style {
+    if edge.target <= edge.source {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        match edge.kind {
+            EdgeKind::FallThrough => Style::default().fg(Color::DarkGray),
+            EdgeKind::Jump => Style::default().fg(Color::Yellow),
+            EdgeKind::Skip => Style::default().fg(Color::White),
+        }
+    }
+}
+
+/// The content row of store line `line` in the main body.
+fn line_row(line: usize) -> usize {
+    STORE_ROW_OFFSET + line
+}
+
+/// Assign each edge a gutter lane so that overlapping edges use different
+/// lanes.
+///
+/// An edge occupies its lane from its source row to its target row; a lane is
+/// free for a new edge when the previous one ends at or before the new one
+/// starts (an arriving and a leaving edge may share a row). Edges are packed
+/// earliest-start first, longest span first, so short edges fill the gaps
+/// between long ones. Returns `None` for edges that find no free lane; those
+/// are drawn as a source-row label instead.
+fn assign_lanes(edges: &[CfgEdge]) -> Vec<Option<usize>> {
+    let span = |e: &CfgEdge| {
+        let (s, t) = (line_row(e.source), line_row(e.target));
+        (s.min(t), s.max(t))
+    };
+    let mut order: Vec<usize> = (0..edges.len()).collect();
+    order.sort_by_key(|&i| {
+        let (start, end) = span(&edges[i]);
+        (start, std::cmp::Reverse(end - start))
+    });
+    let mut lane_end = [0; MAX_EDGE_LANES];
+    let mut lanes = vec![None; edges.len()];
+    for i in order {
+        let (start, end) = span(&edges[i]);
+        if let Some(lane) = lane_end.iter().position(|&end_at| end_at <= start) {
+            lane_end[lane] = end;
+            lanes[i] = Some(lane);
+        }
+    }
+    lanes
+}
+
+/// Merge two glyphs drawn into the same gutter cell. Corners and arrowheads
+/// win over verticals, verticals over horizontals; a horizontal crossing a
+/// vertical becomes a crossing, two opposite corners a straight line.
+fn merge_glyph(existing: char, new: char) -> char {
+    fn rank(c: char) -> u8 {
+        match c {
+            '╮' | '╯' => 4,
+            '◀' | '↺' | '■' => 3,
+            '│' => 2,
+            _ => 1, // ─ and the rest
+        }
+    }
+    match (existing, new) {
+        ('│', '─') | ('─', '│') => '┼',
+        ('╮', '╯') | ('╯', '╮') => '│',
+        _ => {
+            if rank(new) > rank(existing) {
+                new
+            } else {
+                existing
+            }
+        }
+    }
+}
+
+/// Draw one glyph into a gutter cell, merging with whatever is already there.
+fn set_cell(
+    cells: &mut [Vec<Option<(char, Style)>>],
+    row: usize,
+    col: usize,
+    glyph: char,
+    style: Style,
+) {
+    let cell = &mut cells[row][col];
+    *cell = Some(match *cell {
+        None => (glyph, style),
+        Some((existing, existing_style)) => {
+            let merged = merge_glyph(existing, glyph);
+            let style = if merged == glyph && merged != existing {
+                style
+            } else {
+                existing_style
+            };
+            (merged, style)
+        }
+    });
+}
+
+/// The control-flow graph gutter: a cell grid of `CONTENT_HEIGHT` rows by
+/// `GUTTER_COLS` columns, plus an overflow label per row for edges that found
+/// no lane. Rebuilt from the current store contents on every frame.
+struct GraphGutter {
+    cells: Vec<Vec<Option<(char, Style)>>>,
+    overflow: Vec<Option<(usize, Style)>>,
+}
+
+impl GraphGutter {
+    fn new(store: &[i32; 32]) -> Self {
+        let (mut edges, reachable) = reachable_edges(store);
+        // Fall-through to the next line is the default flow and is left
+        // implicit; only jumps, CMP skips, and backward edges (loops,
+        // including the 31→0 wrap) are drawn.
+        edges.retain(|edge| edge.kind != EdgeKind::FallThrough || edge.target <= edge.source);
+        let lanes = assign_lanes(&edges);
+        let mut cells = vec![vec![None; GUTTER_COLS]; CONTENT_HEIGHT];
+        let mut overflow = vec![None; CONTENT_HEIGHT];
+
+        for (i, edge) in edges.iter().enumerate() {
+            let style = edge_style(edge);
+            let source_row = line_row(edge.source);
+            let target_row = line_row(edge.target);
+            let Some(lane) = lanes[i] else {
+                // No free lane: label the source row with the target line
+                overflow[source_row] = Some((edge.target, style));
+                continue;
+            };
+            let head_col = 1 + 3 * lane;
+            let vert_col = 3 + 3 * lane;
+            if source_row == target_row {
+                // Self-loop: a circular arrow in the separator column
+                set_cell(&mut cells, source_row, 0, '↺', style);
+                continue;
+            }
+            let (top, bottom) = (source_row.min(target_row), source_row.max(target_row));
+            // The edge leaves the source line and turns into its lane
+            for col in 1..vert_col {
+                set_cell(&mut cells, source_row, col, '─', style);
+            }
+            set_cell(
+                &mut cells,
+                source_row,
+                vert_col,
+                if target_row > source_row {
+                    '╮'
+                } else {
+                    '╯'
+                },
+                style,
+            );
+            // The vertical segment between the two endpoints
+            for row in (top + 1)..bottom {
+                set_cell(&mut cells, row, vert_col, '│', style);
+            }
+            // The edge arrives at the target line: arrowhead, a dash
+            // spacing it from the corner
+            set_cell(&mut cells, target_row, head_col, '◀', style);
+            set_cell(&mut cells, target_row, head_col + 1, '─', style);
+            set_cell(
+                &mut cells,
+                target_row,
+                vert_col,
+                if target_row > source_row {
+                    '╯'
+                } else {
+                    '╮'
+                },
+                style,
+            );
+        }
+
+        // Reachable STP lines halt the flow: mark them in the separator column
+        for (line, word) in store.iter().enumerate() {
+            if reachable[line] && Store::decode_word(*word).0 == Opcode::STP {
+                set_cell(
+                    &mut cells,
+                    line_row(line),
+                    0,
+                    '■',
+                    Style::default().fg(Color::Red),
+                );
+            }
+        }
+
+        GraphGutter { cells, overflow }
+    }
+
+    /// The spans of one row's gutter: fixed-width cells grouped by style,
+    /// plus the overflow label when the row has one.
+    fn row_spans(&self, row: usize) -> Vec<Span<'static>> {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut run = String::new();
+        let mut run_style = Style::default();
+        for col in 0..GUTTER_COLS {
+            let (glyph, style) = self.cells[row][col].unwrap_or((' ', Style::default()));
+            if style != run_style && !run.is_empty() {
+                spans.push(Span::styled(std::mem::take(&mut run), run_style));
+            }
+            if run.is_empty() {
+                run_style = style;
+            }
+            run.push(glyph);
+        }
+        if !run.is_empty() {
+            spans.push(Span::styled(run, run_style));
+        }
+        if let Some((target, style)) = self.overflow[row] {
+            spans.push(Span::styled(format!("⇢{target:02}"), style));
+        }
+        spans
+    }
+}
+
 /// The application state for the TUI (UI thread only).
 struct App {
     bit_representation: usize,
@@ -388,8 +760,9 @@ struct App {
     /// Which heatmap is shown in the store view (cycled with the M key).
     heatmap: HeatmapMode,
 
-    /// Whether the pointer arrow is shown next to the store view.
-    show_pointers: bool,
+    /// Which flow visualization (if any) is shown next to the store view
+    /// (cycled with the F key).
+    flow: FlowMode,
 
     /// Whether the user is currently dragging the timeline scrubber.
     scrubbing: bool,
@@ -417,7 +790,7 @@ impl App {
             editor_popup: EditorPopup::new(),
             last_click: None,
             heatmap: HeatmapMode::Off,
-            show_pointers: true,
+            flow: FlowMode::Data,
             scrubbing: false,
             timeline_area: Rect::default(),
             should_quit: false,
@@ -518,7 +891,7 @@ impl App {
                 'b' => self.breakpoint_popup.open(),
                 'e' => self.editor_popup.open(),
                 'm' => self.heatmap = self.heatmap.cycle(),
-                'a' => self.show_pointers = !self.show_pointers,
+                'f' => self.flow = self.flow.cycle(),
                 'h' => self.help_popup.open(),
                 ',' | '.' => self.handle_scrub_key(key.code, sim),
                 _ => {}
@@ -850,11 +1223,13 @@ impl App {
         let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
         self.store_scroll = (self.store_scroll as usize).min(max_scroll) as u16;
 
-        // Check minimum terminal size (wider when a heatmap or the
-        // pointer arrows are shown)
+        // Check minimum terminal size (wider when a heatmap or a flow
+        // visualization is shown)
         let mut min_width = MIN_WIDTH + self.heatmap.extra_width();
-        if self.show_pointers {
-            min_width += ARROW_EXTRA_WIDTH;
+        match self.flow {
+            FlowMode::Control => min_width += GRAPH_EXTRA_WIDTH,
+            FlowMode::Data => min_width += ARROW_EXTRA_WIDTH,
+            FlowMode::Off => {}
         }
         if area.width < min_width || area.height < MIN_HEIGHT {
             let msg = format!(
@@ -930,8 +1305,8 @@ impl App {
             text.push_str(&format!(" [ HEATMAP: {label} ] "));
         }
 
-        if self.show_pointers {
-            text.push_str(" [ ARROWS ] ");
+        if let Some(label) = self.flow.label() {
+            text.push_str(&format!(" [ FLOW: {label} ] "));
         }
 
         let line = Line::from(Span::styled(text, Style::default().fg(Color::Blue)));
@@ -948,9 +1323,13 @@ impl App {
         // Row 0: blank
         lines.push(Line::from(""));
 
+        // In graph mode the gutter draws the static control-flow edges
+        // between the store lines instead of the data-flow arrow
+        let graph = (self.flow == FlowMode::Control).then(|| GraphGutter::new(&snap.store));
+
         // Pointer arrow: gutter cells appended after a line's text, following
         // the data flow of the last executed instruction
-        let arrow = if self.show_pointers {
+        let arrow = if self.flow == FlowMode::Data {
             Self::current_arrow(snap)
         } else {
             None
@@ -1074,7 +1453,9 @@ impl App {
 
         // Row 3: blank (carries the arrow's vertical segment when it crosses)
         let mut blank_spans: Vec<Span<'static>> = Vec::new();
-        if let Some(cell) = &gutter[3] {
+        if let Some(g) = &graph {
+            blank_spans.extend(g.row_spans(3));
+        } else if let Some(cell) = &gutter[3] {
             blank_spans.push(Span::raw(" ".repeat(STORE_TEXT_WIDTH + heatmap_extra)));
             blank_spans.push(cell.clone());
         }
@@ -1144,7 +1525,9 @@ impl App {
                 Span::raw(format!(" {:02}", data)),
             ];
             spans.splice(1..1, heatmap);
-            if let Some(cell) = &gutter[row] {
+            if let Some(g) = &graph {
+                spans.extend(g.row_spans(row));
+            } else if let Some(cell) = &gutter[row] {
                 spans.push(cell.clone());
             }
             lines.push(Line::from(spans));
@@ -1665,7 +2048,7 @@ mod tests {
         let snap = pointer_snapshot(2, store);
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // The arrow leaves the accumulator (row 3), one space after its
@@ -1726,7 +2109,7 @@ mod tests {
         let snap = pointer_snapshot(2, store);
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // The source word (row 15) leaves the text and turns up
@@ -1776,7 +2159,7 @@ mod tests {
         let snap = pointer_snapshot(2, store);
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // Like LDN, but the arrow is cyan instead of magenta
@@ -1795,7 +2178,7 @@ mod tests {
         let snap = pointer_snapshot(2, store);
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // The source word (screen row 29) leaves the text and turns up
@@ -1838,7 +2221,7 @@ mod tests {
         let snap = pointer_snapshot(10, store);
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // The source word (screen row 8) leaves the text and turns up
@@ -1876,7 +2259,7 @@ mod tests {
 
         let mut app = App::new();
         app.heatmap = HeatmapMode::Exec;
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // With the heatmap on, the gutter shifts right by the heatmap width
@@ -1915,7 +2298,7 @@ mod tests {
         let snap = pointer_snapshot(0, [0; 32]);
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         let source = row_text(&buffer, 5);
@@ -1939,7 +2322,7 @@ mod tests {
         snap.ci = 99;
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // The marker stays on the executed line (screen row 7)
@@ -1975,7 +2358,7 @@ mod tests {
         };
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // The marker is on the JMP line (screen row 6), not on line 20 (row 25)
@@ -2020,7 +2403,7 @@ mod tests {
         let snap = snapshot_with_history(0);
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         for row in 5..=36 {
@@ -2051,7 +2434,7 @@ mod tests {
         let snap = Snapshot::from_sim(&sim);
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // The marker is on the JMP line (screen row 6), not on line 5 (row 10)
@@ -2073,7 +2456,7 @@ mod tests {
         let snap = pointer_snapshot(1, store);
 
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // No arrow glyph anywhere in the main body
@@ -2090,7 +2473,7 @@ mod tests {
         let snap = pointer_snapshot(2, store);
 
         let mut app = App::new();
-        app.show_pointers = false;
+        app.flow = FlowMode::Off;
         let buffer = render(&mut app, &snap, 80, 40);
 
         for row in 1..=37 {
@@ -2107,7 +2490,7 @@ mod tests {
 
         // No toggle needed: the arrow is drawn from the start
         let mut app = App::new();
-        assert!(app.show_pointers);
+        assert_eq!(FlowMode::Data, app.flow);
         let buffer = render(&mut app, &snap, 80, 40);
         let source = row_text(&buffer, 3);
         assert_eq!(
@@ -2118,29 +2501,33 @@ mod tests {
     }
 
     #[test]
-    fn pointer_arrows_toggle_with_a_key() {
+    fn flow_mode_cycles_with_the_f_key() {
         let mut sim = Simulator::new();
         let mut app = App::new();
-        assert!(app.show_pointers);
+        assert_eq!(FlowMode::Data, app.flow);
 
+        // data → control → off → data
+        for expected in [FlowMode::Control, FlowMode::Off, FlowMode::Data] {
+            app.handle_key(
+                KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+                &mut sim,
+            );
+            assert_eq!(expected, app.flow);
+        }
+
+        // Uppercase cycles too
         app.handle_key(
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('F'), KeyModifiers::NONE),
             &mut sim,
         );
-        assert!(!app.show_pointers);
-
-        app.handle_key(
-            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE),
-            &mut sim,
-        );
-        assert!(app.show_pointers);
+        assert_eq!(FlowMode::Control, app.flow);
     }
 
     #[test]
     fn pointer_arrows_require_extra_width() {
         let snap = pointer_snapshot(0, [0; 32]);
         let mut app = App::new();
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
 
         // Too narrow: the "too small" message is shown instead of the store
         let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
@@ -2423,7 +2810,7 @@ mod tests {
         let snap = snapshot_with_history(0);
         let mut app = App::new();
         app.heatmap = HeatmapMode::Rw;
-        app.show_pointers = false;
+        app.flow = FlowMode::Off;
 
         let needed = MIN_WIDTH + HeatmapMode::Rw.extra_width();
         let buffer = render(&mut app, &snap, needed - 1, 40);
@@ -2441,7 +2828,7 @@ mod tests {
 
         let mut app = App::new();
         app.heatmap = HeatmapMode::Rw;
-        app.show_pointers = true;
+        app.flow = FlowMode::Data;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // The gutter shifts right by the r/w heatmap width
@@ -2457,5 +2844,390 @@ mod tests {
             target.chars().nth(arrowhead).unwrap(),
             "target row: {target:?}"
         );
+    }
+
+    /// A store where every line is STP (no control-flow edges), except the
+    /// given (line, word) entries.
+    fn graph_store(entries: &[(usize, &str)]) -> [i32; 32] {
+        let mut store = [Store::parse_word("STP").unwrap(); 32];
+        for &(line, text) in entries {
+            store[line] = Store::parse_word(text).unwrap();
+        }
+        store
+    }
+
+    /// Screen column of the graph gutter's separator (heatmap off).
+    const G_SEP: usize = STORE_TEXT_WIDTH;
+    /// Screen column of lane `l`'s arrowhead / vertical in the graph gutter.
+    fn g_head(l: usize) -> usize {
+        STORE_TEXT_WIDTH + 1 + 3 * l
+    }
+    fn g_vert(l: usize) -> usize {
+        STORE_TEXT_WIDTH + 3 + 3 * l
+    }
+
+    #[test]
+    fn cfg_edges_are_empty_when_every_line_is_stp() {
+        let store = graph_store(&[]);
+        assert!(control_flow_edges(&store).is_empty());
+    }
+
+    #[test]
+    fn cfg_edges_fall_through_to_the_next_line() {
+        let store = graph_store(&[(1, "LDN 24")]);
+        let edges = control_flow_edges(&store);
+        assert_eq!(
+            edges,
+            vec![CfgEdge {
+                source: 1,
+                target: 2,
+                kind: EdgeKind::FallThrough,
+            }]
+        );
+    }
+
+    #[test]
+    fn cfg_edges_jmp_lands_on_operand_value_plus_one() {
+        // JMP copies store[d] into CI; CI is incremented before the next
+        // fetch, so the next executed line is (store[d] + 1) & 31.
+        // NUM -23 & 31 = 9, so JMP 24 at line 2 lands on line 10.
+        let store = graph_store(&[(2, "JMP 24"), (24, "NUM -23")]);
+        let edges = control_flow_edges(&store);
+        assert!(edges.contains(&CfgEdge {
+            source: 2,
+            target: 10,
+            kind: EdgeKind::Jump,
+        }));
+    }
+
+    #[test]
+    fn cfg_edges_jrp_adds_the_operand_to_the_executed_line() {
+        // JRP adds store[d] to CI (= the executed line); the next fetch is
+        // one further: 8 + (-4) + 1 = 5.
+        let store = graph_store(&[(8, "JRP 20"), (20, "NUM -4")]);
+        let edges = control_flow_edges(&store);
+        assert!(edges.contains(&CfgEdge {
+            source: 8,
+            target: 5,
+            kind: EdgeKind::Jump,
+        }));
+    }
+
+    #[test]
+    fn cfg_edges_cmp_has_a_fall_through_and_a_skip_edge() {
+        let store = graph_store(&[(7, "CMP")]);
+        let edges = control_flow_edges(&store);
+        assert!(edges.contains(&CfgEdge {
+            source: 7,
+            target: 8,
+            kind: EdgeKind::FallThrough,
+        }));
+        assert!(edges.contains(&CfgEdge {
+            source: 7,
+            target: 9,
+            kind: EdgeKind::Skip,
+        }));
+    }
+
+    #[test]
+    fn cfg_edges_wrap_around_the_store_end() {
+        let store = graph_store(&[(31, "LDN 0")]);
+        let edges = control_flow_edges(&store);
+        assert!(edges.contains(&CfgEdge {
+            source: 31,
+            target: 0,
+            kind: EdgeKind::FallThrough,
+        }));
+    }
+
+    #[test]
+    fn cfg_edges_support_self_loops() {
+        // JRP 30 at line 3 with store[30] = -1: 3 - 1 + 1 = 3
+        let store = graph_store(&[(3, "JRP 30"), (30, "NUM -1")]);
+        let edges = control_flow_edges(&store);
+        assert!(edges.contains(&CfgEdge {
+            source: 3,
+            target: 3,
+            kind: EdgeKind::Jump,
+        }));
+    }
+
+    #[test]
+    fn lanes_are_shared_when_edges_do_not_overlap() {
+        let edges = vec![
+            CfgEdge {
+                source: 1,
+                target: 2,
+                kind: EdgeKind::FallThrough,
+            },
+            CfgEdge {
+                source: 2,
+                target: 3,
+                kind: EdgeKind::FallThrough,
+            },
+        ];
+        assert_eq!(assign_lanes(&edges), vec![Some(0), Some(0)]);
+    }
+
+    #[test]
+    fn overlapping_edges_get_different_lanes() {
+        let edges = vec![
+            CfgEdge {
+                source: 1,
+                target: 10,
+                kind: EdgeKind::Jump,
+            },
+            CfgEdge {
+                source: 5,
+                target: 6,
+                kind: EdgeKind::FallThrough,
+            },
+        ];
+        let lanes = assign_lanes(&edges);
+        assert_eq!(lanes[0], Some(0));
+        assert_eq!(lanes[1], Some(1));
+    }
+
+    #[test]
+    fn more_overlapping_edges_than_lanes_overflow_to_none() {
+        let edges: Vec<CfgEdge> = (0..=MAX_EDGE_LANES)
+            .map(|i| CfgEdge {
+                source: i,
+                target: 31,
+                kind: EdgeKind::Jump,
+            })
+            .collect();
+        let lanes = assign_lanes(&edges);
+        assert_eq!(lanes.iter().filter(|l| l.is_none()).count(), 1);
+        assert_eq!(lanes.iter().filter(|l| l.is_some()).count(), MAX_EDGE_LANES);
+    }
+
+    #[test]
+    fn reachable_edges_prune_unreachable_lines() {
+        // The entry is line 1; with line 1 an STP, nothing else is reachable,
+        // so the JMP at line 2 produces no edge even though it decodes fine
+        let store = graph_store(&[(2, "JMP 24"), (24, "NUM -23")]);
+        let (edges, reachable) = reachable_edges(&store);
+        assert!(edges.is_empty());
+        assert!(reachable[1]);
+        assert!(!reachable[2]);
+
+        // With a fall-through at line 1, lines 1, 2 and 10 become reachable
+        let store = graph_store(&[(1, "LDN 0"), (2, "JMP 24"), (24, "NUM -23")]);
+        let (edges, reachable) = reachable_edges(&store);
+        assert_eq!(edges.len(), 2);
+        assert!(reachable[1] && reachable[2] && reachable[10]);
+        assert!(!reachable[3]);
+    }
+
+    /// Render the graph view of a store and return the buffer plus helpers
+    /// reading the glyph at (screen row, column) and the styled cell.
+    fn render_graph(store: [i32; 32]) -> (Buffer, App) {
+        let snap = Snapshot {
+            store,
+            ..snapshot_with_history(0)
+        };
+        let mut app = App::new();
+        app.flow = FlowMode::Control;
+        let buffer = render(&mut app, &snap, 80, 40);
+        (buffer, app)
+    }
+
+    #[test]
+    fn graph_view_hides_fall_through_but_marks_stops() {
+        // 1 → 2 → 3 (STP): the fall-through chain draws nothing...
+        let store = graph_store(&[(1, "LDN 0"), (2, "LDN 0"), (3, "STP")]);
+        let (buffer, _) = render_graph(store);
+
+        // Store line i is drawn on screen row 5 + i
+        let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
+        let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
+
+        // ... the gutter of lines 1 and 2 (rows 6-7) stays empty ...
+        for row in [6, 7] {
+            for col in G_SEP..G_SEP + GUTTER_COLS {
+                assert_eq!(' ', glyph(row, col), "row {row} col {col}");
+            }
+        }
+        // ... but the STP at line 3 (row 8) is marked with a red ■
+        assert_eq!('■', glyph(8, G_SEP));
+        assert_eq!(Color::Red, cell(8, G_SEP).fg);
+    }
+
+    #[test]
+    fn graph_view_draws_a_forward_jump() {
+        // 1 → 2, then JMP 20 at line 2 lands on line 10 (NUM -23 & 31 = 9, +1)
+        let store = graph_store(&[(1, "LDN 0"), (2, "JMP 20"), (20, "NUM -23")]);
+        let (buffer, _) = render_graph(store);
+
+        let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
+        let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
+
+        // The fall-through 1→2 draws nothing (row 6 stays empty)
+        assert_eq!(' ', glyph(6, g_vert(0)));
+        // The jump 2→10 leaves line 2 (row 7) in lane 0, yellow...
+        assert_eq!('╮', glyph(7, g_vert(0)));
+        assert_eq!(Color::Yellow, cell(7, g_vert(0)).fg);
+        // ... runs down lane 0 from row 8 to row 14 ...
+        for row in 8..15 {
+            assert_eq!('│', glyph(row, g_vert(0)), "row {row}");
+            assert_eq!(Color::Yellow, cell(row, g_vert(0)).fg, "row {row}");
+        }
+        // ... and arrives at line 10 (row 15): arrowhead, a dash spacing it
+        // from the corner
+        assert_eq!('◀', glyph(15, g_head(0)));
+        assert_eq!('─', glyph(15, g_head(0) + 1));
+        assert_eq!('╯', glyph(15, g_vert(0)));
+        assert_eq!(Color::Yellow, cell(15, g_head(0)).fg);
+    }
+
+    #[test]
+    fn graph_view_draws_only_the_cmp_skip() {
+        // 1→2→3→4, and CMP at line 4 branches to 5 (fall-through) and 6 (skip)
+        let store = graph_store(&[(1, "LDN 0"), (2, "LDN 0"), (3, "LDN 0"), (4, "CMP")]);
+        let (buffer, _) = render_graph(store);
+
+        let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
+        let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
+
+        // Only the skip 4→6 is drawn, in lane 0, white: corner leaving line 4
+        // (row 9), vertical through row 10, arrowhead arriving at line 6 (row 11)
+        assert_eq!('╮', glyph(9, g_vert(0)));
+        assert_eq!(Color::White, cell(9, g_vert(0)).fg);
+        assert_eq!('│', glyph(10, g_vert(0)));
+        assert_eq!(Color::White, cell(10, g_vert(0)).fg);
+        assert_eq!('◀', glyph(11, g_head(0)));
+        assert_eq!(Color::White, cell(11, g_head(0)).fg);
+        // The not-taken branch to line 5 (row 10) draws nothing
+        assert_eq!(' ', glyph(10, g_head(1)));
+    }
+
+    #[test]
+    fn graph_view_highlights_backward_jumps_as_loops() {
+        // 1→2→3→4→5, and JRP 30 at line 5 jumps back to line 3 (5 + NUM -3 + 1)
+        let store = graph_store(&[
+            (1, "LDN 0"),
+            (2, "LDN 0"),
+            (3, "LDN 0"),
+            (4, "LDN 0"),
+            (5, "JRP 30"),
+            (30, "NUM -3"),
+        ]);
+        let (buffer, _) = render_graph(store);
+
+        let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
+        let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
+
+        // The backward edge leaves line 5 (row 10) with an upward corner in
+        // lane 0, bold red ...
+        assert_eq!('╯', glyph(10, g_vert(0)));
+        assert_eq!(Color::Red, cell(10, g_vert(0)).fg);
+        assert!(cell(10, g_vert(0)).modifier.contains(Modifier::BOLD));
+        // ... runs up through row 9 ...
+        assert_eq!('│', glyph(9, g_vert(0)));
+        assert_eq!(Color::Red, cell(9, g_vert(0)).fg);
+        // ... and arrives at line 3 (row 8)
+        assert_eq!('◀', glyph(8, g_head(0)));
+        assert_eq!(Color::Red, cell(8, g_head(0)).fg);
+    }
+
+    #[test]
+    fn graph_view_draws_self_loops_as_a_circular_arrow() {
+        // Line 1 jumps to line 3 (NUM -30 & 31 = 2, +1 = 3), and JRP 30 at
+        // line 3 with store[30] = -1 jumps back to line 3 itself
+        let store = graph_store(&[(1, "JMP 2"), (2, "NUM -30"), (3, "JRP 30"), (30, "NUM -1")]);
+        let (buffer, _) = render_graph(store);
+
+        let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
+        let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
+
+        // Line 3 (row 8): ↺ in the separator column, bold red; the incoming
+        // jump still arrives in lane 0
+        assert_eq!('↺', glyph(8, G_SEP));
+        assert_eq!(Color::Red, cell(8, G_SEP).fg);
+        assert!(cell(8, G_SEP).modifier.contains(Modifier::BOLD));
+        assert_eq!('╯', glyph(8, g_vert(0)));
+        // Line 2 decodes as STP but is unreachable: no halt marker
+        assert_eq!(' ', glyph(7, G_SEP));
+    }
+
+    #[test]
+    fn graph_gutter_renders_the_overflow_label_after_the_lanes() {
+        let mut gutter = GraphGutter {
+            cells: vec![vec![None; GUTTER_COLS]; CONTENT_HEIGHT],
+            overflow: vec![None; CONTENT_HEIGHT],
+        };
+        gutter.overflow[line_row(4)] = Some((31, Style::default().fg(Color::Red)));
+        let spans = gutter.row_spans(line_row(4));
+        let text: String = spans.iter().flat_map(|span| span.content.chars()).collect();
+        assert_eq!(GUTTER_COLS + OVERFLOW_LABEL_WIDTH, text.chars().count());
+        assert!(text.ends_with("⇢31"));
+    }
+
+    #[test]
+    fn graph_view_hides_the_data_flow_arrow() {
+        let store = graph_store(&[(2, "STO 24")]);
+        // Last instruction: STO 24 at line 2, which would draw a magenta
+        // arrow from the accumulator to word 24
+        let snap = pointer_snapshot(2, store);
+
+        let mut app = App::new();
+        app.flow = FlowMode::Control;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // The gutter columns carry graph edges only: no magenta arrow
+        for y in 0..buffer.area.height {
+            for x in STORE_TEXT_WIDTH..(STORE_TEXT_WIDTH + GRAPH_EXTRA_WIDTH as usize) {
+                assert_ne!(Color::Magenta, buffer[(x as u16, y)].fg, "cell ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn graph_view_requires_extra_width() {
+        let snap = snapshot_with_history(0);
+        let mut app = App::new();
+        app.flow = FlowMode::Control;
+
+        let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
+        assert!(row_text(&buffer, 0).contains("Terminal too small"));
+
+        let buffer = render(&mut app, &snap, MIN_WIDTH + GRAPH_EXTRA_WIDTH, 40);
+        assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+    }
+
+    #[test]
+    fn flow_mode_is_shown_in_the_top_bar() {
+        let snap = snapshot_with_history(0);
+        let mut app = App::new();
+
+        // Default mode: data
+        let buffer = render(&mut app, &snap, 120, 40);
+        assert!(row_text(&buffer, 0).contains("[ FLOW: DATA ]"));
+
+        app.flow = FlowMode::Control;
+        let buffer = render(&mut app, &snap, 120, 40);
+        assert!(row_text(&buffer, 0).contains("[ FLOW: CONTROL ]"));
+        assert!(!row_text(&buffer, 0).contains("DATA ]"));
+
+        // Off: no flow label at all
+        app.flow = FlowMode::Off;
+        let buffer = render(&mut app, &snap, 120, 40);
+        assert!(!row_text(&buffer, 0).contains("FLOW"));
+    }
+
+    #[test]
+    fn help_popup_documents_the_graph_view() {
+        let mut app = App::new();
+        app.help_popup.open();
+        let snap = snapshot_with_history(0);
+        let buffer = render(&mut app, &snap, 100, 40);
+
+        let all: String = (0..buffer.area.height)
+            .map(|y| row_text(&buffer, y))
+            .collect();
+        assert!(all.contains("Control-flow graph:"), "graph legend missing");
+        assert!(all.contains("CMP skip"), "graph legend missing");
+        assert!(all.contains("loop"), "graph legend missing");
     }
 }
