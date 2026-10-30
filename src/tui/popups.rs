@@ -7,10 +7,11 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
+use crate::ssem::Opcode;
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, Simulator};
 
-use super::KEYMAP;
+use super::{KEYMAP, opcode_color};
 
 /// Compute a centered, clamped pop-up rectangle within the given area.
 fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
@@ -75,30 +76,6 @@ impl HelpPopup {
         let title = "SSEM SIMULATOR";
         let footer = "Press H to close";
 
-        let content_width = display_width(title).max(display_width(footer)).max(
-            key_column
-                + 1
-                + KEYMAP
-                    .iter()
-                    .map(|(_, _, desc)| display_width(desc))
-                    .max()
-                    .unwrap_or(0),
-        );
-
-        // 2 border columns, 1 left margin, 1 right margin
-        let width = (content_width + 4) as u16;
-        // Title is in the border. Interior: blank, one line per key, blank, footer.
-        let height = (KEYMAP.len() + 5) as u16;
-
-        let rect = popup_rect(height, width, area);
-        f.render_widget(Clear, rect);
-
-        let block = Block::default()
-            .title(format!(" {title} "))
-            .borders(Borders::ALL);
-        let content = content_area(&block, rect);
-        f.render_widget(block, rect);
-
         let key_style = Style::default()
             .fg(Color::Blue)
             .add_modifier(Modifier::REVERSED);
@@ -122,12 +99,54 @@ impl HelpPopup {
             ]));
         }
 
+        // Color legend, drawn from the palette so it cannot drift out of sync
+        lines.push(Line::from(""));
+        lines.push(Line::from("Mnemonic colors:"));
+        for (mnemonics, opcode, description) in [
+            ("LDN STO  JMP", Opcode::LDN, "data movement"),
+            ("SUB SUB2 JRP", Opcode::SUB, "arithmetic"),
+            ("CMP", Opcode::CMP, "test"),
+            ("STP", Opcode::STP, "halt"),
+        ] {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!("{mnemonics:<13}"),
+                    Style::default()
+                        .fg(opcode_color(opcode))
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(description),
+            ]));
+        }
+        lines.push(Line::from(
+            "Markers when paused: > last  \u{bb} next  \u{2022} executed",
+        ));
+
         // Blank line before footer
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             footer.to_string(),
             Style::default().add_modifier(Modifier::DIM),
         )));
+
+        let content_width = display_width(title)
+            .max(display_width(footer))
+            .max(lines.iter().map(Line::width).max().unwrap_or(0));
+
+        // 2 border columns, 1 left margin, 1 right margin
+        let width = (content_width + 4) as u16;
+        // 2 border rows around the content
+        let height = (lines.len() + 2) as u16;
+
+        let rect = popup_rect(height, width, area);
+        f.render_widget(Clear, rect);
+
+        let block = Block::default()
+            .title(format!(" {title} "))
+            .borders(Borders::ALL);
+        let content = content_area(&block, rect);
+        f.render_widget(block, rect);
 
         f.render_widget(Paragraph::new(lines), content);
     }

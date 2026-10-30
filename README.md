@@ -33,6 +33,11 @@ Show where the data moves.
 
 ![The arrow illustrates the effect of STO 04](docs/arrows.png)
 
+## Syntax highlighting
+
+Mnemonics are colored by category, matching the flow arrows: magenta for data movement (LDN, STO, JMP), cyan for arithmetic (SUB, SUB2, JRP), white for CMP and red for STP.
+When the machine is paused, the pointer column also shows the execution footprint: `>` on the last executed line, `»` on the next line to execute, and `•` on every line executed at least once.
+
 ## Live edit
 
 Double click on any word to edit it, either by entering an instruction or by setting a numeric value.
