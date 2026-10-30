@@ -122,6 +122,29 @@ impl HelpPopup {
         lines.push(Line::from(
             "Markers when paused: > last  \u{bb} next  \u{2022} executed",
         ));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::raw("Heatmap, M cycles off/exec/rw: "),
+            Span::styled(
+                "exec",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" line frequency \u{b7} "),
+            Span::styled(
+                "r",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("/"),
+            Span::styled(
+                "w",
+                Style::default()
+                    .fg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" store reads vs writes per word"),
+        ]));
 
         // Blank line before footer
         lines.push(Line::from(""));

@@ -24,6 +24,7 @@ The machine can then be modified and restarted from any point.
 ## Heatmap
 
 Visualise the execution path of the program. The heatmap shows the relative frequency of word execution.
+Press `M` again to switch to the read/write heatmap, which shows per word how often it was read (LDN/SUB/JMP/JRP operands) vs written (STO), and once more to hide it.
 
 ![Heatmap](docs/heatmap.png)
 

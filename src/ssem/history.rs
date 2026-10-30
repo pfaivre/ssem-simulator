@@ -15,8 +15,8 @@ pub const MAX_CAPACITY: usize = 100_000_000;
 ///
 /// The last executed instruction is stored alongside the core state, so
 /// the display can mark the executed line even after a jump (when CI no
-/// longer points at it). Only the heatmap counters are derived state and
-/// are reset when the history is browsed.
+/// longer points at it). Only the heatmap counters (execution and
+/// read/write) are derived state and are reset when the history is browsed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Snapshot {
     pub a: i32,

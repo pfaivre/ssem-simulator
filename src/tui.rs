@@ -36,8 +36,10 @@
 //! the previously recorded future. Browsing the history resets the heatmap;
 //! the last-instruction display follows the browsed cycle.
 //!
-//! Press M to toggle the execution heatmap: a colored bar next to each store
-//! word shows how often it has been executed (green = cold, red = hot).
+//! Press M to cycle the heatmap shown next to each store word: off, the
+//! execution heatmap (a colored bar shows how often each word has been
+//! executed; green = cold, red = hot), or the read/write heatmap (two small
+//! labeled bars per word: `r` for reads, `w` for writes).
 //!
 //! Pointer arrows are shown by default (press A to toggle them): an arrow in
 //! the right margin follows the data flow of the last executed instruction
@@ -118,7 +120,11 @@ const KEYMAP: &[(&str, &str, &str)] = &[
         "EDIT",
         "Edit a register or store word (or double-click a line)",
     ),
-    ("M", "HEATMAP", "Toggle the execution heatmap"),
+    (
+        "M",
+        "HEATMAP",
+        "Cycle the heatmap: off, execution frequency, reads/writes",
+    ),
     (
         "A",
         "ARROWS",
@@ -222,11 +228,63 @@ const IDLE_SLEEP: Duration = Duration::from_millis(10);
 /// Maximum time between two left-clicks for them to count as a double-click.
 const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 
-/// Width of the heatmap bar (in cells) shown next to each store word.
+/// Width of the execution heatmap bar (in cells) shown next to each store word.
 const HEATMAP_BAR_WIDTH: usize = 6;
 
-/// Extra width required when the heatmap is shown (bar + leading space).
-const HEATMAP_EXTRA_WIDTH: u16 = (HEATMAP_BAR_WIDTH + 2) as u16;
+/// Width of each bar (reads, writes) in the read/write heatmap.
+const RW_BAR_WIDTH: usize = 3;
+
+/// Extra width required by the execution heatmap (bar + surrounding spaces).
+const EXEC_EXTRA_WIDTH: u16 = (HEATMAP_BAR_WIDTH + 2) as u16;
+
+/// Extra width required by the read/write heatmap:
+/// leading space + "r" + bar + space + "w" + bar + trailing space.
+const RW_EXTRA_WIDTH: u16 = (2 + RW_BAR_WIDTH + 2 + RW_BAR_WIDTH + 1) as u16;
+
+/// Which heatmap (if any) is shown next to each store word in the store view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeatmapMode {
+    /// No heatmap.
+    Off,
+    /// Execution frequency of each store word, as one bar per word.
+    Exec,
+    /// Per-word store reads vs writes, as two labeled bars per word.
+    Rw,
+}
+
+impl HeatmapMode {
+    /// The next mode when the heatmap key is pressed: off → exec → r/w → off.
+    fn cycle(self) -> Self {
+        match self {
+            HeatmapMode::Off => HeatmapMode::Exec,
+            HeatmapMode::Exec => HeatmapMode::Rw,
+            HeatmapMode::Rw => HeatmapMode::Off,
+        }
+    }
+
+    /// Extra screen width (in cells) the mode adds next to each store word.
+    fn extra_width(self) -> u16 {
+        match self {
+            HeatmapMode::Off => 0,
+            HeatmapMode::Exec => EXEC_EXTRA_WIDTH,
+            HeatmapMode::Rw => RW_EXTRA_WIDTH,
+        }
+    }
+
+    /// The label shown in the top bar, or None when the heatmap is off.
+    fn label(self) -> Option<&'static str> {
+        match self {
+            HeatmapMode::Off => None,
+            HeatmapMode::Exec => Some("EXEC"),
+            HeatmapMode::Rw => Some("R/W"),
+        }
+    }
+}
+
+/// Color ramps (low, mid, high) for the heatmap bars.
+const EXEC_RAMP: [Color; 3] = [Color::Green, Color::Yellow, Color::Red];
+const READ_RAMP: [Color; 3] = [Color::Blue, Color::Cyan, Color::LightCyan];
+const WRITE_RAMP: [Color; 3] = [Color::Yellow, Color::Red, Color::LightRed];
 
 /// Extra width required when pointer arrows are shown
 /// (separator + horizontal segment + arrowhead + gutter column).
@@ -265,6 +323,8 @@ struct Snapshot {
     last_instruction: Option<LastInstruction>,
     breakpoints: Vec<Breakpoint>,
     exec_counts: [u64; 32],
+    read_counts: [u64; 32],
+    write_counts: [u64; 32],
     history_capacity: u64,
     history_start: u64,
     history_head: u64,
@@ -287,6 +347,8 @@ impl Snapshot {
             last_instruction: sim.last_instruction,
             breakpoints: sim.breakpoints.clone(),
             exec_counts: sim.exec_counts,
+            read_counts: sim.read_counts,
+            write_counts: sim.write_counts,
             history_capacity,
             history_start,
             history_head,
@@ -323,8 +385,8 @@ struct App {
     /// The last left-click, for double-click detection: (time, column, row).
     last_click: Option<(Instant, u16, u16)>,
 
-    /// Whether the execution heatmap is shown in the store view.
-    show_heatmap: bool,
+    /// Which heatmap is shown in the store view (cycled with the M key).
+    heatmap: HeatmapMode,
 
     /// Whether the pointer arrow is shown next to the store view.
     show_pointers: bool,
@@ -354,7 +416,7 @@ impl App {
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
             last_click: None,
-            show_heatmap: false,
+            heatmap: HeatmapMode::Off,
             show_pointers: true,
             scrubbing: false,
             timeline_area: Rect::default(),
@@ -455,7 +517,7 @@ impl App {
                 }
                 'b' => self.breakpoint_popup.open(),
                 'e' => self.editor_popup.open(),
-                'm' => self.show_heatmap = !self.show_heatmap,
+                'm' => self.heatmap = self.heatmap.cycle(),
                 'a' => self.show_pointers = !self.show_pointers,
                 'h' => self.help_popup.open(),
                 ',' | '.' => self.handle_scrub_key(key.code, sim),
@@ -679,37 +741,69 @@ impl App {
         s
     }
 
-    /// Compute the heatmap bar and its color for the store word at `index`.
-    ///
-    /// Returns `(bar_string, color)`. The bar is `HEATMAP_BAR_WIDTH` cells wide,
-    /// filled proportionally to the execution count relative to the hottest line.
-    /// Cold lines (zero executions) are dim; hot lines are red.
-    fn heatmap_bar(&self, index: usize, exec_counts: &[u64; 32]) -> (String, Color) {
-        let count = exec_counts[index];
-        if count == 0 {
-            return ("\u{b7}".repeat(HEATMAP_BAR_WIDTH), Color::DarkGray);
+    /// Compute one heatmap bar: `count` relative to `max`, `width` cells wide,
+    /// filled proportionally and colored on the given 3-step `ramp`.
+    /// A zero count (or an all-zero heatmap) is dim.
+    fn heat_bar(count: u64, max: u64, width: usize, ramp: [Color; 3]) -> (String, Color) {
+        if count == 0 || max == 0 {
+            return ("\u{b7}".repeat(width), Color::DarkGray);
         }
 
-        let max = *exec_counts.iter().max().unwrap_or(&1);
         let ratio = count as f64 / max as f64;
-        let filled =
-            ((ratio * HEATMAP_BAR_WIDTH as f64).ceil() as usize).clamp(1, HEATMAP_BAR_WIDTH);
+        let filled = ((ratio * width as f64).ceil() as usize).clamp(1, width);
 
         let bar = format!(
             "{}{}",
             "\u{2588}".repeat(filled),
-            "\u{b7}".repeat(HEATMAP_BAR_WIDTH - filled),
+            "\u{b7}".repeat(width - filled),
         );
 
         let color = if ratio > 0.75 {
-            Color::Red
+            ramp[2]
         } else if ratio > 0.25 {
-            Color::Yellow
+            ramp[1]
         } else {
-            Color::Green
+            ramp[0]
         };
 
         (bar, color)
+    }
+
+    /// The spans of the heatmap area for the store word at `index`, in the
+    /// current mode. Empty when the heatmap is off.
+    ///
+    /// Exec mode draws one bar (how often the word has been executed);
+    /// r/w mode draws two labeled bars: `r` for operand reads and `w` for
+    /// writes, each scaled against the hottest word of its own category.
+    fn heatmap_spans(&self, index: usize, snap: &Snapshot) -> Vec<Span<'static>> {
+        match self.heatmap {
+            HeatmapMode::Off => Vec::new(),
+            HeatmapMode::Exec => {
+                let max = snap.exec_counts.iter().max().copied().unwrap_or(0);
+                let (bar, color) =
+                    Self::heat_bar(snap.exec_counts[index], max, HEATMAP_BAR_WIDTH, EXEC_RAMP);
+                vec![Span::styled(format!(" {bar} "), Style::default().fg(color))]
+            }
+            HeatmapMode::Rw => {
+                let read_max = snap.read_counts.iter().max().copied().unwrap_or(0);
+                let write_max = snap.write_counts.iter().max().copied().unwrap_or(0);
+                let (rbar, rcolor) =
+                    Self::heat_bar(snap.read_counts[index], read_max, RW_BAR_WIDTH, READ_RAMP);
+                let (wbar, wcolor) = Self::heat_bar(
+                    snap.write_counts[index],
+                    write_max,
+                    RW_BAR_WIDTH,
+                    WRITE_RAMP,
+                );
+                vec![
+                    Span::raw(" r"),
+                    Span::styled(rbar, Style::default().fg(rcolor)),
+                    Span::raw(" w"),
+                    Span::styled(wbar, Style::default().fg(wcolor)),
+                    Span::raw(" "),
+                ]
+            }
+        }
     }
 
     /// The pointer arrow for the last executed instruction, following its
@@ -756,12 +850,9 @@ impl App {
         let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
         self.store_scroll = (self.store_scroll as usize).min(max_scroll) as u16;
 
-        // Check minimum terminal size (wider when the heatmap or the
+        // Check minimum terminal size (wider when a heatmap or the
         // pointer arrows are shown)
-        let mut min_width = MIN_WIDTH;
-        if self.show_heatmap {
-            min_width += HEATMAP_EXTRA_WIDTH;
-        }
+        let mut min_width = MIN_WIDTH + self.heatmap.extra_width();
         if self.show_pointers {
             min_width += ARROW_EXTRA_WIDTH;
         }
@@ -835,8 +926,8 @@ impl App {
             text.push_str(&format!(" [ BREAKPOINTS: {} ] ", snap.breakpoints.len()));
         }
 
-        if self.show_heatmap {
-            text.push_str(" [ HEATMAP ] ");
+        if let Some(label) = self.heatmap.label() {
+            text.push_str(&format!(" [ HEATMAP: {label} ] "));
         }
 
         if self.show_pointers {
@@ -851,12 +942,8 @@ impl App {
     fn draw_main_body(&self, f: &mut Frame, area: Rect, snap: &Snapshot) {
         let mut lines: Vec<Line<'static>> = Vec::with_capacity(CONTENT_HEIGHT);
 
-        // Spacer to align CI/A bits with store-word bits when the heatmap is on
-        let heatmap_spacer = if self.show_heatmap {
-            " ".repeat(HEATMAP_EXTRA_WIDTH as usize)
-        } else {
-            String::new()
-        };
+        // Spacer to align CI/A bits with store-word bits when a heatmap is on
+        let heatmap_spacer = " ".repeat(self.heatmap.extra_width() as usize);
 
         // Row 0: blank
         lines.push(Line::from(""));
@@ -874,11 +961,7 @@ impl App {
         // (store words, and the blank row the arrow's vertical may cross).
         // The register rows' cells (CI, accumulator) are built separately,
         // since their text is shorter and the arrow must connect back to it.
-        let heatmap_extra = if self.show_heatmap {
-            HEATMAP_EXTRA_WIDTH as usize
-        } else {
-            0
-        };
+        let heatmap_extra = self.heatmap.extra_width() as usize;
         let mut gutter: Vec<Option<Span<'static>>> = vec![None; CONTENT_HEIGHT];
         if let Some(arrow) = &arrow {
             let style = Style::default().fg(arrow.color);
@@ -1045,17 +1128,11 @@ impl App {
                     .add_modifier(Modifier::BOLD)
             };
 
-            // Heatmap bar (empty span when the heatmap is off)
-            let (bar, bar_color) = if self.show_heatmap {
-                let (b, c) = self.heatmap_bar(index, &snap.exec_counts);
-                (format!(" {b} "), c)
-            } else {
-                (String::new(), Color::Reset)
-            };
+            // Heatmap bars (no span when the heatmap is off)
+            let heatmap = self.heatmap_spans(index, snap);
 
             let mut spans = vec![
                 Span::styled(pointer.to_string(), pointer_style),
-                Span::styled(bar, Style::default().fg(bar_color)),
                 Span::styled(bits, bits_style),
                 Span::raw(format!(" {:02}: {:>11}  ", index, word)),
                 Span::styled(
@@ -1066,6 +1143,7 @@ impl App {
                 ),
                 Span::raw(format!(" {:02}", data)),
             ];
+            spans.splice(1..1, heatmap);
             if let Some(cell) = &gutter[row] {
                 spans.push(cell.clone());
             }
@@ -1387,6 +1465,8 @@ mod tests {
             last_instruction: None,
             breakpoints: Vec::new(),
             exec_counts: [0; 32],
+            read_counts: [0; 32],
+            write_counts: [0; 32],
             history_capacity: 100,
             history_start: 0,
             history_head: 99,
@@ -1795,13 +1875,14 @@ mod tests {
         let snap = pointer_snapshot(2, store);
 
         let mut app = App::new();
-        app.show_heatmap = true;
+        app.heatmap = HeatmapMode::Exec;
         app.show_pointers = true;
         let buffer = render(&mut app, &snap, 80, 40);
 
         // With the heatmap on, the gutter shifts right by the heatmap width
-        let gutter = GUTTER_COLUMN + HEATMAP_EXTRA_WIDTH as usize;
-        let arrowhead = ARROWHEAD_COLUMN + HEATMAP_EXTRA_WIDTH as usize;
+        let extra = HeatmapMode::Exec.extra_width() as usize;
+        let gutter = GUTTER_COLUMN + extra;
+        let arrowhead = ARROWHEAD_COLUMN + extra;
 
         // The arrow leaves the accumulator (row 3) and turns down
         let source = row_text(&buffer, 3);
@@ -2222,6 +2303,159 @@ mod tests {
         assert!(
             all.contains("Markers when paused:"),
             "marker legend missing"
+        );
+        assert!(all.contains("Heatmap"), "heatmap legend missing");
+    }
+
+    #[test]
+    fn heatmap_key_cycles_off_exec_rw() {
+        let mut sim = Simulator::new();
+        let mut app = App::new();
+        assert_eq!(HeatmapMode::Off, app.heatmap);
+
+        for expected in [HeatmapMode::Exec, HeatmapMode::Rw, HeatmapMode::Off] {
+            app.handle_key(
+                KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE),
+                &mut sim,
+            );
+            assert_eq!(expected, app.heatmap);
+        }
+
+        // Uppercase cycles too
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('M'), KeyModifiers::NONE),
+            &mut sim,
+        );
+        assert_eq!(HeatmapMode::Exec, app.heatmap);
+    }
+
+    #[test]
+    fn top_bar_shows_the_heatmap_mode() {
+        let snap = snapshot_with_history(0);
+
+        // Wide enough that the label is not truncated by the screen edge
+        let mut app = App::new();
+        let buffer = render(&mut app, &snap, 120, 40);
+        assert!(!row_text(&buffer, 0).contains("HEATMAP"));
+
+        app.heatmap = HeatmapMode::Exec;
+        let buffer = render(&mut app, &snap, 120, 40);
+        assert!(row_text(&buffer, 0).contains("[ HEATMAP: EXEC ]"));
+
+        app.heatmap = HeatmapMode::Rw;
+        let buffer = render(&mut app, &snap, 120, 40);
+        assert!(row_text(&buffer, 0).contains("[ HEATMAP: R/W ]"));
+    }
+
+    #[test]
+    fn exec_heatmap_draws_one_bar_per_word() {
+        let mut snap = snapshot_with_history(0);
+        snap.exec_counts[5] = 4; // the hottest line
+        snap.exec_counts[9] = 1;
+
+        let mut app = App::new();
+        app.heatmap = HeatmapMode::Exec;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // Store word 5 is on screen row 10: pointer (1), space (1), then the
+        // 6-cell bar (cols 2..8), then a space
+        let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
+        assert_eq!(&['█', '█', '█', '█', '█', '█'], &chars[2..8]);
+        assert_eq!(' ', chars[8]);
+        assert_eq!(Color::Red, buffer[(2, 10)].fg, "hottest line is red");
+
+        // Word 9 (row 14): ratio 1/4 = 0.25 -> filled = ceil(0.25*6) = 2, green
+        let chars: Vec<char> = row_text(&buffer, 14).chars().collect();
+        assert_eq!(&['█', '█', '·', '·', '·', '·'], &chars[2..8]);
+        assert_eq!(Color::Green, buffer[(2, 14)].fg);
+
+        // Untouched word 0 (row 5): all dim dots
+        let chars: Vec<char> = row_text(&buffer, 5).chars().collect();
+        assert_eq!(&['·', '·', '·', '·', '·', '·'], &chars[2..8]);
+        assert_eq!(Color::DarkGray, buffer[(2, 5)].fg);
+    }
+
+    /// In r/w mode a store row reads: pointer, " r", read bar (3), " w",
+    /// write bar (3), " ", then the bits.
+    const RW_R_COL: usize = 2;
+    const RW_RBAR_COL: usize = 3;
+    const RW_W_COL: usize = 7;
+    const RW_WBAR_COL: usize = 8;
+
+    #[test]
+    fn rw_heatmap_draws_labeled_read_and_write_bars() {
+        let mut snap = snapshot_with_history(0);
+        snap.read_counts[3] = 10; // hottest read
+        snap.read_counts[7] = 2;
+        snap.write_counts[8] = 5; // hottest write
+
+        let mut app = App::new();
+        app.heatmap = HeatmapMode::Rw;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // Word 3 (screen row 8): full read bar, no writes
+        let chars: Vec<char> = row_text(&buffer, 8).chars().collect();
+        assert_eq!('r', chars[RW_R_COL]);
+        assert_eq!(&['█', '█', '█'], &chars[RW_RBAR_COL..RW_RBAR_COL + 3]);
+        assert_eq!(Color::LightCyan, buffer[(RW_RBAR_COL as u16, 8)].fg);
+        assert_eq!('w', chars[RW_W_COL]);
+        assert_eq!(&['·', '·', '·'], &chars[RW_WBAR_COL..RW_WBAR_COL + 3]);
+        assert_eq!(Color::DarkGray, buffer[(RW_WBAR_COL as u16, 8)].fg);
+
+        // Word 7 (row 12): read ratio 0.2 -> one filled cell, blue
+        let chars: Vec<char> = row_text(&buffer, 12).chars().collect();
+        assert_eq!(&['█', '·', '·'], &chars[RW_RBAR_COL..RW_RBAR_COL + 3]);
+        assert_eq!(Color::Blue, buffer[(RW_RBAR_COL as u16, 12)].fg);
+
+        // Word 8 (row 13): no reads, full write bar in the hottest write color
+        let chars: Vec<char> = row_text(&buffer, 13).chars().collect();
+        assert_eq!(&['·', '·', '·'], &chars[RW_RBAR_COL..RW_RBAR_COL + 3]);
+        assert_eq!(&['█', '█', '█'], &chars[RW_WBAR_COL..RW_WBAR_COL + 3]);
+        assert_eq!(Color::LightRed, buffer[(RW_WBAR_COL as u16, 13)].fg);
+
+        // The bits still start right after the heatmap area (col 12)
+        let chars: Vec<char> = row_text(&buffer, 8).chars().collect();
+        assert_eq!('.', chars[12], "bits column shifted by the r/w bars");
+    }
+
+    #[test]
+    fn rw_heatmap_needs_its_extra_width() {
+        let snap = snapshot_with_history(0);
+        let mut app = App::new();
+        app.heatmap = HeatmapMode::Rw;
+        app.show_pointers = false;
+
+        let needed = MIN_WIDTH + HeatmapMode::Rw.extra_width();
+        let buffer = render(&mut app, &snap, needed - 1, 40);
+        assert!(row_text(&buffer, 0).contains("Terminal too small"));
+
+        let buffer = render(&mut app, &snap, needed, 40);
+        assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+    }
+
+    #[test]
+    fn rw_heatmap_shifts_the_pointer_arrows() {
+        let mut store = [0; 32];
+        store[2] = Store::parse_word("STO 10").unwrap();
+        let snap = pointer_snapshot(2, store);
+
+        let mut app = App::new();
+        app.heatmap = HeatmapMode::Rw;
+        app.show_pointers = true;
+        let buffer = render(&mut app, &snap, 80, 40);
+
+        // The gutter shifts right by the r/w heatmap width
+        let extra = HeatmapMode::Rw.extra_width() as usize;
+        let gutter = GUTTER_COLUMN + extra;
+        let arrowhead = ARROWHEAD_COLUMN + extra;
+
+        let source = row_text(&buffer, 3);
+        assert_eq!('╮', source.chars().nth(gutter).unwrap(), "row: {source:?}");
+        let target = row_text(&buffer, 15);
+        assert_eq!(
+            '◀',
+            target.chars().nth(arrowhead).unwrap(),
+            "target row: {target:?}"
         );
     }
 }

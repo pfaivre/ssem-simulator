@@ -126,6 +126,15 @@ pub struct Simulator {
     /// instruction. Indexed by store address (0..32). Used by the TUI heatmap.
     pub exec_counts: [u64; 32],
 
+    /// How many times each store word has been read as an operand
+    /// (JMP, JRP, LDN, SUB, SUB2). Indexed by store address (0..32).
+    /// Used by the TUI read/write heatmap.
+    pub read_counts: [u64; 32],
+
+    /// How many times each store word has been written by STO.
+    /// Indexed by store address (0..32). Used by the TUI read/write heatmap.
+    pub write_counts: [u64; 32],
+
     /// Execution history for time-travel, when enabled via `enable_history`.
     pub history: Option<History>,
 }
@@ -148,6 +157,8 @@ impl Simulator {
             last_instruction: None,
             breakpoints: Vec::new(),
             exec_counts: [0; 32],
+            read_counts: [0; 32],
+            write_counts: [0; 32],
             history: None,
         }
     }
@@ -178,6 +189,8 @@ impl Simulator {
             last_instruction: None,
             breakpoints: Vec::new(),
             exec_counts: [0; 32],
+            read_counts: [0; 32],
+            write_counts: [0; 32],
             history: None,
         }
     }
@@ -208,8 +221,9 @@ impl Simulator {
 
     /// Restore the machine to the state recorded at `cycle`.
     ///
-    /// Resets the heatmap counters and restores the last-instruction display
-    /// from the snapshot, and pauses the machine. The retained history is
+    /// Resets the heatmap counters (execution and read/write) and restores
+    /// the last-instruction display from the snapshot, and pauses the
+    /// machine. The retained history is
     /// preserved, so the position can be scrubbed forward again; re-executing
     /// from the rewound position overwrites the previously recorded future.
     /// Returns false when history is disabled or `cycle` is not retained.
@@ -225,6 +239,8 @@ impl Simulator {
         self.store.words = snapshot.store;
         self.cycle_count = cycle;
         self.exec_counts = [0; 32];
+        self.read_counts = [0; 32];
+        self.write_counts = [0; 32];
         self.last_instruction = snapshot.last_instruction;
         self.stop_flag = true;
         true
@@ -319,6 +335,18 @@ impl Simulator {
 
     /// Modify the state of the machine according to the given instruction.
     fn _execute(&mut self, command: Opcode, data: i32) {
+        // Track store accesses for the read/write heatmap: every instruction
+        // with an address operand reads it, except STO which writes it.
+        // `data` comes from `decode_word`, so it is already masked to 0..=31
+        // and indexing is safe, exactly like the STO arm below.
+        if command.uses_address() {
+            if command == Opcode::STO {
+                self.write_counts[data as usize] += 1;
+            } else {
+                self.read_counts[data as usize] += 1;
+            }
+        }
+
         match command {
             Opcode::JMP => {
                 // The fetched word can hold any bit pattern, but only its low
@@ -378,6 +406,8 @@ impl From<Vec<String>> for Simulator {
             last_instruction: None,
             breakpoints: Vec::new(),
             exec_counts: [0; 32],
+            read_counts: [0; 32],
+            write_counts: [0; 32],
             history: None,
         }
     }
@@ -795,6 +825,46 @@ mod tests {
         sim.instruction_cycle(); // fetch→line 3 (STP)
         assert_eq!(1, sim.exec_counts[3]);
         assert_eq!(0, sim.exec_counts[2], "line 2 was never executed");
+    }
+
+    #[test]
+    fn instruction_cycle_counts_reads_and_writes() {
+        let mut sim = Simulator::new();
+        sim.store.words[1] = instr(Opcode::LDN, 6); // reads word 6
+        sim.store.words[2] = instr(Opcode::SUB, 7); // reads word 7
+        sim.store.words[3] = instr(Opcode::STO, 8); // writes word 8
+        sim.store.words[4] = instr(Opcode::JMP, 9); // reads word 9, jumps to 4
+        sim.store.words[5] = instr(Opcode::JRP, 9); // reads word 9, CI += 4
+        sim.store.words[9] = 4;
+        sim.store.words[10] = instr(Opcode::CMP, 12); // no store access
+        sim.store.words[11] = instr(Opcode::STP, 13); // no store access, halts
+
+        assert!(sim.read_counts.iter().all(|&c| c == 0));
+        assert!(sim.write_counts.iter().all(|&c| c == 0));
+
+        // Cycles execute lines 1, 2, 3, 4, 5, 10, 11
+        sim.run(7);
+        assert_eq!(1, sim.read_counts[6], "LDN reads its operand");
+        assert_eq!(1, sim.read_counts[7], "SUB reads its operand");
+        assert_eq!(1, sim.write_counts[8], "STO writes its operand");
+        assert_eq!(2, sim.read_counts[9], "JMP and JRP both read word 9");
+        assert_eq!(0, sim.read_counts[12], "CMP ignores its data field");
+        assert_eq!(0, sim.write_counts[13], "STP ignores its data field");
+        assert_eq!(0, sim.read_counts[1], "executed lines are not reads");
+    }
+
+    #[test]
+    fn rewind_resets_read_write_counts() {
+        let mut sim = history_test_program(); // LDN 6, SUB 7, STO 8, STP
+        sim.enable_history(100);
+        sim.run(3);
+        assert!(sim.read_counts[6] > 0);
+        assert!(sim.read_counts[7] > 0);
+        assert!(sim.write_counts[8] > 0);
+
+        assert!(sim.rewind_to(0));
+        assert!(sim.read_counts.iter().all(|&c| c == 0));
+        assert!(sim.write_counts.iter().all(|&c| c == 0));
     }
 
     #[test]
