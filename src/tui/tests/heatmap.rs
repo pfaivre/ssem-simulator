@@ -115,18 +115,32 @@ pub(super) fn rw_heatmap_draws_labeled_read_and_write_bars() {
 }
 
 #[test]
-pub(super) fn rw_heatmap_needs_its_extra_width() {
+pub(super) fn rw_heatmap_is_dropped_when_it_does_not_fit() {
     let snap = snapshot_with_history(0);
     let mut app = App::new();
     app.heatmap = HeatmapMode::Rw;
     app.flow = FlowMode::Off;
 
+    // One column short of the heatmap: the store still renders, without
+    // the heatmap (it sits left of the bits and would push the store text
+    // out of view), and without the top-bar label
     let needed = MIN_WIDTH + HeatmapMode::Rw.extra_width();
     let buffer = render(&mut app, &snap, needed - 1, 40);
-    assert!(row_text(&buffer, 0).contains("Terminal too small"));
+    assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+    assert!(!row_text(&buffer, 0).contains("HEATMAP"));
+    let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
+    assert_eq!('.', chars[1], "bits right after the pointer, no heatmap");
 
+    // Wide enough: the r/w bars are drawn
     let buffer = render(&mut app, &snap, needed, 40);
     assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+    let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
+    assert_eq!('r', chars[2], "r/w heatmap bars present");
+
+    // ... and the top-bar label shows too (needs a wider screen, the
+    // label sits far right in the bar)
+    let buffer = render(&mut app, &snap, 120, 40);
+    assert!(row_text(&buffer, 0).contains("[ HEATMAP: R/W ]"));
 }
 
 #[test]

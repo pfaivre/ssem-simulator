@@ -109,7 +109,29 @@ pub(super) fn cfg_edges_support_self_loops() {
 }
 
 #[test]
-pub(super) fn lanes_are_shared_when_edges_do_not_overlap() {
+pub(super) fn lanes_are_shared_when_edges_do_not_touch() {
+    // 1→2 ends on line 2's row and 4→5 starts on line 4's row: with a gap
+    // between them, the second edge reuses lane 0
+    let edges = vec![
+        CfgEdge {
+            source: 1,
+            target: 2,
+            kind: EdgeKind::FallThrough,
+        },
+        CfgEdge {
+            source: 4,
+            target: 5,
+            kind: EdgeKind::FallThrough,
+        },
+    ];
+    assert_eq!(assign_lanes(&edges), vec![Some(0), Some(0)]);
+}
+
+#[test]
+pub(super) fn touching_edges_get_different_lanes() {
+    // 1→2 ends on line 2's row, where 2→3 starts: sharing that row would
+    // merge the two arrows into one continuous-looking line, so the second
+    // edge gets its own lane
     let edges = vec![
         CfgEdge {
             source: 1,
@@ -122,7 +144,7 @@ pub(super) fn lanes_are_shared_when_edges_do_not_overlap() {
             kind: EdgeKind::FallThrough,
         },
     ];
-    assert_eq!(assign_lanes(&edges), vec![Some(0), Some(0)]);
+    assert_eq!(assign_lanes(&edges), vec![Some(0), Some(1)]);
 }
 
 #[test]
@@ -185,7 +207,7 @@ pub(super) fn render_graph(store: [i32; 32]) -> (Buffer, App) {
     };
     let mut app = App::new();
     app.flow = FlowMode::Control;
-    let buffer = render(&mut app, &snap, 80, 40);
+    let buffer = render(&mut app, &snap, 100, 40);
     (buffer, app)
 }
 
@@ -288,6 +310,49 @@ pub(super) fn graph_view_highlights_backward_jumps_as_loops() {
 }
 
 #[test]
+pub(super) fn graph_view_crossing_prints_the_vertical_over_the_horizontal() {
+    // CMP at line 10 skips to line 12 (white edge, lane 1); JRP 30 at line
+    // 12 with store[30] = -9 jumps back to line 4 (bold red loop, lane 0).
+    // The skip's horizontal dashes on line 10's row cross the loop's
+    // vertical in lane 0.
+    let store = graph_store(&[
+        (1, "LDN 0"),
+        (2, "LDN 0"),
+        (3, "LDN 0"),
+        (4, "LDN 0"),
+        (5, "LDN 0"),
+        (6, "LDN 0"),
+        (7, "LDN 0"),
+        (8, "LDN 0"),
+        (9, "LDN 0"),
+        (10, "CMP"),
+        (11, "LDN 0"),
+        (12, "JRP 30"),
+        (30, "NUM -9"),
+    ]);
+    let (buffer, _) = render_graph(store);
+
+    let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
+    let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
+
+    // Store line i is drawn on screen row 5 + i; the crossing sits where
+    // the skip's horizontal (line 10's row) meets the loop's vertical
+    // (lane 0's column)
+    let (row, col) = ((line_row(10) + 1) as u16, g_vert(0));
+    // Only the vertical is printed, in the loop edge's bold red: the
+    // vertical arrow reads as passing over the horizontal one
+    assert_eq!('│', glyph(row, col));
+    assert_eq!(Color::Red, cell(row, col).fg);
+    assert!(cell(row, col).modifier.contains(Modifier::BOLD));
+    assert_eq!(Color::Reset, cell(row, col).bg);
+    // The horizontal edge is present on both sides of the crossing...
+    for side in [col - 1, col + 1] {
+        assert_eq!('─', glyph(row, side), "col {side}");
+        assert_eq!(Color::White, cell(row, side).fg, "col {side}");
+    }
+}
+
+#[test]
 pub(super) fn graph_view_draws_self_loops_as_a_circular_arrow() {
     // Line 1 jumps to line 3 (NUM -30 & 31 = 2, +1 = 3), and JRP 30 at
     // line 3 with store[30] = -1 jumps back to line 3 itself
@@ -317,7 +382,7 @@ pub(super) fn graph_gutter_renders_the_overflow_label_after_the_lanes() {
     let spans = gutter.row_spans(line_row(4));
     let text: String = spans.iter().flat_map(|span| span.content.chars()).collect();
     assert_eq!(GUTTER_COLS + OVERFLOW_LABEL_WIDTH, text.chars().count());
-    assert!(text.ends_with("⇢31"));
+    assert!(text.ends_with("⇢ 31"));
 }
 
 #[test]
@@ -329,7 +394,7 @@ pub(super) fn graph_view_hides_the_data_flow_arrow() {
 
     let mut app = App::new();
     app.flow = FlowMode::Control;
-    let buffer = render(&mut app, &snap, 80, 40);
+    let buffer = render(&mut app, &snap, 100, 40);
 
     // The gutter columns carry graph edges only: no magenta arrow
     for y in 0..buffer.area.height {
@@ -340,16 +405,37 @@ pub(super) fn graph_view_hides_the_data_flow_arrow() {
 }
 
 #[test]
-pub(super) fn graph_view_requires_extra_width() {
-    let snap = snapshot_with_history(0);
+pub(super) fn graph_view_crops_the_right_side_when_narrow() {
+    // JMP at line 2 lands on line 10 (NUM -23 & 31 = 9, +1); the STP at
+    // line 10 is reachable and marks the gutter's separator column with ■
+    let store = graph_store(&[(1, "LDN 0"), (2, "JMP 20"), (10, "STP"), (20, "NUM -23")]);
+    let snap = Snapshot {
+        store,
+        ..snapshot_with_history(0)
+    };
     let mut app = App::new();
     app.flow = FlowMode::Control;
 
-    let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
+    // Too narrow for the store text itself: the "too small" message is shown
+    let buffer = render(&mut app, &snap, MIN_WIDTH - 1, 40);
     assert!(row_text(&buffer, 0).contains("Terminal too small"));
 
-    let buffer = render(&mut app, &snap, MIN_WIDTH + GRAPH_EXTRA_WIDTH, 40);
+    // At MIN_WIDTH the store renders and only the separator column of the
+    // gutter fits: the ■ of line 10's STP is at the right edge (col 58),
+    // while the jump's lane column (col 61) is cropped off
+    let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
     assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+    let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
+    assert!(row_text(&buffer, 6).contains("01:"));
+    assert_eq!('■', glyph(15, G_SEP));
+
+    // Wide enough for the whole gutter: the 2→10 jump's lane 0 vertical
+    // (col 61) is drawn from row 8 to row 14
+    let buffer = render(&mut app, &snap, MIN_WIDTH + GRAPH_EXTRA_WIDTH, 40);
+    let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
+    for row in 8..15 {
+        assert_eq!('│', glyph(row, g_vert(0)), "row {row}");
+    }
 }
 
 #[test]

@@ -9,7 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
 use super::app::App;
-use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
+use super::graph::GraphGutter;
 use super::layout::{
     A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, MIN_HEIGHT, MIN_WIDTH, REGISTER_TEXT_WIDTH,
     STORE_ROW_OFFSET, STORE_TEXT_WIDTH, timeline_bar_geometry, timeline_marker_offset,
@@ -23,6 +23,7 @@ use crate::ssem::{Opcode, Store};
 
 /// Extra width required when pointer arrows are shown
 /// (separator + horizontal segment + arrowhead + gutter column).
+#[cfg(test)]
 pub(super) const ARROW_EXTRA_WIDTH: u16 = 4;
 
 /// A pointer arrow: where it starts and ends (in content rows of the main
@@ -68,8 +69,13 @@ impl App {
     /// Exec mode draws one bar (how often the word has been executed);
     /// r/w mode draws two labeled bars: `r` for operand reads and `w` for
     /// writes, each scaled against the hottest word of its own category.
-    fn heatmap_spans(&self, index: usize, snap: &Snapshot) -> Vec<Span<'static>> {
-        match self.heatmap {
+    fn heatmap_spans(
+        &self,
+        index: usize,
+        snap: &Snapshot,
+        heatmap: HeatmapMode,
+    ) -> Vec<Span<'static>> {
+        match heatmap {
             HeatmapMode::Off => Vec::new(),
             HeatmapMode::Exec => {
                 let max = snap.exec_counts.iter().max().copied().unwrap_or(0);
@@ -143,18 +149,20 @@ impl App {
         let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
         self.store_scroll = (self.store_scroll as usize).min(max_scroll) as u16;
 
-        // Check minimum terminal size (wider when a heatmap or a flow
-        // visualization is shown)
-        let mut min_width = MIN_WIDTH + self.heatmap.extra_width();
-        match self.flow {
-            FlowMode::Control => min_width += GRAPH_EXTRA_WIDTH,
-            FlowMode::Data => min_width += ARROW_EXTRA_WIDTH,
-            FlowMode::Off => {}
-        }
-        if area.width < min_width || area.height < MIN_HEIGHT {
+        // Minimum terminal size: the store text needs MIN_WIDTH and the
+        // chrome MIN_HEIGHT. On top of that, the heatmap (drawn just after
+        // the pointer column) must fit entirely or it is dropped, and the
+        // flow visualization at the right edge is cropped by the terminal
+        // when the window is too narrow.
+        let heatmap = if area.width >= MIN_WIDTH + self.heatmap.extra_width() {
+            self.heatmap
+        } else {
+            HeatmapMode::Off
+        };
+        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
             let msg = format!(
                 "Terminal too small: {}x{}, needs at least {}x{}",
-                area.width, area.height, min_width, MIN_HEIGHT
+                area.width, area.height, MIN_WIDTH, MIN_HEIGHT
             );
             let paragraph = Paragraph::new(msg);
             f.render_widget(paragraph, area);
@@ -172,8 +180,8 @@ impl App {
         .split(area);
 
         self.timeline_area = chunks[2];
-        self.draw_top_bar(f, chunks[0], snap);
-        self.draw_main_body(f, chunks[1], snap);
+        self.draw_top_bar(f, chunks[0], snap, heatmap);
+        self.draw_main_body(f, chunks[1], snap, heatmap);
         self.draw_timeline(f, chunks[2], snap);
         self.draw_bottom_bar(f, chunks[3]);
 
@@ -196,7 +204,7 @@ impl App {
     }
 
     /// Draw the top bar with status indicators.
-    fn draw_top_bar(&self, f: &mut Frame, area: Rect, snap: &Snapshot) {
+    fn draw_top_bar(&self, f: &mut Frame, area: Rect, snap: &Snapshot, heatmap: HeatmapMode) {
         let status = if self.scrubbing {
             "REWIND"
         } else if snap.stop_flag {
@@ -221,7 +229,7 @@ impl App {
             text.push_str(&format!(" [ BREAKPOINTS: {} ] ", snap.breakpoints.len()));
         }
 
-        if let Some(label) = self.heatmap.label() {
+        if let Some(label) = heatmap.label() {
             text.push_str(&format!(" [ HEATMAP: {label} ] "));
         }
 
@@ -234,11 +242,11 @@ impl App {
     }
 
     /// Draw the main body: CI, accumulator, and store words.
-    fn draw_main_body(&self, f: &mut Frame, area: Rect, snap: &Snapshot) {
+    fn draw_main_body(&self, f: &mut Frame, area: Rect, snap: &Snapshot, heatmap: HeatmapMode) {
         let mut lines: Vec<Line<'static>> = Vec::with_capacity(CONTENT_HEIGHT);
 
         // Spacer to align CI/A bits with store-word bits when a heatmap is on
-        let heatmap_spacer = " ".repeat(self.heatmap.extra_width() as usize);
+        let heatmap_spacer = " ".repeat(heatmap.extra_width() as usize);
 
         // Row 0: blank
         lines.push(Line::from(""));
@@ -260,7 +268,7 @@ impl App {
         // (store words, and the blank row the arrow's vertical may cross).
         // The register rows' cells (CI, accumulator) are built separately,
         // since their text is shorter and the arrow must connect back to it.
-        let heatmap_extra = self.heatmap.extra_width() as usize;
+        let heatmap_extra = heatmap.extra_width() as usize;
         let mut gutter: Vec<Option<Span<'static>>> = vec![None; CONTENT_HEIGHT];
         if let Some(arrow) = &arrow {
             let style = Style::default().fg(arrow.color);
@@ -430,7 +438,7 @@ impl App {
             };
 
             // Heatmap bars (no span when the heatmap is off)
-            let heatmap = self.heatmap_spans(index, snap);
+            let bars = self.heatmap_spans(index, snap, heatmap);
 
             let mut spans = vec![
                 Span::styled(pointer.to_string(), pointer_style),
@@ -444,7 +452,7 @@ impl App {
                 ),
                 Span::raw(format!(" {:02}", data)),
             ];
-            spans.splice(1..1, heatmap);
+            spans.splice(1..1, bars);
             if let Some(g) = &graph {
                 spans.extend(g.row_spans(row));
             } else if let Some(cell) = &gutter[row] {

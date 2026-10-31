@@ -8,17 +8,19 @@ use super::layout::{CONTENT_HEIGHT, STORE_ROW_OFFSET};
 use crate::ssem::{Opcode, Store};
 
 /// Maximum number of edge lanes drawn side by side in the graph gutter.
-pub(super) const MAX_EDGE_LANES: usize = 4;
+pub(super) const MAX_EDGE_LANES: usize = 7;
 
 /// Columns in the graph gutter: a separator, then per lane an arrowhead
 /// column, a dash column, and the corner/vertical column.
 pub(super) const GUTTER_COLS: usize = 1 + 3 * MAX_EDGE_LANES;
 
-/// Width of the overflow label ("⇢31") drawn after the lanes for an edge
+/// Width of the overflow label ("⇢ 31") drawn after the lanes for an edge
 /// that finds no free lane.
-pub(super) const OVERFLOW_LABEL_WIDTH: usize = 3;
+#[cfg(test)]
+pub(super) const OVERFLOW_LABEL_WIDTH: usize = 4;
 
 /// Extra screen width required by the control-flow graph view.
+#[cfg(test)]
 pub(super) const GRAPH_EXTRA_WIDTH: u16 = (GUTTER_COLS + OVERFLOW_LABEL_WIDTH) as u16;
 
 /// The kind of a control-flow edge, which decides its color in the graph view.
@@ -143,15 +145,16 @@ pub(super) fn line_row(line: usize) -> usize {
     STORE_ROW_OFFSET + line
 }
 
-/// Assign each edge a gutter lane so that overlapping edges use different
-/// lanes.
+/// Assign each edge a gutter lane so that no two edges share a lane, not
+/// even at a single row.
 ///
-/// An edge occupies its lane from its source row to its target row; a lane is
-/// free for a new edge when the previous one ends at or before the new one
-/// starts (an arriving and a leaving edge may share a row). Edges are packed
-/// earliest-start first, longest span first, so short edges fill the gaps
-/// between long ones. Returns `None` for edges that find no free lane; those
-/// are drawn as a source-row label instead.
+/// An edge occupies its lane from its source row through its target row
+/// inclusive: a lane is free for a new edge only when the previous one ends
+/// on an earlier row. Letting an arriving and a leaving edge share a row
+/// would merge their corners into one continuous-looking line. Edges are
+/// packed earliest-start first, longest span first, so short edges fill the
+/// gaps between long ones. Returns `None` for edges that find no free lane;
+/// those are drawn as a source-row label instead.
 pub(super) fn assign_lanes(edges: &[CfgEdge]) -> Vec<Option<usize>> {
     let span = |e: &CfgEdge| {
         let (s, t) = (line_row(e.source), line_row(e.target));
@@ -166,7 +169,7 @@ pub(super) fn assign_lanes(edges: &[CfgEdge]) -> Vec<Option<usize>> {
     let mut lanes = vec![None; edges.len()];
     for i in order {
         let (start, end) = span(&edges[i]);
-        if let Some(lane) = lane_end.iter().position(|&end_at| end_at <= start) {
+        if let Some(lane) = lane_end.iter().position(|&end_at| end_at < start) {
             lane_end[lane] = end;
             lanes[i] = Some(lane);
         }
@@ -175,8 +178,10 @@ pub(super) fn assign_lanes(edges: &[CfgEdge]) -> Vec<Option<usize>> {
 }
 
 /// Merge two glyphs drawn into the same gutter cell. Corners and arrowheads
-/// win over verticals, verticals over horizontals; a horizontal crossing a
-/// vertical becomes a crossing, two opposite corners a straight line.
+/// win over verticals, verticals over horizontals — so where a horizontal
+/// meets a vertical, only the vertical is printed and the horizontal passes
+/// underneath (the vertical edge reads as drawn on top). Two opposite
+/// corners become a straight line.
 fn merge_glyph(existing: char, new: char) -> char {
     fn rank(c: char) -> u8 {
         match c {
@@ -187,7 +192,6 @@ fn merge_glyph(existing: char, new: char) -> char {
         }
     }
     match (existing, new) {
-        ('│', '─') | ('─', '│') => '┼',
         ('╮', '╯') | ('╯', '╮') => '│',
         _ => {
             if rank(new) > rank(existing) {
@@ -200,6 +204,10 @@ fn merge_glyph(existing: char, new: char) -> char {
 }
 
 /// Draw one glyph into a gutter cell, merging with whatever is already there.
+/// When the merged glyph is the vertical of the pair, the vertical edge's
+/// style is kept (`merged == glyph` when the new glyph is the vertical,
+/// `merged == existing` when it already was), so the cell shows the
+/// on-top edge's color.
 fn set_cell(
     cells: &mut [Vec<Option<(char, Style)>>],
     row: usize,
@@ -330,7 +338,7 @@ impl GraphGutter {
             spans.push(Span::styled(run, run_style));
         }
         if let Some((target, style)) = self.overflow[row] {
-            spans.push(Span::styled(format!("⇢{target:02}"), style));
+            spans.push(Span::styled(format!("⇢ {target:02}"), style));
         }
         spans
     }

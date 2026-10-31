@@ -483,16 +483,22 @@ pub(super) fn flow_mode_cycles_with_the_f_key() {
 }
 
 #[test]
-pub(super) fn pointer_arrows_require_extra_width() {
+pub(super) fn pointer_arrows_crop_the_right_side_when_narrow() {
     let snap = pointer_snapshot(0, [0; 32]);
     let mut app = App::new();
     app.flow = FlowMode::Data;
 
-    // Too narrow: the "too small" message is shown instead of the store
-    let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
+    // Too narrow for the store text: the "too small" message is shown
+    let buffer = render(&mut app, &snap, MIN_WIDTH - 1, 40);
     assert!(row_text(&buffer, 0).contains("Terminal too small"));
 
-    // Wide enough: the store and the arrow are drawn
+    // At MIN_WIDTH the store renders; the arrow gutter at the right edge
+    // (cols 59+) is cropped off
+    let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
+    assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+    assert!(row_text(&buffer, 5).contains("00:"));
+
+    // Wide enough: the arrow is fully drawn
     let buffer = render(&mut app, &snap, MIN_WIDTH + ARROW_EXTRA_WIDTH, 40);
     assert!(!row_text(&buffer, 0).contains("Terminal too small"));
     let row = row_text(&buffer, 5);
