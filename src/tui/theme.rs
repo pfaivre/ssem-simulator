@@ -44,6 +44,11 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
         "FLOW",
         "Cycle the flow view: data flow, control flow, off",
     ),
+    (
+        "C",
+        "COMMENTS",
+        "Toggle the source-comment column next to each store word",
+    ),
     ("B", "BREAKPT", "Open the breakpoint pop-up"),
     ("H", "HELP", "Toggle this help pop-up"),
     (
@@ -134,10 +139,10 @@ pub(super) const WRITE_RAMP: [Color; 3] = [Color::Yellow, Color::Red, Color::Lig
 /// cycled with the A key like the heatmap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FlowMode {
-    /// The data flow of the last executed instruction, drawn as a pointer arrow.
-    Data,
     /// The control flow between the store lines, drawn as a static graph.
     Control,
+    /// The data flow of the last executed instruction, drawn as a pointer arrow.
+    Data,
     /// No flow visualization.
     Off,
 }
@@ -146,17 +151,17 @@ impl FlowMode {
     /// The next mode when the key is pressed: data → control → off → data.
     pub(super) fn cycle(self) -> Self {
         match self {
-            FlowMode::Data => FlowMode::Control,
-            FlowMode::Control => FlowMode::Off,
-            FlowMode::Off => FlowMode::Data,
+            FlowMode::Control => FlowMode::Data,
+            FlowMode::Data => FlowMode::Off,
+            FlowMode::Off => FlowMode::Control,
         }
     }
 
     /// The label shown in the top bar, or None when the visualization is off.
     pub(super) fn label(self) -> Option<&'static str> {
         match self {
-            FlowMode::Data => Some("DATA"),
             FlowMode::Control => Some("CONTROL"),
+            FlowMode::Data => Some("DATA"),
             FlowMode::Off => None,
         }
     }

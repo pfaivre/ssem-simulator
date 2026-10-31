@@ -8,7 +8,7 @@ use super::layout::{CONTENT_HEIGHT, STORE_ROW_OFFSET};
 use crate::ssem::{Opcode, Store};
 
 /// Maximum number of edge lanes drawn side by side in the graph gutter.
-pub(super) const MAX_EDGE_LANES: usize = 7;
+pub(super) const MAX_EDGE_LANES: usize = 4;
 
 /// Columns in the graph gutter: a separator, then per lane an arrowhead
 /// column, a dash column, and the corner/vertical column.
@@ -16,11 +16,9 @@ pub(super) const GUTTER_COLS: usize = 1 + 3 * MAX_EDGE_LANES;
 
 /// Width of the overflow label ("⇢ 31") drawn after the lanes for an edge
 /// that finds no free lane.
-#[cfg(test)]
 pub(super) const OVERFLOW_LABEL_WIDTH: usize = 4;
 
 /// Extra screen width required by the control-flow graph view.
-#[cfg(test)]
 pub(super) const GRAPH_EXTRA_WIDTH: u16 = (GUTTER_COLS + OVERFLOW_LABEL_WIDTH) as u16;
 
 /// The kind of a control-flow edge, which decides its color in the graph view.

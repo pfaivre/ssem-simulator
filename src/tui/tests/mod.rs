@@ -2,19 +2,21 @@
 //! live in this file.
 
 mod arrows;
+mod comments;
 mod graph;
 mod heatmap;
 mod render;
 mod timeline;
 
 use super::app::App;
-use super::draw::ARROW_EXTRA_WIDTH;
+use super::draw::{ARROW_EXTRA_WIDTH, flow_gutter_width};
 use super::graph::{
     CfgEdge, EdgeKind, GRAPH_EXTRA_WIDTH, GUTTER_COLS, GraphGutter, MAX_EDGE_LANES,
     OVERFLOW_LABEL_WIDTH, assign_lanes, control_flow_edges, line_row, reachable_edges,
 };
 use super::layout::{
-    CONTENT_HEIGHT, MIN_WIDTH, STORE_TEXT_WIDTH, timeline_bar_geometry, timeline_marker_offset,
+    CONTENT_HEIGHT, MAX_COMMENT_WIDTH, MIN_WIDTH, STORE_TEXT_WIDTH, comment_column_width,
+    timeline_bar_geometry, timeline_marker_offset,
 };
 use super::snapshot::Snapshot;
 use super::theme::{FlowMode, HeatmapMode};
@@ -26,6 +28,7 @@ use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
+use std::sync::Arc;
 
 /// A simulator that never halts: an empty store executes `JMP 0` forever.
 fn looping_sim(cycles: u32) -> Simulator {
@@ -41,6 +44,7 @@ fn snapshot_with_history(cycle_count: u64) -> Snapshot {
         ci: 0,
         a: 0,
         store: [0; 32],
+        comments: Arc::new(std::array::from_fn(|_| None)),
         cycle_count,
         speed: 700,
         stop_flag: true,

@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::ops::Index;
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use super::opcode::Opcode;
 
@@ -21,6 +22,13 @@ const SSEM_OPCODE_BIT_SHIFT: u8 = 13;
 #[derive(Debug)]
 pub struct Store {
     pub words: [i32; SSEM_STORE_WORDS],
+
+    /// The `;` comment found on each word's line in the input file, if any.
+    /// Purely informational: shown in the displays, never executed. Shared
+    /// behind an `Arc` because it never changes after load, so the TUI's
+    /// per-frame snapshot can copy it with a refcount bump instead of
+    /// cloning up to 32 strings every frame.
+    pub comments: Arc<[Option<String>; SSEM_STORE_WORDS]>,
 }
 
 impl Default for Store {
@@ -42,6 +50,7 @@ impl Store {
     pub fn new() -> Store {
         let store = Store {
             words: [0_i32; SSEM_STORE_WORDS],
+            comments: Arc::new(std::array::from_fn(|_| None)),
         };
         store._check();
         store
@@ -56,7 +65,9 @@ impl Store {
     /// 02 STO 26 ; C to 26
     /// ...
     /// ```
-    /// Each numbered line represents a word with its instruction. Erverything after ';' is ignored.
+    /// Each numbered line represents a word with its instruction. The text
+    /// after ';' is kept as the word's comment (`Store::comments`) for
+    /// display, with its original indentation.
     ///
     /// # Arguments
     ///
@@ -75,9 +86,8 @@ impl Store {
         };
         let reader = BufReader::new(file);
 
-        let mut store = Store {
-            words: [0_i32; SSEM_STORE_WORDS],
-        };
+        let mut words = [0_i32; SSEM_STORE_WORDS];
+        let mut comments = std::array::from_fn(|_| None);
 
         let mut last_index: i32 = 0;
 
@@ -90,8 +100,21 @@ impl Store {
                 );
             });
 
-            // Ignoring comments
-            let instruction = line.split(ASM_COMMENT_CHAR).next().unwrap_or("").trim();
+            // Split the instruction from its comment; the comment is kept
+            // for display (a comment-only line has no instruction and is skipped)
+            let (instruction, comment) = match line.split_once(ASM_COMMENT_CHAR) {
+                Some((instruction, comment)) => {
+                    // Keep the comment's original indentation (the spacing
+                    // after the ';'), so aligned comments in the source stay
+                    // aligned on screen; only trailing whitespace is dropped
+                    let comment = comment.trim_end();
+                    (
+                        instruction.trim(),
+                        (!comment.trim().is_empty()).then(|| comment.to_string()),
+                    )
+                }
+                None => (line.trim(), None),
+            };
             if instruction.is_empty() {
                 continue;
             }
@@ -124,14 +147,16 @@ impl Store {
             last_index = index;
 
             // Ensure we don't write outside of the store
-            if index >= store.words.len() as i32 {
+            if index >= words.len() as i32 {
                 panic!(
                     "Error near line '{}': Index '{}' is bigger than the machine size ({})",
                     instruction,
                     index,
-                    store.words.len(),
+                    words.len(),
                 );
             }
+
+            comments[usize::try_from(index).unwrap()] = comment;
 
             let opcode = Opcode::from_str(opcode).unwrap_or_else(|_| {
                 panic!(
@@ -143,7 +168,7 @@ impl Store {
             match opcode {
                 Opcode::NUM => {
                     // TODO: make this safe
-                    store.words[usize::try_from(index).unwrap()] = operand;
+                    words[usize::try_from(index).unwrap()] = operand;
                 }
                 opcode => {
                     // Ensure the operand fits in the instruction's data bits
@@ -158,11 +183,15 @@ impl Store {
                     let w: i32 = (opcode as i32) << SSEM_OPCODE_BIT_SHIFT;
 
                     // Print the operand
-                    store.words[usize::try_from(index).unwrap()] = w | operand;
+                    words[usize::try_from(index).unwrap()] = w | operand;
                 }
             }
         }
 
+        let store = Store {
+            words,
+            comments: Arc::new(comments),
+        };
         store._check();
 
         store
@@ -177,7 +206,9 @@ impl Store {
     /// 0002: 00000000000000010000000000000000
     /// ...
     /// ```
-    /// Each numbered line represents a raw word. Erverything after ';' is ignored.
+    /// Each numbered line represents a raw word. The text after ';' is kept
+    /// as the word's comment (`Store::comments`) for display, with its
+    /// original indentation.
     ///
     /// # Arguments
     ///
@@ -197,9 +228,8 @@ impl Store {
         };
         let reader = BufReader::new(file);
 
-        let mut store = Store {
-            words: [0_i32; SSEM_STORE_WORDS],
-        };
+        let mut words = [0_i32; SSEM_STORE_WORDS];
+        let mut comments = std::array::from_fn(|_| None);
 
         let mut last_index: i32 = 0;
 
@@ -212,8 +242,21 @@ impl Store {
                 );
             });
 
-            // Ignoring comments
-            let instruction = line.split(ASM_COMMENT_CHAR).next().unwrap_or("").trim();
+            // Split the word from its comment; the comment is kept for
+            // display (a comment-only line has no word and is skipped)
+            let (instruction, comment) = match line.split_once(ASM_COMMENT_CHAR) {
+                Some((instruction, comment)) => {
+                    // Keep the comment's original indentation (the spacing
+                    // after the ';'), so aligned comments in the source stay
+                    // aligned on screen; only trailing whitespace is dropped
+                    let comment = comment.trim_end();
+                    (
+                        instruction.trim(),
+                        (!comment.trim().is_empty()).then(|| comment.to_string()),
+                    )
+                }
+                None => (line.trim(), None),
+            };
             if instruction.is_empty() {
                 continue;
             }
@@ -236,14 +279,16 @@ impl Store {
             last_index = index;
 
             // Ensure we don't write outside of the store
-            if index >= store.words.len() as i32 {
+            if index >= words.len() as i32 {
                 panic!(
                     "Error near line '{}': Index '{}' is bigger than the machine size ({})",
                     instruction,
                     index,
-                    store.words.len(),
+                    words.len(),
                 );
             }
+
+            comments[usize::try_from(index).unwrap()] = comment;
 
             // Reverse the bit order: SSEM is least significant bit first
             let word = i[1].trim().chars().rev().collect::<String>();
@@ -264,9 +309,13 @@ impl Store {
             };
 
             // The cast to i32 is safe because we ensured before there is only 32 bits of data in the word
-            store.words[usize::try_from(index).unwrap()] = word as i32;
+            words[usize::try_from(index).unwrap()] = word as i32;
         }
 
+        let store = Store {
+            words,
+            comments: Arc::new(comments),
+        };
         store._check();
 
         store
@@ -416,7 +465,10 @@ impl From<Vec<String>> for Store {
             words[index] = parsed_word as i32;
         }
 
-        let store = Store { words };
+        let store = Store {
+            words,
+            comments: Arc::new(std::array::from_fn(|_| None)),
+        };
         store._check();
         store
     }
@@ -447,9 +499,15 @@ impl fmt::Display for Store {
         for (index, word) in self.words.iter().enumerate() {
             // Interpret the word as an instruction, the same way the machine does at fetch time
             let (opcode, data) = self.decode_instruction(index);
+            // The source comment of the word's line, when the input file had
+            // one, with its original indentation after the ';'
+            let comment = self.comments[index]
+                .as_deref()
+                .map(|c| format!("  ;{c}"))
+                .unwrap_or_default();
             writeln!(
                 f,
-                " {} {:02}:{:>12}  {} {:02}",
+                " {} {:02}:{:>12}  {} {:02}{comment}",
                 Bits(*word),
                 index,
                 word,
@@ -823,6 +881,84 @@ mod tests {
         assert_eq!(-3, store.words[2]); // NUM stores the raw value
         assert_eq!(instr(Opcode::STO, 27), store.words[3]);
         assert_eq!(0, store.words[4]);
+    }
+
+    #[test]
+    fn from_asm_file_keeps_comments() {
+        let file = temp_file(
+            "comments.asm",
+            "; a leading comment\n\n00 JMP 5 ; jump somewhere\n01 CMP\n02 NUM -3 ; negative three\n03 STO 27 ;\n04 STO 27 ;   padded   \n",
+        );
+        let store = Store::from_asm_file(file.path());
+
+        // The text after ';' is kept verbatim, leading indentation included
+        assert_eq!(Some(" jump somewhere".to_string()), store.comments[0]);
+        assert_eq!(None, store.comments[1], "no comment on this line");
+        assert_eq!(Some(" negative three".to_string()), store.comments[2]);
+        assert_eq!(
+            None, store.comments[3],
+            "empty comment after ';' is dropped"
+        );
+        assert_eq!(
+            Some("   padded".to_string()),
+            store.comments[4],
+            "indentation after ';' is kept, trailing whitespace dropped"
+        );
+        assert_eq!(None, store.comments[5], "untouched line has no comment");
+        // A comment-only line does not attach to any word
+        assert!(
+            store
+                .comments
+                .iter()
+                .all(|c| c.as_deref() != Some(" a leading comment"))
+        );
+    }
+
+    #[test]
+    fn from_asm_file_factorct_keeps_inline_comments() {
+        let store = Store::from_asm_file(Path::new("samples/ssem/factorct.asm"));
+        assert_eq!(None, store.comments[0], "line 00's comment is empty");
+        assert_eq!(Some(" A = -a".to_string()), store.comments[1]);
+        // Line 02's comment is indented further in the source: kept as-is
+        assert_eq!(
+            Some("   26 = -a  (i.e. -b, with b = a initially)".to_string()),
+            store.comments[2]
+        );
+        assert_eq!(
+            Some(" b: candidate factor; holds the answer when stopped".to_string()),
+            store.comments[27]
+        );
+    }
+
+    #[test]
+    fn from_snp_file_keeps_comments() {
+        let file = temp_file(
+            "comments.snp",
+            "; a leading comment\n0000: 10000000000000000000000000000000 ; first word\n0001: 00000000000000000000000000000000\n",
+        );
+        let store = Store::from_snp_file(file.path());
+
+        assert_eq!(Some(" first word".to_string()), store.comments[0]);
+        assert_eq!(None, store.comments[1]);
+    }
+
+    #[test]
+    fn display_appends_comments() {
+        let file = temp_file(
+            "display_comments.asm",
+            "00 JMP 5 ; jump somewhere\n01 STP ;   halt now\n",
+        );
+        let store = Store::from_asm_file(file.path());
+        let text = store.to_string();
+        let mut lines = text.lines();
+        assert!(
+            lines.next().unwrap().ends_with("JMP 05  ; jump somewhere"),
+            "comment shown after the instruction"
+        );
+        assert!(
+            lines.next().unwrap().ends_with("STP 00  ;   halt now"),
+            "the comment's indentation is preserved"
+        );
     }
 
     #[test]

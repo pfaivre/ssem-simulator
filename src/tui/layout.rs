@@ -66,3 +66,20 @@ pub(super) const STORE_TEXT_WIDTH: usize = 58;
 /// Width of the CI and accumulator lines' text: bits with leading space (33)
 /// + label (16), excluding the optional heatmap spacer.
 pub(super) const REGISTER_TEXT_WIDTH: usize = 49;
+
+/// Maximum width (in cells) of the source-comment column: longer comments
+/// are truncated to fit.
+pub(super) const MAX_COMMENT_WIDTH: usize = 80;
+
+/// Width of the source-comment column for the given per-word comments:
+/// the widest comment, capped at `MAX_COMMENT_WIDTH`. Zero when no word
+/// has a comment, in which case the column is not drawn at all.
+pub(super) fn comment_column_width(comments: &[Option<String>; 32]) -> usize {
+    comments
+        .iter()
+        .filter_map(|c| c.as_deref())
+        .map(|c| c.chars().count())
+        .max()
+        .unwrap_or(0)
+        .min(MAX_COMMENT_WIDTH)
+}

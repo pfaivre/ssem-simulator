@@ -56,6 +56,10 @@ Set conditions that will stop the machines if one of them is met.
 
 ![Pop-up to set breakpoints](docs/breakpoints.png)
 
+## Source comments
+
+The `;` comment on each line of the input file is kept with its store word and shown next to the disassembly (`01 LDN 24  ; A = -a`), so machine code maps back to intent.
+
 ## Headless mode
 
 Run the machine as fast as possible without any graphical interface and only print the last state of the machine

@@ -48,6 +48,11 @@ pub(super) struct App {
     /// (cycled with the F key).
     pub(super) flow: FlowMode,
 
+    /// Whether the source-comment column is shown next to each store word
+    /// (toggled with the C key). Renders nothing when the input file has
+    /// no comments.
+    pub(super) show_comments: bool,
+
     /// Whether the user is currently dragging the timeline scrubber.
     pub(super) scrubbing: bool,
 
@@ -74,7 +79,8 @@ impl App {
             editor_popup: EditorPopup::new(),
             last_click: None,
             heatmap: HeatmapMode::Off,
-            flow: FlowMode::Data,
+            flow: FlowMode::Control,
+            show_comments: true,
             scrubbing: false,
             timeline_area: Rect::default(),
             should_quit: false,
@@ -176,6 +182,7 @@ impl App {
                 'e' => self.editor_popup.open(),
                 'm' => self.heatmap = self.heatmap.cycle(),
                 'f' => self.flow = self.flow.cycle(),
+                'c' => self.show_comments = !self.show_comments,
                 'h' => self.help_popup.open(),
                 ',' | '.' => self.handle_scrub_key(key.code, sim),
                 _ => {}

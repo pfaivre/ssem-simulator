@@ -1,6 +1,8 @@
 //! A point-in-time copy of the simulator state, taken by the UI thread under
 //! a brief lock so drawing never holds the lock.
 
+use std::sync::Arc;
+
 use crate::ssem::simulator::{Breakpoint, LastInstruction, Simulator};
 
 /// A snapshot of the simulator state, taken by the UI thread under a brief lock.
@@ -12,6 +14,10 @@ pub(super) struct Snapshot {
     pub(super) ci: i32,
     pub(super) a: i32,
     pub(super) store: [i32; 32],
+    /// The source comment of each store word, shared with the store. Comments
+    /// are static (STO only rewrites words, and history rewinds only words),
+    /// so the per-frame copy is a refcount bump and stays valid while scrubbing.
+    pub(super) comments: Arc<[Option<String>; 32]>,
     pub(super) cycle_count: u64,
     pub(super) speed: u32,
     pub(super) stop_flag: bool,
@@ -36,6 +42,7 @@ impl Snapshot {
             ci: sim.ci,
             a: sim.a,
             store: sim.store.words,
+            comments: Arc::clone(&sim.store.comments),
             cycle_count: sim.cycle_count,
             speed: sim.speed,
             stop_flag: sim.stop_flag,

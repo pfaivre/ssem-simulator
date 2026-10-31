@@ -61,6 +61,16 @@
 //! The graph is computed from the current store contents, so it follows live
 //! edits and history scrubbing. The third mode hides the visualization.
 //!
+//! Press C to toggle the source-comment column: the `;` comment found on each
+//! word's line in the input file is shown next to the disassembly
+//! (`01 LDN 24  ; A = -a`), dimmed, with its original indentation, in a
+//! fixed-width column (long comments are truncated to 80 cells). The flow gutter (arrow or graph) is drawn between
+//! the disassembly and the comment column, so the arrows keep their fixed
+//! cells; when the terminal is narrow, the comments are cropped to the width
+//! left after the store text, the heatmap, and the gutter instead of being
+//! hidden. The column is on by default; with a comment-free input it renders
+//! nothing. The headless final-state dump prints the comments too.
+//!
 //! Mnemonics are syntax-highlighted by category, reusing the arrows' palette
 //! so the two stay coherent: magenta for a data movement (LDN, STO, JMP),
 //! cyan for an arithmetic combination (SUB, SUB2, JRP), white for CMP (test)

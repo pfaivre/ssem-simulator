@@ -9,10 +9,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
 use super::app::App;
-use super::graph::GraphGutter;
+use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
 use super::layout::{
     A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, MIN_HEIGHT, MIN_WIDTH, REGISTER_TEXT_WIDTH,
-    STORE_ROW_OFFSET, STORE_TEXT_WIDTH, timeline_bar_geometry, timeline_marker_offset,
+    STORE_ROW_OFFSET, STORE_TEXT_WIDTH, comment_column_width, timeline_bar_geometry,
+    timeline_marker_offset,
 };
 use super::snapshot::Snapshot;
 use super::theme::{
@@ -23,8 +24,17 @@ use crate::ssem::{Opcode, Store};
 
 /// Extra width required when pointer arrows are shown
 /// (separator + horizontal segment + arrowhead + gutter column).
-#[cfg(test)]
 pub(super) const ARROW_EXTRA_WIDTH: u16 = 4;
+
+/// Width (in cells) the flow gutter occupies between the store text and the
+/// comment column, by flow mode: the pointer arrow or the control-flow graph.
+pub(super) fn flow_gutter_width(flow: FlowMode) -> u16 {
+    match flow {
+        FlowMode::Control => GRAPH_EXTRA_WIDTH,
+        FlowMode::Data => ARROW_EXTRA_WIDTH,
+        FlowMode::Off => 0,
+    }
+}
 
 /// A pointer arrow: where it starts and ends (in content rows of the main
 /// body) and its color.
@@ -159,6 +169,22 @@ impl App {
         } else {
             HeatmapMode::Off
         };
+        // The comment column is cropped to the width left after the store
+        // text, the heatmap, and the flow gutter (which stays left of the
+        // comments so the arrows remain visible), instead of being hidden
+        // entirely. Each comment span is " ;" + the text, so it needs 2
+        // cells on top of the comment width.
+        let comment_width = if self.show_comments {
+            let available = (area.width as usize).saturating_sub(
+                STORE_TEXT_WIDTH
+                    + heatmap.extra_width() as usize
+                    + flow_gutter_width(self.flow) as usize
+                    + 2,
+            );
+            comment_column_width(&snap.comments).min(available)
+        } else {
+            0
+        };
         if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
             let msg = format!(
                 "Terminal too small: {}x{}, needs at least {}x{}",
@@ -180,8 +206,8 @@ impl App {
         .split(area);
 
         self.timeline_area = chunks[2];
-        self.draw_top_bar(f, chunks[0], snap, heatmap);
-        self.draw_main_body(f, chunks[1], snap, heatmap);
+        self.draw_top_bar(f, chunks[0], snap, heatmap, comment_width);
+        self.draw_main_body(f, chunks[1], snap, heatmap, comment_width);
         self.draw_timeline(f, chunks[2], snap);
         self.draw_bottom_bar(f, chunks[3]);
 
@@ -204,7 +230,14 @@ impl App {
     }
 
     /// Draw the top bar with status indicators.
-    fn draw_top_bar(&self, f: &mut Frame, area: Rect, snap: &Snapshot, heatmap: HeatmapMode) {
+    fn draw_top_bar(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        snap: &Snapshot,
+        heatmap: HeatmapMode,
+        comment_width: usize,
+    ) {
         let status = if self.scrubbing {
             "REWIND"
         } else if snap.stop_flag {
@@ -237,12 +270,23 @@ impl App {
             text.push_str(&format!(" [ FLOW: {label} ] "));
         }
 
+        if comment_width > 0 {
+            text.push_str(" [ COMMENTS ] ");
+        }
+
         let line = Line::from(Span::styled(text, Style::default().fg(Color::Blue)));
         f.render_widget(Paragraph::new(line), area);
     }
 
     /// Draw the main body: CI, accumulator, and store words.
-    fn draw_main_body(&self, f: &mut Frame, area: Rect, snap: &Snapshot, heatmap: HeatmapMode) {
+    fn draw_main_body(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        snap: &Snapshot,
+        heatmap: HeatmapMode,
+        comment_width: usize,
+    ) {
         let mut lines: Vec<Line<'static>> = Vec::with_capacity(CONTENT_HEIGHT);
 
         // Spacer to align CI/A bits with store-word bits when a heatmap is on
@@ -269,6 +313,12 @@ impl App {
         // The register rows' cells (CI, accumulator) are built separately,
         // since their text is shorter and the arrow must connect back to it.
         let heatmap_extra = heatmap.extra_width() as usize;
+        // Total width of the comment span (" ;" + the comment text), 0 when off
+        let comment_extra = if comment_width > 0 {
+            comment_width + 2
+        } else {
+            0
+        };
         let mut gutter: Vec<Option<Span<'static>>> = vec![None; CONTENT_HEIGHT];
         if let Some(arrow) = &arrow {
             let style = Style::default().fg(arrow.color);
@@ -305,6 +355,7 @@ impl App {
             let arrow = arrow.as_ref()?;
             let style = Style::default().fg(arrow.color);
             // Cells between the register's text and the store gutter
+            // (the gutter sits right after the store text and the heatmap)
             let pad = STORE_TEXT_WIDTH - REGISTER_TEXT_WIDTH;
             if arrow.source == row {
                 // The arrow leaves the register (STO)
@@ -381,11 +432,14 @@ impl App {
 
         // Row 3: blank (carries the arrow's vertical segment when it crosses)
         let mut blank_spans: Vec<Span<'static>> = Vec::new();
+        blank_spans.push(Span::raw(" ".repeat(STORE_TEXT_WIDTH + heatmap_extra)));
         if let Some(g) = &graph {
             blank_spans.extend(g.row_spans(3));
         } else if let Some(cell) = &gutter[3] {
-            blank_spans.push(Span::raw(" ".repeat(STORE_TEXT_WIDTH + heatmap_extra)));
             blank_spans.push(cell.clone());
+        } else if self.flow == FlowMode::Data {
+            // Keep the comment column aligned when no arrow is drawn
+            blank_spans.push(Span::raw(" ".repeat(ARROW_EXTRA_WIDTH as usize)));
         }
         lines.push(Line::from(blank_spans));
 
@@ -453,10 +507,31 @@ impl App {
                 Span::raw(format!(" {:02}", data)),
             ];
             spans.splice(1..1, bars);
+            // The flow gutter (pointer arrow or control-flow graph) sits
+            // between the store text and the comment column, so the arrows
+            // keep their fixed cells whatever width is left for the comments
             if let Some(g) = &graph {
                 spans.extend(g.row_spans(row));
             } else if let Some(cell) = &gutter[row] {
                 spans.push(cell.clone());
+            } else if self.flow == FlowMode::Data {
+                // Keep the comment column aligned when no arrow is drawn
+                spans.push(Span::raw(" ".repeat(ARROW_EXTRA_WIDTH as usize)));
+            }
+            // The source comment of the word's line, in a fixed-width column
+            // at the right edge, with its original indentation after the
+            // ';'; dimmed like a comment in an editor
+            if comment_width > 0 {
+                match &snap.comments[index] {
+                    Some(text) => {
+                        let truncated: String = text.chars().take(comment_width).collect();
+                        spans.push(Span::styled(
+                            format!(" ;{truncated:<comment_width$}"),
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
+                    None => spans.push(Span::raw(" ".repeat(comment_extra))),
+                }
             }
             lines.push(Line::from(spans));
         }
