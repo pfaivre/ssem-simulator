@@ -11,7 +11,7 @@ use crate::ssem::Opcode;
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, Simulator};
 
-use super::{KEYMAP, opcode_color};
+use super::theme::{KEYMAP, opcode_color};
 
 /// Compute a centered, clamped pop-up rectangle within the given area.
 fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
