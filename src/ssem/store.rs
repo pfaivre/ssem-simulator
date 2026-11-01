@@ -392,6 +392,23 @@ impl Store {
         (Opcode::from(opcode), data)
     }
 
+    /// Rewrite the opcode field of a raw word, keeping every other bit.
+    ///
+    /// The inverse of `decode_word` for the opcode half: bits 13-15 are
+    /// replaced, the data field (and any bits outside the two fields, which
+    /// the machine ignores but a `NUM` word may carry) are preserved.
+    pub fn with_opcode(word: i32, opcode: Opcode) -> i32 {
+        (word & !(SSEM_OPCODE_MASK << SSEM_OPCODE_BIT_SHIFT))
+            | ((opcode as i32) << SSEM_OPCODE_BIT_SHIFT)
+    }
+
+    /// Rewrite the data field of a raw word, keeping every other bit.
+    ///
+    /// The data is masked to 5 bits, like `decode_word` reads it.
+    pub fn with_data(word: i32, data: i32) -> i32 {
+        (word & !SSEM_DATA_MASK) | (data & SSEM_DATA_MASK)
+    }
+
     /// Parse a word from human-readable input.
     ///
     /// Accepts either a decimal number (`42`, `-3`) or an instruction
@@ -1270,6 +1287,40 @@ mod tests {
         assert_eq!(Ok(42), Store::parse_word("NUM 42"));
         assert_eq!(Ok(-3), Store::parse_word("NUM -3"));
         assert_eq!(Ok(0), Store::parse_word("NUM 0"));
+    }
+
+    #[test]
+    fn with_opcode_replaces_only_the_opcode_field() {
+        let word = instr(Opcode::LDN, 24);
+        assert_eq!(
+            instr(Opcode::STO, 24),
+            Store::with_opcode(word, Opcode::STO)
+        );
+        // A word with bits outside the opcode/data fields (a NUM value)
+        // keeps them
+        let raw = (0b101 << 16) | instr(Opcode::JMP, 3);
+        let rewritten = Store::with_opcode(raw, Opcode::STP);
+        assert_eq!(instr(Opcode::STP, 3) | (0b101 << 16), rewritten);
+        assert_eq!(
+            (Opcode::STP, 3),
+            Store::decode_word(rewritten),
+            "decode(with_opcode(w, op)) round-trips"
+        );
+    }
+
+    #[test]
+    fn with_data_replaces_only_the_data_field() {
+        let word = instr(Opcode::LDN, 24);
+        assert_eq!(instr(Opcode::LDN, 7), Store::with_data(word, 7));
+        // The data is masked to 5 bits, like decode_word reads it
+        assert_eq!(instr(Opcode::LDN, 31), Store::with_data(word, 63));
+        assert_eq!(instr(Opcode::LDN, 31), Store::with_data(word, -1));
+        // Bits outside the two fields are preserved
+        let raw = (0b101 << 16) | instr(Opcode::JMP, 3);
+        assert_eq!(
+            (0b101 << 16) | instr(Opcode::JMP, 12),
+            Store::with_data(raw, 12)
+        );
     }
 
     #[test]

@@ -35,7 +35,9 @@
 //! as the usual input file. `--save FILE` does the same for the final state on exit.
 //!
 //! Mouse: double-click a line (CI, A, or a store word) to open the editor for it,
-//! double-click a comment to edit it inline; scroll wheel scrolls the store view.
+//! double-click a comment to edit it inline, double-click a mnemonic or data cell
+//! of a store word to pick a new value from a side list; scroll wheel scrolls
+//! the store view.
 //!
 //! Time-travel: the timeline bar shows the retained execution history. Drag it
 //! with the mouse (or use ← → Home End, or the scroll wheel over it) to move
@@ -89,6 +91,15 @@
 //! Edits are kept when the state is saved (S or `--save`), exactly like
 //! comments read from the input file.
 //!
+//! Double-clicking the mnemonic or the data part of a store word opens a side
+//! list just right of the store text (past the heatmap), vertically anchored
+//! on that row: the eight opcodes for the mnemonic, the 32 addresses in an
+//! 8-column grid for the data part. Clicking an entry — or selecting it with
+//! the arrow keys and pressing Enter — rewrites only that field of the word,
+//! keeping every other bit; Esc or a click outside cancels. The entry matching
+//! the word's current value is marked with `>`. While the list is open it is
+//! modal.
+//!
 //! Mnemonics are syntax-highlighted by category, reusing the arrows' palette
 //! so the two stay coherent: magenta for a data movement (LDN, STO, JMP),
 //! cyan for an arithmetic combination (SUB, SUB2, JRP), white for CMP (test)
@@ -125,7 +136,8 @@
 //! - `app`: application state and input handling (keymap, bit glyphs)
 //! - `draw`: rendering of the bars, main body, and pop-ups
 //! - `runner`: the machine/UI threads and the entry point
-//! - `popups`: the help, breakpoint, editor, and save pop-ups, and the inline comment editor
+//! - `popups`: the help, breakpoint, editor, and save pop-ups, the inline comment
+//!   editor, and the mnemonic/data picker
 
 mod app;
 mod config;

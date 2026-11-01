@@ -61,9 +61,42 @@ pub(super) const A_ROW: usize = 2;
 /// Content row of store word 0; word `i` is at content row `STORE_ROW_OFFSET + i`.
 pub(super) const STORE_ROW_OFFSET: usize = 4;
 
-/// Width of a store line's text: pointer column (1) + bits (32) + suffix (25),
-/// excluding the optional heatmap bar.
+/// Width of a store line's text: pointer column (1) + bits (32) + suffix (18)
+/// + mnemonic (4) + data (3), excluding the optional heatmap bar.
 pub(super) const STORE_TEXT_WIDTH: usize = 58;
+
+/// Width of the pointer column (`>`, `»`, `•` or blank) at the start of a
+/// store line.
+pub(super) const POINTER_WIDTH: usize = 1;
+
+/// Width of the 32-bit word display.
+pub(super) const BITS_WIDTH: usize = 32;
+
+/// Width of the " NN: value  " suffix between the bits and the mnemonic.
+pub(super) const SUFFIX_WIDTH: usize = 18;
+
+/// Width of the mnemonic field (left-aligned, padded to 4).
+pub(super) const MNEMONIC_WIDTH: usize = 4;
+
+/// Width of the data field (" NN" when the opcode uses an address, else blank).
+pub(super) const DATA_WIDTH: usize = 3;
+
+const _: () = assert!(
+    STORE_TEXT_WIDTH == POINTER_WIDTH + BITS_WIDTH + SUFFIX_WIDTH + MNEMONIC_WIDTH + DATA_WIDTH
+);
+
+/// Screen column where the mnemonic field of a store row starts: the pointer,
+/// then the heatmap bars (spliced in right after the pointer), then the bits
+/// and the suffix. Mirrors the span order in `draw_main_body`.
+pub(super) fn mnemonic_column(heatmap: HeatmapMode) -> usize {
+    POINTER_WIDTH + heatmap.extra_width() as usize + BITS_WIDTH + SUFFIX_WIDTH
+}
+
+/// Screen column where the data field of a store row starts (right after
+/// the mnemonic).
+pub(super) fn data_column(heatmap: HeatmapMode) -> usize {
+    mnemonic_column(heatmap) + MNEMONIC_WIDTH
+}
 
 /// Width of the CI and accumulator lines' text: bits with leading space (33)
 /// + label (16), excluding the optional heatmap spacer.

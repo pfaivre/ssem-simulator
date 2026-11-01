@@ -303,6 +303,13 @@ impl App {
         if self.save_popup.is_open() {
             self.save_popup.draw(f, area, self.palette());
         }
+        if self.picker.is_open() {
+            // Anchor the list just right of the store text (past the
+            // heatmap bars), next to the mnemonic/data fields being edited
+            let anchor_col = (STORE_TEXT_WIDTH + heatmap.extra_width() as usize) as u16;
+            self.picker
+                .draw(f, area, &snap.store, self.palette(), anchor_col);
+        }
 
         // While scrubbing the timeline, show the current cycle above the cursor
         if self.scrubbing {

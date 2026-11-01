@@ -36,6 +36,21 @@ pub enum Opcode {
 }
 
 impl Opcode {
+    /// All real opcodes, in bit order (0b000 to 0b111).
+    ///
+    /// NUM is a pseudo-opcode (a raw data word carries no opcode bits), so
+    /// it is not listed: `Store::decode_word` never yields it.
+    pub const ALL: [Opcode; 8] = [
+        Opcode::JMP,
+        Opcode::JRP,
+        Opcode::LDN,
+        Opcode::STO,
+        Opcode::SUB,
+        Opcode::SUB2,
+        Opcode::CMP,
+        Opcode::STP,
+    ];
+
     /// Whether the instruction's data field is a store address.
     ///
     /// CMP and STP ignore their data field; NUM is not an instruction.
@@ -129,6 +144,16 @@ mod tests {
         assert!(!Opcode::CMP.uses_address());
         assert!(!Opcode::STP.uses_address());
         assert!(!Opcode::NUM.uses_address());
+    }
+
+    /// All eight real opcodes, in bit order, round-tripping through u8
+    #[test]
+    fn all_in_bit_order() {
+        assert_eq!(8, Opcode::ALL.len());
+        for (i, opcode) in Opcode::ALL.iter().enumerate() {
+            assert_eq!(*opcode, Opcode::from(i as u8));
+            assert_eq!(i as u8, *opcode as u8);
+        }
     }
 
     /// Ensure consistency during string conversion

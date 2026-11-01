@@ -6,6 +6,7 @@ mod comments;
 mod config;
 mod graph;
 mod heatmap;
+mod picker;
 mod render;
 mod save;
 mod timeline;

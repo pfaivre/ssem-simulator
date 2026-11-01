@@ -10,11 +10,13 @@ use ratatui::layout::Rect;
 use super::config::Config;
 use super::draw::{comment_column_start, drawn_comment_width, effective_heatmap};
 use super::layout::{
-    CHROME_HEIGHT, CONTENT_HEIGHT, FlowMode, HeatmapMode, MIN_HEIGHT, MIN_WIDTH, STORE_ROW_OFFSET,
-    timeline_bar_geometry,
+    CHROME_HEIGHT, CONTENT_HEIGHT, DATA_WIDTH, FlowMode, HeatmapMode, MIN_HEIGHT, MIN_WIDTH,
+    MNEMONIC_WIDTH, STORE_ROW_OFFSET, data_column, mnemonic_column, timeline_bar_geometry,
 };
 use super::palette::{Palette, Theme};
-use super::popups::{BreakpointPopup, CommentEditor, EditorPopup, HelpPopup, SavePopup};
+use super::popups::{
+    BreakpointPopup, CommentEditor, EditorPopup, HelpPopup, PickerPopup, SavePopup,
+};
 use crate::ssem::history::History;
 use crate::ssem::simulator::Simulator;
 
@@ -73,7 +75,7 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
     (
         "MOUSE",
         "",
-        "Drag the timeline bar to scrub the history; double-click a comment cell to edit or add it.",
+        "Drag the timeline bar to scrub the history; double-click a comment cell to edit it.",
     ),
 ];
 
@@ -119,6 +121,9 @@ pub(super) struct App {
     /// The inline comment editor, opened by double-clicking the comment
     /// column of a store row.
     pub(super) comment_editor: CommentEditor,
+    /// The mnemonic/data picker, opened by double-clicking the mnemonic or
+    /// data field of a store row.
+    pub(super) picker: PickerPopup,
 
     /// The last left-click, for double-click detection: (time, column, row).
     pub(super) last_click: Option<(Instant, u16, u16)>,
@@ -196,6 +201,7 @@ impl App {
             editor_popup: EditorPopup::new(),
             save_popup: SavePopup::new(),
             comment_editor: CommentEditor::new(),
+            picker: PickerPopup::new(),
             last_click: None,
             heatmap: config.heatmap,
             flow: config.flow,
@@ -273,6 +279,8 @@ impl App {
                 self.save_popup.handle_key(key, sim);
             } else if self.comment_editor.is_open() {
                 self.comment_editor.handle_key(key, sim);
+            } else if self.picker.is_open() {
+                self.picker_key(key, sim);
             } else if !self.breakpoint_popup.is_open() && !self.editor_popup.is_open() {
                 self.handle_scrub_key(key.code, sim);
             }
@@ -281,6 +289,13 @@ impl App {
 
         // Only handle key press events (ignore release on platforms that report them)
         if key.kind != KeyEventKind::Press {
+            return;
+        }
+
+        // While the picker is open, keys go to it: arrows move the
+        // selection, Enter applies it (inside handle_key), Esc cancels
+        if self.picker.is_open() {
+            self.picker_key(key, sim);
             return;
         }
 
@@ -412,6 +427,21 @@ impl App {
         accepted
     }
 
+    /// Route a key to the picker while it is open (arrows select, Enter
+    /// applies, Esc cancels). When the key closes the picker, the last
+    /// click is forgotten so the next click cannot chain into a
+    /// double-click with the one that opened the picker.
+    fn picker_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        if key.code == KeyCode::Esc {
+            self.picker.close();
+        } else {
+            self.picker.handle_key(key, sim);
+        }
+        if !self.picker.is_open() {
+            self.last_click = None;
+        }
+    }
+
     /// Handle a history-scrubbing key: Left Right Home End.
     pub(super) fn handle_scrub_key(&mut self, code: KeyCode, sim: &mut Simulator) {
         match code {
@@ -487,6 +517,22 @@ impl App {
             return;
         }
 
+        // While the picker is open, it is modal: a click on an entry
+        // applies the choice, any other click closes it without changes
+        if self.picker.is_open() {
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                match self.picker.entry_at(mouse.column, mouse.row) {
+                    Some(entry) => self.picker.select_and_apply(entry, sim),
+                    None => self.picker.close(),
+                }
+                // The picker is closed now: forget the last click so the
+                // next click cannot chain into a double-click with the one
+                // that opened the picker
+                self.last_click = None;
+            }
+            return;
+        }
+
         // The wheel over the help pop-up scrolls its text
         if self.help_popup.is_open()
             && matches!(
@@ -550,13 +596,25 @@ impl App {
 
                 if is_double_click {
                     // Double-click on the comment column edits that word's
-                    // comment inline; anywhere else opens the word editor
+                    // comment inline, on the mnemonic or data field opens
+                    // the picker list for that field; anywhere else opens
+                    // the word editor
                     if let Some(index) =
                         self.comment_cell_at(mouse.column, mouse.row, &sim.store.comments)
                     {
                         self.editor_popup.close();
                         self.comment_editor
                             .open_for(index, sim.store.comments[index].as_deref());
+                    } else if let Some(index) = self.mnemonic_cell_at(mouse.column, mouse.row) {
+                        self.editor_popup.close();
+                        self.comment_editor.close();
+                        self.picker
+                            .open_for_mnemonic(index, sim.store.words[index], mouse.row);
+                    } else if let Some(index) = self.data_cell_at(mouse.column, mouse.row) {
+                        self.editor_popup.close();
+                        self.comment_editor.close();
+                        self.picker
+                            .open_for_data(index, sim.store.words[index], mouse.row);
                     } else {
                         self.comment_editor.close();
                         self.try_open_editor_at(mouse.row);
@@ -607,8 +665,41 @@ impl App {
             return None;
         }
 
-        // Same row mapping as `try_open_editor_at`: the main body starts at
-        // row 1 (below the top bar) and is scrolled by `store_scroll` lines
+        self.store_index_at_row(row)
+    }
+
+    /// If the screen position (column, row) lies in the mnemonic field of a
+    /// store-word row, return that word's index. The column mirrors `draw`:
+    /// pointer, heatmap bars, bits, suffix, then the 4-cell mnemonic.
+    fn mnemonic_cell_at(&self, column: u16, row: u16) -> Option<usize> {
+        let index = self.store_index_at_row(row)?;
+        let heatmap = effective_heatmap(self.last_area.width, self.heatmap);
+        let start = mnemonic_column(heatmap);
+        (start..start + MNEMONIC_WIDTH)
+            .contains(&(column as usize))
+            .then_some(index)
+    }
+
+    /// If the screen position (column, row) lies in the data field of a
+    /// store-word row, return that word's index (the 3 cells right after
+    /// the mnemonic).
+    fn data_cell_at(&self, column: u16, row: u16) -> Option<usize> {
+        let index = self.store_index_at_row(row)?;
+        let heatmap = effective_heatmap(self.last_area.width, self.heatmap);
+        let start = data_column(heatmap);
+        (start..start + DATA_WIDTH)
+            .contains(&(column as usize))
+            .then_some(index)
+    }
+
+    /// The store word drawn on the given screen row, if any. Same row
+    /// mapping as `try_open_editor_at`: the main body starts at row 1
+    /// (below the top bar) and is scrolled by `store_scroll` lines.
+    fn store_index_at_row(&self, row: u16) -> Option<usize> {
+        let area = self.last_area;
+        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+            return None;
+        }
         let body_top = 1u16;
         let body_height = area.height.saturating_sub(CHROME_HEIGHT);
         if row < body_top || row >= body_top + body_height {
