@@ -1,7 +1,10 @@
 [package]
 name = "ssem-simulator"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2024"
+description = "Advanced simulator of the Small-Scale Experimental Machine from 1948."
+repository = "https://github.com/pfaivre/ssem-simulator"
+homepage = "https://github.com/pfaivre/ssem-simulator"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
