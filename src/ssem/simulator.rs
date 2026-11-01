@@ -137,6 +137,12 @@ pub struct Simulator {
 
     /// Execution history for time-travel, when enabled via `enable_history`.
     pub history: Option<History>,
+
+    /// Latched by `rewind_to` when the machine is rewound behind the
+    /// history head: the next executed cycle restarts the machine from a
+    /// previous state, resets the heatmap counters once, and clears this
+    /// flag. Scrubbing alone does not reset them.
+    pub heatmap_reset_pending: bool,
 }
 
 impl Default for Simulator {
@@ -160,6 +166,7 @@ impl Simulator {
             read_counts: [0; 32],
             write_counts: [0; 32],
             history: None,
+            heatmap_reset_pending: false,
         }
     }
 
@@ -192,6 +199,7 @@ impl Simulator {
             read_counts: [0; 32],
             write_counts: [0; 32],
             history: None,
+            heatmap_reset_pending: false,
         }
     }
 
@@ -217,15 +225,19 @@ impl Simulator {
             },
         );
         self.history = Some(history);
+        // A fresh history starts at the tip, so nothing is pending
+        self.heatmap_reset_pending = false;
     }
 
     /// Restore the machine to the state recorded at `cycle`.
     ///
-    /// Resets the heatmap counters (execution and read/write) and restores
-    /// the last-instruction display from the snapshot, and pauses the
-    /// machine. The retained history is
-    /// preserved, so the position can be scrubbed forward again; re-executing
-    /// from the rewound position overwrites the previously recorded future.
+    /// Restores the last-instruction display from the snapshot and pauses
+    /// the machine. The heatmap counters (execution and read/write) are
+    /// kept, so scrubbing the history does not wipe the heatmap; they are
+    /// reset only when the machine restarts from the rewound position (see
+    /// `instruction_cycle`). The retained history is preserved, so the
+    /// position can be scrubbed forward again; re-executing from the
+    /// rewound position overwrites the previously recorded future.
     /// Returns false when history is disabled or `cycle` is not retained.
     pub fn rewind_to(&mut self, cycle: u64) -> bool {
         let Some(history) = &self.history else {
@@ -234,16 +246,26 @@ impl Simulator {
         let Some(snapshot) = history.get(cycle).copied() else {
             return false;
         };
+        // Latch whether this position is behind the head, so the next
+        // instruction_cycle knows it restarts from a previous state
+        // without re-deriving it on every cycle. Scrubbing back to the
+        // tip clears the latch: resuming from there is a continuation.
+        let pending = cycle < history.head();
         self.a = snapshot.a;
         self.ci = snapshot.ci;
         self.store.words = snapshot.store;
         self.cycle_count = cycle;
+        self.last_instruction = snapshot.last_instruction;
+        self.heatmap_reset_pending = pending;
+        self.stop_flag = true;
+        true
+    }
+
+    /// Zero the heatmap counters (execution and read/write).
+    fn reset_heatmap(&mut self) {
         self.exec_counts = [0; 32];
         self.read_counts = [0; 32];
         self.write_counts = [0; 32];
-        self.last_instruction = snapshot.last_instruction;
-        self.stop_flag = true;
-        true
     }
 
     /// Run the machine until STP is encountered or the given amount of cycles is reached.
@@ -264,6 +286,15 @@ impl Simulator {
 
     /// Run the next instruction.
     pub fn instruction_cycle(&mut self) {
+        // rewind_to latched that this cycle restarts the machine from a
+        // previous state (the recorded future is about to be dropped):
+        // the heatmap counters of that discarded future must not linger,
+        // so reset them once, here. Scrubbing alone keeps them.
+        if self.heatmap_reset_pending {
+            self.reset_heatmap();
+            self.heatmap_reset_pending = false;
+        }
+
         // Fetch
         self.ci += 1;
         self.ci &= Store::INDEX_MASK; // CI loops back to the begining when it exceeds the store boundaries
@@ -409,6 +440,7 @@ impl From<Vec<String>> for Simulator {
             read_counts: [0; 32],
             write_counts: [0; 32],
             history: None,
+            heatmap_reset_pending: false,
         }
     }
 }
@@ -854,17 +886,26 @@ mod tests {
     }
 
     #[test]
-    fn rewind_resets_read_write_counts() {
+    fn rewind_keeps_read_write_counts_until_reexecution() {
         let mut sim = history_test_program(); // LDN 6, SUB 7, STO 8, STP
         sim.enable_history(100);
         sim.run(3);
-        assert!(sim.read_counts[6] > 0);
-        assert!(sim.read_counts[7] > 0);
-        assert!(sim.write_counts[8] > 0);
+        assert_eq!(1, sim.read_counts[6]);
+        assert_eq!(1, sim.read_counts[7]);
+        assert_eq!(1, sim.write_counts[8]);
 
+        // Scrubbing back keeps the heatmap values
         assert!(sim.rewind_to(0));
-        assert!(sim.read_counts.iter().all(|&c| c == 0));
-        assert!(sim.write_counts.iter().all(|&c| c == 0));
+        assert_eq!(1, sim.read_counts[6]);
+        assert_eq!(1, sim.read_counts[7]);
+        assert_eq!(1, sim.write_counts[8]);
+
+        // Restarting from the rewound state resets them: only the
+        // re-executed cycle (LDN 6) is counted again
+        sim.run(1);
+        assert_eq!(1, sim.read_counts[6]);
+        assert_eq!(0, sim.read_counts[7]);
+        assert_eq!(0, sim.write_counts[8]);
     }
 
     #[test]
@@ -1131,7 +1172,7 @@ mod tests {
     }
 
     #[test]
-    fn rewind_restores_state_and_resets_heatmap() {
+    fn rewind_restores_state_and_keeps_heatmap() {
         let mut sim = history_test_program();
         sim.enable_history(100);
         sim.run(3); // LDN, SUB, STO
@@ -1146,7 +1187,10 @@ mod tests {
         assert_eq!(0, sim.ci);
         assert_eq!(0, sim.cycle_count);
         assert_eq!(0, sim.store.words[8]);
-        assert!(sim.exec_counts.iter().all(|&c| c == 0));
+        assert!(
+            sim.exec_counts.iter().any(|&c| c > 0),
+            "scrubbing the history keeps the heatmap"
+        );
         assert!(
             sim.last_instruction.is_none(),
             "cycle 0 predates any executed instruction"
@@ -1156,6 +1200,87 @@ mod tests {
         let h = sim.history.as_ref().unwrap();
         assert_eq!(4, h.len()); // initial state + 3 cycles
         assert_eq!(3, h.head());
+    }
+
+    #[test]
+    fn restart_from_rewound_state_resets_heatmap() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(3); // lines 1, 2, 3: LDN 6, SUB 7, STO 8
+        assert_eq!(1, sim.exec_counts[1]);
+        assert_eq!(1, sim.exec_counts[2]);
+        assert_eq!(1, sim.exec_counts[3]);
+
+        assert!(sim.rewind_to(1));
+        assert_eq!(
+            1, sim.exec_counts[1],
+            "scrubbing keeps the heatmap of the discarded future"
+        );
+
+        // Re-executing from cycle 1 resets the counters, so only the
+        // re-executed lines (2 and 3) are counted
+        sim.run(2);
+        assert_eq!(0, sim.exec_counts[1], "stale future counts are gone");
+        assert_eq!(1, sim.exec_counts[2]);
+        assert_eq!(1, sim.exec_counts[3]);
+        assert_eq!(0, sim.read_counts[6]);
+        assert_eq!(1, sim.read_counts[7]);
+        assert_eq!(1, sim.write_counts[8]);
+    }
+
+    #[test]
+    fn continuing_from_the_tip_does_not_reset_heatmap() {
+        // Scrubbing to the head and resuming is a plain continuation,
+        // not a restart from a previous state: the heatmap accumulates.
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(2); // lines 1, 2
+        assert!(sim.rewind_to(sim.history.as_ref().unwrap().head()));
+        assert_eq!(2, sim.cycle_count);
+
+        sim.run(1); // line 3
+        assert_eq!(1, sim.exec_counts[1]);
+        assert_eq!(1, sim.exec_counts[2]);
+        assert_eq!(1, sim.exec_counts[3]);
+    }
+
+    #[test]
+    fn scrubbing_back_to_the_tip_cancels_the_pending_heatmap_reset() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(3); // lines 1, 2, 3
+
+        assert!(sim.rewind_to(1));
+        assert!(sim.heatmap_reset_pending, "rewound behind the head");
+        // Scrub forward to the tip without executing anything
+        assert!(sim.rewind_to(3));
+        assert!(!sim.heatmap_reset_pending, "back at the tip: continuation");
+
+        sim.run(1); // line 4: STP
+        assert_eq!(1, sim.exec_counts[1], "no reset happened");
+        assert_eq!(1, sim.exec_counts[2]);
+        assert_eq!(1, sim.exec_counts[3]);
+        assert_eq!(1, sim.exec_counts[4]);
+    }
+
+    #[test]
+    fn heatmap_reset_happens_once_on_restart() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(3);
+
+        assert!(sim.rewind_to(0));
+        sim.run(3); // re-executes lines 1, 2, 3
+        assert!(
+            !sim.heatmap_reset_pending,
+            "latch cleared after the first cycle"
+        );
+        assert_eq!(1, sim.exec_counts[1]);
+        assert_eq!(1, sim.exec_counts[2]);
+        assert_eq!(1, sim.exec_counts[3]);
+        assert_eq!(1, sim.read_counts[6]);
+        assert_eq!(1, sim.read_counts[7]);
+        assert_eq!(1, sim.write_counts[8]);
     }
 
     #[test]

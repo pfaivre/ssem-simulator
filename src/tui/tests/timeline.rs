@@ -79,6 +79,26 @@ pub(super) fn scrub_keys_step_through_history() {
 }
 
 #[test]
+pub(super) fn scrubbing_keeps_the_heatmap_until_the_machine_restarts() {
+    // An empty store executes `JMP 0` on line 1 forever
+    let mut sim = looping_sim(10);
+    assert_eq!(10, sim.exec_counts[1]);
+
+    let mut app = App::new();
+    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut sim);
+    assert_eq!(9, sim.cycle_count);
+    assert_eq!(10, sim.exec_counts[1], "scrubbing keeps the heatmap values");
+    app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE), &mut sim);
+    assert_eq!(0, sim.cycle_count);
+    assert_eq!(10, sim.exec_counts[1], "still kept at the oldest cycle");
+
+    // Restarting the machine from the rewound state resets the heatmap:
+    // only the re-executed cycle is counted
+    sim.instruction_cycle();
+    assert_eq!(1, sim.exec_counts[1]);
+}
+
+#[test]
 pub(super) fn scrub_without_history_is_noop() {
     let mut sim = Simulator::new();
     sim.run(10);

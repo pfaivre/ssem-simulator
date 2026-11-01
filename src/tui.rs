@@ -32,9 +32,10 @@
 //! with the mouse (or use ← → Home End, or the scroll wheel over it) to move
 //! through the recorded cycles; the machine pauses and its state is restored to
 //! the scrubbed cycle, and a small pop-up above the bar's position marker shows
-//! the current cycle. Press P to resume from there — re-executing overwrites
-//! the previously recorded future. Browsing the history resets the heatmap;
-//! the last-instruction display follows the browsed cycle.
+//! the current cycle. Browsing the history keeps the heatmap values. Press P
+//! to resume from there — re-executing overwrites the previously recorded
+//! future and resets the heatmap; the last-instruction display follows the
+//! browsed cycle.
 //!
 //! Press M to cycle the heatmap shown next to each store word: off, the
 //! execution heatmap (a colored bar shows how often each word has been
@@ -93,8 +94,9 @@
 //! When the machine is paused, the pointer column shows the execution
 //! footprint of the current run: `>` marks the last executed line, `»` the
 //! next line to execute (where P or F10 resumes), and `•` every other line
-//! executed at least once. Like the heatmap, the footprint is reset when
-//! browsing the history.
+//! executed at least once. Like the heatmap, the footprint is kept while
+//! browsing the history and reset only when the machine restarts from a
+//! rewound position.
 //!
 //! # Module map
 //!

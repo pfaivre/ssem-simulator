@@ -85,6 +85,5 @@ cargo clippy
 
 ## Suggestions for later development
 
-- Keep the heatmap values while scrubbing history. Reset it only when restarting the machine from a previous state.
-- Create a release and publish binaries (in a zip with sample programmes bundled).
+- Save the machine. The user can write the current machine state to a file, either SNP or ASM, with comments (if any). The comments should be editable in the interface.
 - Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.
