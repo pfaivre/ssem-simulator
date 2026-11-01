@@ -12,8 +12,8 @@ use super::app::{App, KEYMAP};
 use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
 use super::layout::{
     A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, FlowMode, HEATMAP_BAR_WIDTH, HeatmapMode,
-    MIN_HEIGHT, MIN_WIDTH, REGISTER_TEXT_WIDTH, RW_BAR_WIDTH, STORE_ROW_OFFSET, STORE_TEXT_WIDTH,
-    comment_column_width, timeline_bar_geometry, timeline_marker_offset,
+    MAX_COMMENT_WIDTH, MIN_HEIGHT, MIN_WIDTH, REGISTER_TEXT_WIDTH, RW_BAR_WIDTH, STORE_ROW_OFFSET,
+    STORE_TEXT_WIDTH, comment_column_width, timeline_bar_geometry, timeline_marker_offset,
 };
 use super::palette::Palette;
 use super::snapshot::Snapshot;
@@ -31,6 +31,44 @@ pub(super) fn flow_gutter_width(flow: FlowMode) -> u16 {
         FlowMode::Data => ARROW_EXTRA_WIDTH,
         FlowMode::Off => 0,
     }
+}
+
+/// The heatmap actually drawn at the given terminal width: the requested
+/// one, or Off when the width cannot fit it next to the store text.
+pub(super) fn effective_heatmap(area_width: u16, heatmap: HeatmapMode) -> HeatmapMode {
+    if area_width >= MIN_WIDTH + heatmap.extra_width() {
+        heatmap
+    } else {
+        HeatmapMode::Off
+    }
+}
+
+/// Screen column where the comment column starts (its " ;" prefix), after
+/// the store text, the heatmap, and the flow gutter.
+pub(super) fn comment_column_start(heatmap: HeatmapMode, flow: FlowMode) -> usize {
+    STORE_TEXT_WIDTH + heatmap.extra_width() as usize + flow_gutter_width(flow) as usize
+}
+
+/// Width of the comment column actually drawn at the given terminal width:
+/// the widest comment — or the in-progress inline edit (`edit_width`), so
+/// the text box stays visible while typing — capped at `MAX_COMMENT_WIDTH`
+/// and at the width left after the store text, the heatmap, and the flow
+/// gutter. Zero when comments are hidden or no word has a comment.
+pub(super) fn drawn_comment_width(
+    area_width: u16,
+    heatmap: HeatmapMode,
+    flow: FlowMode,
+    comments: &[Option<String>; 32],
+    edit_width: usize,
+    show_comments: bool,
+) -> usize {
+    if !show_comments {
+        return 0;
+    }
+    let available = (area_width as usize).saturating_sub(comment_column_start(heatmap, flow) + 2);
+    comment_column_width(comments)
+        .max(edit_width.min(MAX_COMMENT_WIDTH))
+        .min(available)
 }
 
 /// A pointer arrow: where it starts and ends (in content rows of the main
@@ -202,27 +240,23 @@ impl App {
         // the pointer column) must fit entirely or it is dropped, and the
         // flow visualization at the right edge is cropped by the terminal
         // when the window is too narrow.
-        let heatmap = if area.width >= MIN_WIDTH + self.heatmap.extra_width() {
-            self.heatmap
-        } else {
-            HeatmapMode::Off
-        };
+        let heatmap = effective_heatmap(area.width, self.heatmap);
         // The comment column is cropped to the width left after the store
         // text, the heatmap, and the flow gutter (which stays left of the
         // comments so the arrows remain visible), instead of being hidden
         // entirely. Each comment span is " ;" + the text, so it needs 2
-        // cells on top of the comment width.
-        let comment_width = if self.show_comments {
-            let available = (area.width as usize).saturating_sub(
-                STORE_TEXT_WIDTH
-                    + heatmap.extra_width() as usize
-                    + flow_gutter_width(self.flow) as usize
-                    + 2,
-            );
-            comment_column_width(&snap.comments).min(available)
-        } else {
-            0
-        };
+        // cells on top of the comment width. While the inline comment
+        // editor is open, its buffer counts toward the width so the text
+        // box stays visible while typing, and the column is shown even
+        // when no loaded word has a comment yet.
+        let comment_width = drawn_comment_width(
+            area.width,
+            heatmap,
+            self.flow,
+            &snap.comments,
+            self.comment_editor.edit_width(),
+            self.show_comments || self.comment_editor.is_open(),
+        );
         if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
             let msg = format!(
                 "Terminal too small: {}x{}, needs at least {}x{}",
@@ -593,17 +627,47 @@ impl App {
             }
             // The source comment of the word's line, in a fixed-width column
             // at the right edge, with its original indentation after the
-            // ';'; dimmed like a comment in an editor
+            // ';'; dimmed like a comment in an editor. The row being edited
+            // draws the inline text box instead: the buffer with a cursor,
+            // highlighted like the selected row of the breakpoint list.
             if comment_width > 0 {
-                match &snap.comments[index] {
-                    Some(text) => {
-                        let truncated: String = text.chars().take(comment_width).collect();
-                        spans.push(Span::styled(
-                            format!(" ;{truncated:<comment_width$}"),
-                            Style::default().fg(self.palette().dim),
-                        ));
+                if self.comment_editor.is_open_for(index) {
+                    // The cursor is drawn at the actual editing position:
+                    // right after the last character of the buffer (typing
+                    // appends, Backspace pops, so the insertion point is
+                    // always the end). When the column is narrower than
+                    // the buffer (narrow terminal or the width cap), the
+                    // tail of the buffer is shown so the cursor stays at
+                    // the end of the text instead of mid-buffer.
+                    let raw = self.comment_editor.buffer();
+                    let raw_len = raw.chars().count();
+                    // One cell of the column is kept for the cursor
+                    let box_width = comment_width.saturating_sub(1);
+                    let visible: String = if raw_len > box_width {
+                        raw.chars().skip(raw_len - box_width).collect()
+                    } else {
+                        raw.to_string()
+                    };
+                    let text = format!(" ;{visible}_");
+                    // Pad the rest of the column so the highlight covers it fully
+                    let pad = comment_extra.saturating_sub(2 + visible.chars().count() + 1);
+                    spans.push(Span::styled(
+                        format!("{text}{}", " ".repeat(pad)),
+                        Style::default()
+                            .fg(self.palette().dim)
+                            .add_modifier(Modifier::REVERSED),
+                    ));
+                } else {
+                    match &snap.comments[index] {
+                        Some(text) => {
+                            let truncated: String = text.chars().take(comment_width).collect();
+                            spans.push(Span::styled(
+                                format!(" ;{truncated:<comment_width$}"),
+                                Style::default().fg(self.palette().dim),
+                            ));
+                        }
+                        None => spans.push(Span::raw(" ".repeat(comment_extra))),
                     }
-                    None => spans.push(Span::raw(" ".repeat(comment_extra))),
                 }
             }
             lines.push(Line::from(spans));

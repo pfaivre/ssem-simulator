@@ -24,7 +24,9 @@ use super::palette::DARK;
 use super::snapshot::Snapshot;
 use crate::ssem::Store;
 use crate::ssem::simulator::{LastInstruction, Simulator};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;

@@ -55,9 +55,10 @@ pub struct Store {
 
     /// The `;` comment found on each word's line in the input file, if any.
     /// Purely informational: shown in the displays, never executed. Shared
-    /// behind an `Arc` because it never changes after load, so the TUI's
-    /// per-frame snapshot can copy it with a refcount bump instead of
-    /// cloning up to 32 strings every frame.
+    /// behind an `Arc` so the TUI's per-frame snapshot can copy it with a
+    /// refcount bump instead of cloning up to 32 strings every frame; the
+    /// TUI edits a comment through `set_comment`, which swaps in a new `Arc`
+    /// (`Arc::make_mut`) so in-flight snapshots keep the previous text.
     pub comments: Arc<[Option<String>; SSEM_STORE_WORDS]>,
 }
 
@@ -349,6 +350,16 @@ impl Store {
         store._check();
 
         store
+    }
+
+    /// Set the source comment of the word at `index` (`None` clears it).
+    ///
+    /// This is how the TUI's inline comment editor writes an edit. The
+    /// comments live behind an `Arc` shared with in-flight UI snapshots,
+    /// so `Arc::make_mut` clones the array when a snapshot still holds a
+    /// reference; the next snapshot then picks up the new text.
+    pub fn set_comment(&mut self, index: usize, comment: Option<String>) {
+        Arc::make_mut(&mut self.comments)[index] = comment;
     }
 
     /// Extract the opcode and data from the word at the given address

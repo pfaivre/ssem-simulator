@@ -14,9 +14,11 @@ pub(super) struct Snapshot {
     pub(super) ci: i32,
     pub(super) a: i32,
     pub(super) store: [i32; 32],
-    /// The source comment of each store word, shared with the store. Comments
-    /// are static (STO only rewrites words, and history rewinds only words),
-    /// so the per-frame copy is a refcount bump and stays valid while scrubbing.
+    /// The source comment of each store word, shared with the store. STO only
+    /// rewrites words and history rewinds only words, so the per-frame copy is
+    /// a refcount bump and stays valid while scrubbing; the TUI can still edit
+    /// a comment (`Store::set_comment` swaps in a new `Arc`), and the next
+    /// frame's snapshot then sees the new text.
     pub(super) comments: Arc<[Option<String>; 32]>,
     pub(super) cycle_count: u64,
     pub(super) speed: u32,

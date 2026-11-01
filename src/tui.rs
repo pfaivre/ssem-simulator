@@ -34,8 +34,8 @@
 //! the cycle count are recorded in a leading comment line. The saved file loads back
 //! as the usual input file. `--save FILE` does the same for the final state on exit.
 //!
-//! Mouse: double-click a line (CI, A, or a store word) to open the editor for it;
-//! scroll wheel scrolls the store view.
+//! Mouse: double-click a line (CI, A, or a store word) to open the editor for it,
+//! double-click a comment to edit it inline; scroll wheel scrolls the store view.
 //!
 //! Time-travel: the timeline bar shows the retained execution history. Drag it
 //! with the mouse (or use ← → Home End, or the scroll wheel over it) to move
@@ -81,6 +81,14 @@
 //! hidden. The column is on by default; with a comment-free input it renders
 //! nothing. The headless final-state dump prints the comments too.
 //!
+//! Comments are editable: double-click the comment column of a store row to
+//! get an inline text box on that row, prefilled with the current comment.
+//! Type to replace it, then Enter validates (the new text becomes the word's
+//! comment; a blank text clears it) or Esc cancels. Backspace deletes one
+//! character, Ctrl+Backspace a whole word (trailing whitespace included).
+//! Edits are kept when the state is saved (S or `--save`), exactly like
+//! comments read from the input file.
+//!
 //! Mnemonics are syntax-highlighted by category, reusing the arrows' palette
 //! so the two stay coherent: magenta for a data movement (LDN, STO, JMP),
 //! cyan for an arithmetic combination (SUB, SUB2, JRP), white for CMP (test)
@@ -117,7 +125,7 @@
 //! - `app`: application state and input handling (keymap, bit glyphs)
 //! - `draw`: rendering of the bars, main body, and pop-ups
 //! - `runner`: the machine/UI threads and the entry point
-//! - `popups`: the help, breakpoint, editor, and save pop-ups
+//! - `popups`: the help, breakpoint, editor, and save pop-ups, and the inline comment editor
 
 mod app;
 mod config;

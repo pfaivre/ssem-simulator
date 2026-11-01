@@ -8,12 +8,13 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent,
 use ratatui::layout::Rect;
 
 use super::config::Config;
+use super::draw::{comment_column_start, drawn_comment_width, effective_heatmap};
 use super::layout::{
-    CHROME_HEIGHT, CONTENT_HEIGHT, FlowMode, HeatmapMode, MIN_HEIGHT, MIN_WIDTH,
+    CHROME_HEIGHT, CONTENT_HEIGHT, FlowMode, HeatmapMode, MIN_HEIGHT, MIN_WIDTH, STORE_ROW_OFFSET,
     timeline_bar_geometry,
 };
 use super::palette::{Palette, Theme};
-use super::popups::{BreakpointPopup, EditorPopup, HelpPopup, SavePopup};
+use super::popups::{BreakpointPopup, CommentEditor, EditorPopup, HelpPopup, SavePopup};
 use crate::ssem::history::History;
 use crate::ssem::simulator::Simulator;
 
@@ -45,7 +46,7 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
     (
         "E",
         "EDIT",
-        "Edit a register or store word (or double-click a line)",
+        "Edit a register or store word (double-click its line)",
     ),
     (
         "M",
@@ -72,7 +73,7 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
     (
         "MOUSE",
         "",
-        "Drag the timeline bar to scrub through the history",
+        "Drag the timeline bar to scrub the history; double-click a comment to edit it.",
     ),
 ];
 
@@ -115,6 +116,9 @@ pub(super) struct App {
     pub(super) breakpoint_popup: BreakpointPopup,
     pub(super) editor_popup: EditorPopup,
     pub(super) save_popup: SavePopup,
+    /// The inline comment editor, opened by double-clicking the comment
+    /// column of a store row.
+    pub(super) comment_editor: CommentEditor,
 
     /// The last left-click, for double-click detection: (time, column, row).
     pub(super) last_click: Option<(Instant, u16, u16)>,
@@ -191,6 +195,7 @@ impl App {
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
             save_popup: SavePopup::new(),
+            comment_editor: CommentEditor::new(),
             last_click: None,
             heatmap: config.heatmap,
             flow: config.flow,
@@ -266,6 +271,8 @@ impl App {
                 self.help_popup.handle_key(key);
             } else if self.save_popup.is_open() {
                 self.save_popup.handle_key(key, sim);
+            } else if self.comment_editor.is_open() {
+                self.comment_editor.handle_key(key, sim);
             } else if !self.breakpoint_popup.is_open() && !self.editor_popup.is_open() {
                 self.handle_scrub_key(key.code, sim);
             }
@@ -299,6 +306,18 @@ impl App {
                 self.editor_popup.close();
             } else {
                 self.editor_popup.handle_key(key, sim);
+            }
+            return;
+        }
+
+        // While the inline comment editor is open, keys go to it: Enter
+        // validates (inside handle_key), Esc cancels, every other key types
+        // into the comment
+        if self.comment_editor.is_open() {
+            if key.code == KeyCode::Esc {
+                self.comment_editor.close();
+            } else {
+                self.comment_editor.handle_key(key, sim);
             }
             return;
         }
@@ -346,7 +365,10 @@ impl App {
                         (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
                 }
                 'b' => self.breakpoint_popup.open(),
-                'e' => self.editor_popup.open(),
+                'e' => {
+                    self.comment_editor.close();
+                    self.editor_popup.open();
+                }
                 's' => self.save_popup.open(sim.source_path.as_deref()),
                 'm' => self.heatmap = self.heatmap.cycle(),
                 'f' => self.flow = self.flow.cycle(),
@@ -527,7 +549,18 @@ impl App {
                 self.last_click = Some((now, mouse.column, mouse.row));
 
                 if is_double_click {
-                    self.try_open_editor_at(mouse.row);
+                    // Double-click on the comment column edits that word's
+                    // comment inline; anywhere else opens the word editor
+                    if let Some(index) =
+                        self.comment_cell_at(mouse.column, mouse.row, &sim.store.comments)
+                    {
+                        self.editor_popup.close();
+                        self.comment_editor
+                            .open_for(index, sim.store.comments[index].as_deref());
+                    } else {
+                        self.comment_editor.close();
+                        self.try_open_editor_at(mouse.row);
+                    }
                 }
             }
             MouseEventKind::ScrollUp => {
@@ -542,12 +575,60 @@ impl App {
         }
     }
 
+    /// If the screen position (column, row) lies in the comment column of a
+    /// store-word row, return that word's index. The geometry mirrors
+    /// `draw`: the column starts after the store text, the (effective)
+    /// heatmap, and the flow gutter, and exists only when comments are shown
+    /// and at least one word has a comment (or an edit is in progress).
+    fn comment_cell_at(
+        &self,
+        column: u16,
+        row: u16,
+        comments: &[Option<String>; 32],
+    ) -> Option<usize> {
+        let area = self.last_area;
+        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+            return None;
+        }
+        let heatmap = effective_heatmap(area.width, self.heatmap);
+        let comment_width = drawn_comment_width(
+            area.width,
+            heatmap,
+            self.flow,
+            comments,
+            self.comment_editor.edit_width(),
+            self.show_comments || self.comment_editor.is_open(),
+        );
+        if comment_width == 0 {
+            return None;
+        }
+        if (column as usize) < comment_column_start(heatmap, self.flow) {
+            return None;
+        }
+
+        // Same row mapping as `try_open_editor_at`: the main body starts at
+        // row 1 (below the top bar) and is scrolled by `store_scroll` lines
+        let body_top = 1u16;
+        let body_height = area.height.saturating_sub(CHROME_HEIGHT);
+        if row < body_top || row >= body_top + body_height {
+            return None;
+        }
+        let content_row =
+            (row as usize).saturating_sub(body_top as usize) + self.store_scroll as usize;
+        match content_row {
+            r if (STORE_ROW_OFFSET..CONTENT_HEIGHT).contains(&r) => Some(r - STORE_ROW_OFFSET),
+            _ => None,
+        }
+    }
+
     /// Open the editor pop-up if the given screen row corresponds to CI, A, or a store word.
     ///
     /// The main body starts at row 1 (below the top bar). Content rows:
     /// 0 = blank, 1 = CI, 2 = A, 3 = blank, 4..=35 = store words 0..=31.
     /// The store view is scrolled by `store_scroll` lines.
     fn try_open_editor_at(&mut self, screen_row: u16) {
+        // The word editor and the inline comment editor are mutually exclusive
+        self.comment_editor.close();
         // Ignore clicks outside the main body or when the terminal is too small
         if self.last_area.width < MIN_WIDTH || self.last_area.height < MIN_HEIGHT {
             return;

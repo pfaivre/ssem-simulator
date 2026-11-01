@@ -14,6 +14,7 @@ use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, Simulator};
 
 use super::app::KEYMAP;
+use super::layout::MAX_COMMENT_WIDTH;
 use super::palette::Palette;
 
 /// Compute a centered, clamped pop-up rectangle within the given area.
@@ -34,9 +35,9 @@ fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
 /// character plus the SHIFT modifier (the shifted key is only reported with
 /// the kitty "alternate keys" flag, which we do not enable), so the AZERTY
 /// digit keys deliver `& é " ' ( - è _ ç à` + Shift, which we translate back
-/// to `1 2 3 4 5 6 7 8 9 0`, and `;`/`:` + Shift to `.`/`/` so file paths
-/// can be typed in the save pop-up.
-fn digit_of(key: &KeyEvent) -> Option<char> {
+/// to `1 2 3 4 5 6 7 8 9 0`. With `path_chars`, `;`/`:` + Shift also map to
+/// `.`/`/` so file paths can be typed in the save pop-up.
+fn shifted_char_of(key: &KeyEvent, path_chars: bool) -> Option<char> {
     let KeyCode::Char(c) = key.code else {
         return None;
     };
@@ -57,10 +58,24 @@ fn digit_of(key: &KeyEvent) -> Option<char> {
         '_' => '8',
         '\u{e7}' => '9', // ç
         '\u{e0}' => '0', // à
-        ';' => '.',      // so paths can be typed in the save pop-up
-        ':' => '/',
+        ';' if path_chars => '.',
+        ':' if path_chars => '/',
         _ => return None,
     })
+}
+
+/// The character a key event represents when it is a digit, if any
+/// (AZERTY top row included), plus the `.`/`/` path characters for the
+/// save pop-up.
+fn digit_of(key: &KeyEvent) -> Option<char> {
+    shifted_char_of(key, true)
+}
+
+/// The digit a key event represents, if any, for free-text fields: the
+/// AZERTY top row is translated, but not the `;`/`:` path characters,
+/// which keep their literal meaning in a comment.
+fn azerty_digit_of(key: &KeyEvent) -> Option<char> {
+    shifted_char_of(key, false)
 }
 
 /// The content area inside a bordered block, with a 1-column horizontal margin
@@ -963,6 +978,152 @@ impl EditorPopup {
         ];
 
         f.render_widget(Paragraph::new(lines), content);
+    }
+}
+
+/// Maximum length of a comment typed in the inline editor: the comment
+/// column caps at `MAX_COMMENT_WIDTH` cells, so typing past it would be
+/// invisible anyway.
+const MAX_COMMENT_INPUT: usize = MAX_COMMENT_WIDTH;
+
+/// The inline editor for a store word's source comment.
+///
+/// Opened by double-clicking the comment column of a store row; the text
+/// box is drawn inline in the column on that row (not as a centered
+/// pop-up). The buffer is prefilled with the word's current comment.
+/// Enter validates: the buffer is written to the store (`Store::set_comment`;
+/// a blank buffer clears the comment) and the editor closes. Esc cancels
+/// (routed by `App::handle_key`, which closes without applying).
+/// Backspace deletes one character, Ctrl+Backspace a whole word.
+///
+/// While open, all key events are routed here by the main event loop;
+/// repeats are accepted so holding Backspace deletes several characters.
+pub struct CommentEditor {
+    open: bool,
+    address: usize,
+    buffer: String,
+}
+
+impl CommentEditor {
+    pub fn new() -> Self {
+        CommentEditor {
+            open: false,
+            address: 0,
+            buffer: String::new(),
+        }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// The text typed so far.
+    pub fn buffer(&self) -> &str {
+        &self.buffer
+    }
+
+    /// Display width the inline editor needs in the comment column: the
+    /// buffer plus one cell for the cursor, so the text box stays fully
+    /// visible while typing. Zero when the editor is closed.
+    pub fn edit_width(&self) -> usize {
+        if self.open {
+            (self.buffer.chars().count() + 1).min(MAX_COMMENT_WIDTH)
+        } else {
+            0
+        }
+    }
+
+    /// Whether the editor is open on the given store word (that row draws
+    /// the inline text box instead of the comment).
+    pub fn is_open_for(&self, index: usize) -> bool {
+        self.open && self.address == index
+    }
+
+    /// Open on the given word, prefilled with its current comment.
+    pub fn open_for(&mut self, address: usize, current: Option<&str>) {
+        self.open = true;
+        self.address = address;
+        self.buffer = current.unwrap_or_default().to_string();
+    }
+
+    /// Close without applying (Esc).
+    pub fn close(&mut self) {
+        self.open = false;
+        self.buffer.clear();
+    }
+
+    /// Handle a key press while the editor is open. Repeats are accepted
+    /// so holding Backspace deletes several characters.
+    pub fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
+            return;
+        }
+        match key.code {
+            // Ctrl+Backspace erases the whole word before the cursor
+            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.delete_word();
+            }
+            KeyCode::Backspace => {
+                self.buffer.pop();
+            }
+            KeyCode::Enter => self.apply(sim),
+            KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Ctrl+<key> arrives as the unshifted char + CONTROL, and
+                // many terminals send Ctrl+Backspace as byte 0x08, which
+                // crossterm reports as 'h' + CONTROL (0x08 is Ctrl+H).
+                // The raw 0x08/0x7F bytes are covered too. Other Ctrl
+                // combos have no binding here: ignored, not typed.
+                if matches!(c, 'h' | '\u{8}' | '\u{7f}') {
+                    self.delete_word();
+                }
+            }
+            KeyCode::Char(c) => {
+                // AZERTY digits arrive as the unshifted top-row char plus
+                // SHIFT; translate them, keep every other printable char
+                // (including `;` and `:`) literal
+                let c = azerty_digit_of(&key).unwrap_or(c);
+                if !c.is_control() && self.buffer.chars().count() < MAX_COMMENT_INPUT {
+                    self.buffer.push(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Erase the word before the cursor (Ctrl+Backspace): the run of
+    /// trailing whitespace first, then the run of non-whitespace
+    /// characters, so "hello world  |" becomes "hello " in one press.
+    fn delete_word(&mut self) {
+        while self
+            .buffer
+            .chars()
+            .last()
+            .is_some_and(|c| c.is_whitespace())
+        {
+            self.buffer.pop();
+        }
+        while self
+            .buffer
+            .chars()
+            .last()
+            .is_some_and(|c| !c.is_whitespace())
+        {
+            self.buffer.pop();
+        }
+    }
+
+    /// Validate the edit: write the buffer to the word's comment and close.
+    /// A blank buffer clears the comment; trailing whitespace is dropped,
+    /// like the loaders do (leading indentation is kept).
+    fn apply(&mut self, sim: &mut Simulator) {
+        let text = self.buffer.trim_end();
+        let comment = if text.trim().is_empty() {
+            None
+        } else {
+            Some(text.to_string())
+        };
+        sim.store.set_comment(self.address, comment);
+        self.close();
     }
 }
 

@@ -41,6 +41,14 @@ timeline bar with the mouse, or use `←` `→` `Home` `End`), capped by
 `--history-size` past states (default 100,000, 0 to disable). Headless mode
 never records.
 
+The source comments shown next to each store word (C toggles the column) are
+editable: double-click the comment column of a store row to get an inline
+text box on that row, prefilled with the current comment; Enter validates
+(the new text becomes the word's comment, a blank text clears it) and Esc
+cancels. The edit writes through `Store::set_comment` (the comments live
+behind an `Arc`, swapped with `Arc::make_mut` so in-flight snapshots keep the
+old text), and is included when the state is saved with `S`/`--save`.
+
 All interface colors live in `src/tui/palette/` — a `Palette` struct plus
 one file per theme (`dark.rs`, `light.rs`, `monokai.rs`, `macchiato.rs`,
 `terminal.rs`; all but `terminal.rs` use exact RGB hex values, `terminal.rs`
@@ -97,5 +105,5 @@ cargo clippy
 
 ## Suggestions for later development
 
-- The comments are editable in the interface: double click on a comment to have an inline text box, then press enter to validate it or escape to cancel.
 - Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.
+- Start with an empty store if no files are provided.

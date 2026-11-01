@@ -255,3 +255,408 @@ pub(super) fn comment_column_reaches_the_right_edge_in_every_flow_mode() {
         }
     }
 }
+
+// --- Inline comment editing (double-click a comment) ---
+
+/// A simulator whose store carries comments on words 1 and 4.
+fn sim_with_comments() -> Simulator {
+    let mut sim = Simulator::new();
+    Arc::make_mut(&mut sim.store.comments)[1] = Some(" A = -a".into());
+    Arc::make_mut(&mut sim.store.comments)[4] = Some("   x".into());
+    sim
+}
+
+/// An app with a pinned, predictable layout: no flow gutter, no heatmap,
+/// so the comment column starts right after the 58-cell store text.
+fn comment_edit_app() -> App {
+    let mut app = App::new();
+    app.flow = FlowMode::Off;
+    app.heatmap = HeatmapMode::Off;
+    app
+}
+
+/// Send a left-button press at (column, row).
+fn click(app: &mut App, sim: &mut Simulator, column: u16, row: u16) {
+    app.handle_mouse(
+        MouseEvent {
+            column,
+            row,
+            kind: MouseEventKind::Down(MouseButton::Left),
+            modifiers: KeyModifiers::NONE,
+        },
+        sim,
+    );
+}
+
+/// Double-click: two presses at the same cell within the threshold.
+fn double_click(app: &mut App, sim: &mut Simulator, column: u16, row: u16) {
+    click(app, sim, column, row);
+    click(app, sim, column, row);
+}
+
+/// Send a key press.
+fn press(app: &mut App, sim: &mut Simulator, code: KeyCode) {
+    app.handle_key(KeyEvent::new(code, KeyModifiers::NONE), sim);
+}
+
+/// Type a string, one key press per character.
+fn type_str(app: &mut App, sim: &mut Simulator, s: &str) {
+    for c in s.chars() {
+        press(app, sim, KeyCode::Char(c));
+    }
+}
+
+#[test]
+pub(super) fn double_click_on_a_comment_opens_the_inline_editor() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    // Render once so last_area is known to the mouse hit-testing
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Word 1 is on screen row 6; with no gutter the comment column starts
+    // at column 58 (STORE_TEXT_WIDTH)
+    double_click(&mut app, &mut sim, 60, 6);
+    assert!(app.comment_editor.is_open());
+    assert!(app.comment_editor.is_open_for(1));
+    assert!(!app.comment_editor.is_open_for(4));
+    // Prefilled with the word's current comment, verbatim
+    assert_eq!(" A = -a", app.comment_editor.buffer());
+    // The word editor pop-up is not involved
+    assert!(!app.editor_popup.is_open());
+}
+
+#[test]
+pub(super) fn double_click_in_the_flow_gutter_is_not_a_comment_cell() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    app.flow = FlowMode::Data; // 4-cell arrow gutter: comments start at 62
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Column 60 is inside the gutter, not the comment column
+    double_click(&mut app, &mut sim, 60, 6);
+    assert!(!app.comment_editor.is_open());
+    assert!(app.editor_popup.is_open());
+
+    // Column 63 is past the gutter: the comment editor opens
+    double_click(&mut app, &mut sim, 63, 6);
+    assert!(app.comment_editor.is_open_for(1));
+    assert!(!app.editor_popup.is_open());
+}
+
+#[test]
+pub(super) fn double_click_on_the_store_text_still_opens_the_word_editor() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    double_click(&mut app, &mut sim, 10, 6);
+    assert!(app.editor_popup.is_open());
+    assert!(!app.comment_editor.is_open());
+}
+
+#[test]
+pub(super) fn double_click_on_a_commentless_word_opens_an_empty_editor() {
+    let mut sim = sim_with_comments(); // word 0 has no comment
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    double_click(&mut app, &mut sim, 60, 5); // word 0 is on screen row 5
+    assert!(app.comment_editor.is_open_for(0));
+    assert_eq!("", app.comment_editor.buffer());
+
+    type_str(&mut app, &mut sim, "hello");
+    press(&mut app, &mut sim, KeyCode::Enter);
+    assert_eq!(Some("hello".to_string()), sim.store.comments[0]);
+}
+
+#[test]
+pub(super) fn double_clicking_another_comment_moves_the_editor() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    double_click(&mut app, &mut sim, 60, 6); // word 1
+    type_str(&mut app, &mut sim, "ZZZ");
+    double_click(&mut app, &mut sim, 60, 9); // word 4 is on screen row 9
+    assert!(app.comment_editor.is_open_for(4));
+    assert!(!app.comment_editor.is_open_for(1));
+    // The new word's own comment is the buffer, the typed text is dropped
+    assert_eq!("   x", app.comment_editor.buffer());
+    // Word 1's comment was not modified (no Enter was pressed on it)
+    assert_eq!(Some(" A = -a".to_string()), sim.store.comments[1]);
+}
+
+#[test]
+pub(super) fn enter_validates_the_edit_into_the_store() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    double_click(&mut app, &mut sim, 60, 6); // word 1, buffer " A = -a"
+    for _ in 0..7 {
+        press(&mut app, &mut sim, KeyCode::Backspace);
+    }
+    assert_eq!("", app.comment_editor.buffer());
+    type_str(&mut app, &mut sim, " new text");
+    press(&mut app, &mut sim, KeyCode::Enter);
+
+    assert!(!app.comment_editor.is_open(), "Enter closes the editor");
+    assert_eq!(Some(" new text".to_string()), sim.store.comments[1]);
+    // The next snapshot sees the new comment
+    let snap = Snapshot::from_sim(&sim);
+    assert_eq!(Some(" new text".to_string()), snap.comments[1]);
+    // And saving keeps it
+    assert!(sim.store.to_asm_string().contains("; new text"));
+}
+
+#[test]
+pub(super) fn a_blank_edit_clears_the_comment() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    double_click(&mut app, &mut sim, 60, 6);
+    for _ in 0..7 {
+        press(&mut app, &mut sim, KeyCode::Backspace);
+    }
+    type_str(&mut app, &mut sim, "   "); // whitespace only
+    press(&mut app, &mut sim, KeyCode::Enter);
+
+    assert_eq!(None, sim.store.comments[1]);
+}
+
+#[test]
+pub(super) fn esc_cancels_the_edit() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    double_click(&mut app, &mut sim, 60, 6);
+    type_str(&mut app, &mut sim, "ZZZ");
+    press(&mut app, &mut sim, KeyCode::Esc);
+
+    assert!(!app.comment_editor.is_open());
+    assert_eq!(
+        Some(" A = -a".to_string()),
+        sim.store.comments[1],
+        "Esc must not apply the edit"
+    );
+}
+
+#[test]
+pub(super) fn keys_are_routed_to_the_editor_while_it_is_open() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    double_click(&mut app, &mut sim, 60, 6);
+    press(&mut app, &mut sim, KeyCode::Char('q'));
+    press(&mut app, &mut sim, KeyCode::Char('c'));
+
+    // Neither Q (quit) nor C (comments toggle) fired: they went into the buffer
+    assert!(!app.should_quit);
+    assert!(app.show_comments);
+    assert_eq!(" A = -aqc", app.comment_editor.buffer());
+}
+
+#[test]
+pub(super) fn held_backspace_repeats_while_editing() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    double_click(&mut app, &mut sim, 60, 6);
+    let repeat =
+        KeyEvent::new_with_kind(KeyCode::Backspace, KeyModifiers::NONE, KeyEventKind::Repeat);
+    for _ in 0..3 {
+        app.handle_key(repeat, &mut sim);
+    }
+    assert_eq!(" A =", app.comment_editor.buffer());
+}
+
+#[test]
+pub(super) fn the_inline_box_is_drawn_on_the_edited_row() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    double_click(&mut app, &mut sim, 60, 6);
+    type_str(&mut app, &mut sim, "XYZ");
+
+    let snap = Snapshot::from_sim(&sim);
+    let buffer = render(&mut app, &snap, 100, 40);
+    let col = comment_column(app.flow);
+
+    // The edited row shows the buffer with a cursor, highlighted (reversed)
+    let row1: String = row_text(&buffer, 6).chars().skip(col).collect();
+    assert!(row1.starts_with(" ; A = -aXYZ_"), "row1: {row1:?}");
+    assert!(
+        buffer[(col as u16, 6)]
+            .modifier
+            .contains(Modifier::REVERSED),
+        "the box is highlighted"
+    );
+    // The other rows keep the plain dimmed comment
+    let row4: String = row_text(&buffer, 9).chars().skip(col).collect();
+    assert!(row4.starts_with(" ;   x"), "row4: {row4:?}");
+    assert!(
+        !buffer[(col as u16, 9)]
+            .modifier
+            .contains(Modifier::REVERSED)
+    );
+}
+
+#[test]
+pub(super) fn the_visual_cursor_sits_at_the_editing_position() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Open on word 4 ("   x", 4 chars): the cursor must sit right after
+    // the text, at the editing position — not at the right edge of the box
+    double_click(&mut app, &mut sim, 60, 9);
+    let snap = Snapshot::from_sim(&sim);
+    let buffer = render(&mut app, &snap, 100, 40);
+    let col = comment_column(app.flow);
+    let row4: String = row_text(&buffer, 9).chars().skip(col).collect();
+    assert!(row4.starts_with(" ;   x_"), "row4: {row4:?}");
+    let chars: Vec<char> = row4.chars().collect();
+    // The cell after the cursor is padding, not another cursor
+    assert_eq!(' ', chars[2 + 4 + 1], "row4: {row4:?}");
+
+    // Typing moves the cursor along with the text
+    type_str(&mut app, &mut sim, "ab");
+    let snap = Snapshot::from_sim(&sim);
+    let buffer = render(&mut app, &snap, 100, 40);
+    let row4: String = row_text(&buffer, 9).chars().skip(col).collect();
+    assert!(row4.starts_with(" ;   xab_"), "row4: {row4:?}");
+}
+
+#[test]
+pub(super) fn a_long_buffer_shows_its_tail_with_the_cursor_at_the_end() {
+    let mut sim = sim_with_comments(); // word 1: " A = -a"
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    // Width 70 leaves 70 - 58 - 2 = 10 cells for the comment column
+    let _ = render(&mut app, &snap, 70, 40);
+
+    double_click(&mut app, &mut sim, 60, 6);
+    type_str(&mut app, &mut sim, &"0123456789".repeat(2)); // buffer: 7 + 20 = 27 chars
+
+    let snap = Snapshot::from_sim(&sim);
+    let buffer = render(&mut app, &snap, 70, 40);
+    let col = comment_column(app.flow);
+    // The column is 10 wide: 9 cells of text (the buffer's tail) + cursor,
+    // so the cursor stays at the editing position instead of mid-buffer
+    let raw = app.comment_editor.buffer().to_string();
+    let tail: String = raw.chars().skip(raw.chars().count() - 9).collect();
+    let row1: String = row_text(&buffer, 6).chars().skip(col).collect();
+    assert!(row1.starts_with(&format!(" ;{tail}_")), "row1: {row1:?}");
+    assert!(
+        !row1.starts_with(" ; A = -a0"),
+        "the head is scrolled off: {row1:?}"
+    );
+}
+
+#[test]
+pub(super) fn without_any_comment_there_is_no_column_to_double_click() {
+    let mut sim = Simulator::new(); // no comments at all
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Even far right on a store row, a double-click opens the word editor:
+    // no comment column is drawn, so there is no comment cell
+    double_click(&mut app, &mut sim, 90, 6);
+    assert!(!app.comment_editor.is_open());
+    assert!(app.editor_popup.is_open());
+}
+
+/// A Ctrl+Backspace key press, as CSI-u/kitty terminals report it.
+fn ctrl_backspace() -> KeyEvent {
+    KeyEvent::new_with_kind(
+        KeyCode::Backspace,
+        KeyModifiers::CONTROL,
+        KeyEventKind::Press,
+    )
+}
+
+#[test]
+pub(super) fn ctrl_backspace_erases_a_whole_word() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Buffer " A = -a": each Ctrl+Backspace erases one whitespace run
+    // plus one word run
+    double_click(&mut app, &mut sim, 60, 6);
+    app.handle_key(ctrl_backspace(), &mut sim);
+    assert_eq!(" A = ", app.comment_editor.buffer());
+    app.handle_key(ctrl_backspace(), &mut sim);
+    assert_eq!(" A ", app.comment_editor.buffer());
+    app.handle_key(ctrl_backspace(), &mut sim);
+    assert_eq!(" ", app.comment_editor.buffer());
+    app.handle_key(ctrl_backspace(), &mut sim);
+    assert_eq!("", app.comment_editor.buffer());
+    // On an empty buffer it is a no-op
+    app.handle_key(ctrl_backspace(), &mut sim);
+    assert_eq!("", app.comment_editor.buffer());
+
+    // "hello world  |" loses the spaces and the word in one press
+    type_str(&mut app, &mut sim, "hello world  ");
+    app.handle_key(ctrl_backspace(), &mut sim);
+    assert_eq!("hello ", app.comment_editor.buffer());
+
+    // The raw control-char variant (0x7F + CONTROL) does the same
+    type_str(&mut app, &mut sim, "abc");
+    app.handle_key(
+        KeyEvent::new_with_kind(
+            KeyCode::Char('\u{7f}'),
+            KeyModifiers::CONTROL,
+            KeyEventKind::Press,
+        ),
+        &mut sim,
+    );
+    assert_eq!("hello ", app.comment_editor.buffer());
+
+    // Terminals sending Ctrl+Backspace as byte 0x08 report it as
+    // 'h' + CONTROL (0x08 is Ctrl+H): it must erase the word, not type 'h'
+    type_str(&mut app, &mut sim, "xy");
+    app.handle_key(
+        KeyEvent::new_with_kind(
+            KeyCode::Char('h'),
+            KeyModifiers::CONTROL,
+            KeyEventKind::Press,
+        ),
+        &mut sim,
+    );
+    assert_eq!("hello ", app.comment_editor.buffer());
+
+    // Other Ctrl+letter combos have no binding: ignored, not typed
+    app.handle_key(
+        KeyEvent::new_with_kind(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+            KeyEventKind::Press,
+        ),
+        &mut sim,
+    );
+    assert_eq!("hello ", app.comment_editor.buffer());
+
+    // Plain Backspace still deletes a single character
+    press(&mut app, &mut sim, KeyCode::Backspace);
+    assert_eq!("hello", app.comment_editor.buffer());
+}
