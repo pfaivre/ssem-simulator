@@ -3,7 +3,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::Frame;
 use ratatui::layout::{Position, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
@@ -11,7 +11,8 @@ use crate::ssem::Opcode;
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, Simulator};
 
-use super::theme::{KEYMAP, opcode_color};
+use super::app::KEYMAP;
+use super::palette::Palette;
 
 /// Compute a centered, clamped pop-up rectangle within the given area.
 fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
@@ -103,7 +104,7 @@ impl HelpPopup {
         }
     }
 
-    pub fn draw(&mut self, f: &mut Frame, area: Rect) {
+    pub fn draw(&mut self, f: &mut Frame, area: Rect, palette: &Palette) {
         let key_column = KEYMAP
             .iter()
             .map(|(key, _, _)| key.chars().count())
@@ -116,7 +117,7 @@ impl HelpPopup {
         let footer_scrollable = "\u{2191}/\u{2193} scroll \u{b7} H close";
 
         let key_style = Style::default()
-            .fg(Color::Blue)
+            .fg(palette.key_hint)
             .add_modifier(Modifier::REVERSED);
 
         let mut lines: Vec<Line<'static>> = Vec::new();
@@ -152,7 +153,7 @@ impl HelpPopup {
                 Span::styled(
                     format!("{mnemonics:<13}"),
                     Style::default()
-                        .fg(opcode_color(opcode))
+                        .fg(palette.opcode(opcode))
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(description),
@@ -166,11 +167,11 @@ impl HelpPopup {
             Span::styled(
                 "\u{bb}",
                 Style::default()
-                    .fg(Color::Blue)
+                    .fg(palette.next_marker)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" next  "),
-            Span::styled("\u{2022}", Style::default().fg(Color::DarkGray)),
+            Span::styled("\u{2022}", Style::default().fg(palette.dim)),
             Span::raw(" executed"),
         ]));
 
@@ -180,7 +181,9 @@ impl HelpPopup {
             Span::raw("  "),
             Span::styled(
                 "EXEC",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(palette.exec_ramp[2])
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" execution word frequency"),
         ]));
@@ -189,14 +192,14 @@ impl HelpPopup {
             Span::styled(
                 "R",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(palette.read_ramp[1])
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("/"),
             Span::styled(
                 "W",
                 Style::default()
-                    .fg(Color::LightRed)
+                    .fg(palette.write_ramp[2])
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("  store reads vs writes per word"),
@@ -208,26 +211,26 @@ impl HelpPopup {
             Span::raw("  "),
             Span::styled(
                 "\u{25c0}\u{2500}\u{2500} jump forward",
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(palette.edge_jump),
             ),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
                 "\u{25c0}\u{2500}\u{2500} jump backward (loop)",
-                Style::default().fg(Color::Red),
+                Style::default().fg(palette.edge_loop),
             ),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
                 "\u{25c0}\u{2500}\u{2500} CMP skip",
-                Style::default().fg(Color::White),
+                Style::default().fg(palette.edge_skip),
             ),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled("■   halt", Style::default().fg(Color::Red)),
+            Span::styled("■   halt", Style::default().fg(palette.op_halt)),
         ]));
 
         // Blank line before the footer, which is pinned to the bottom row
@@ -246,6 +249,10 @@ impl HelpPopup {
         let rect = popup_rect(height, width, area);
         self.last_rect = rect;
         f.render_widget(Clear, rect);
+        // Clear resets the cells to the terminal default; restore the theme's
+        // base colors under the pop-up
+        f.buffer_mut()
+            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
 
         let block = Block::bordered()
             .title(format!(" {title} "))
@@ -488,7 +495,7 @@ impl BreakpointPopup {
         }
     }
 
-    pub fn draw(&self, f: &mut Frame, area: Rect, breakpoints: &[Breakpoint]) {
+    pub fn draw(&self, f: &mut Frame, area: Rect, breakpoints: &[Breakpoint], palette: &Palette) {
         let explanation = "Pause the machine when a condition is met";
         let footer = "ENTER add \u{b7} T type \u{b7} \u{2191}/\u{2193} select \u{b7} X delete \u{b7} ESC close";
 
@@ -514,16 +521,20 @@ impl BreakpointPopup {
 
         let rect = popup_rect(height, width, area);
         f.render_widget(Clear, rect);
+        // Clear resets the cells to the terminal default; restore the theme's
+        // base colors under the pop-up
+        f.buffer_mut()
+            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
 
         let block = Block::bordered()
             .title(" BREAKPOINTS ")
             .border_type(BorderType::Rounded)
-            .border_style(Style::new().red());
+            .border_style(Style::new().fg(palette.breakpoint_border));
         let content = content_area(&block, rect);
         f.render_widget(block, rect);
 
         let selected_style = Style::default()
-            .fg(Color::Blue)
+            .fg(palette.selection)
             .add_modifier(Modifier::REVERSED);
 
         let mut lines: Vec<Line<'static>> = Vec::new();
@@ -826,7 +837,15 @@ impl EditorPopup {
         }
     }
 
-    pub fn draw(&self, f: &mut Frame, area: Rect, ci: i32, a: i32, store: &[i32; 32]) {
+    pub fn draw(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        ci: i32,
+        a: i32,
+        store: &[i32; 32],
+        palette: &Palette,
+    ) {
         let explanation = "Edit a register or store word";
         let footer = "ENTER apply \u{b7} T target \u{b7} ESC close";
 
@@ -857,11 +876,15 @@ impl EditorPopup {
 
         let rect = popup_rect(height, width, area);
         f.render_widget(Clear, rect);
+        // Clear resets the cells to the terminal default; restore the theme's
+        // base colors under the pop-up
+        f.buffer_mut()
+            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
 
         let block = Block::bordered()
             .title(" EDIT ")
             .border_type(BorderType::Rounded)
-            .border_style(Style::new().yellow());
+            .border_style(Style::new().fg(palette.editor_border));
         let content = content_area(&block, rect);
         f.render_widget(block, rect);
 
@@ -877,7 +900,7 @@ impl EditorPopup {
             Line::from(Span::styled(
                 preview,
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(palette.preview)
                     .add_modifier(Modifier::DIM),
             )),
             Line::from(self.message.clone()),

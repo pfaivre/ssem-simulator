@@ -77,6 +77,9 @@
 //! and red for STP (halt). The chrome (top bar, shortcut bar, timeline) keeps
 //! a single blue; the help pop-up documents the colors.
 //!
+//! Every color lives in `palette/`, one file per built-in theme (`dark.rs`,
+//! `light.rs`, etc.).
+//!
 //! When the machine is paused, the pointer column shows the execution
 //! footprint of the current run: `>` marks the last executed line, `»` the
 //! next line to execute (where P or F10 resumes), and `•` every other line
@@ -85,11 +88,11 @@
 //!
 //! # Module map
 //!
-//! - `theme`: mnemonic colors, heatmap/flow modes, keymap, bit glyphs
-//! - `layout`: geometry constants and timeline-bar helpers
+//! - `palette`: the color themes — every color of the UI, one file per theme
+//! - `layout`: geometry constants, timeline-bar helpers, view modes and widths
 //! - `snapshot`: the lock-free state snapshot used for drawing
 //! - `graph`: the static control-flow graph (flow mode "control")
-//! - `app`: application state and input handling
+//! - `app`: application state and input handling (keymap, bit glyphs)
 //! - `draw`: rendering of the bars, main body, and pop-ups
 //! - `runner`: the machine/UI threads and the entry point
 //! - `popups`: the help, breakpoint, and editor pop-ups
@@ -98,12 +101,13 @@ mod app;
 mod draw;
 mod graph;
 mod layout;
+pub mod palette;
 mod popups;
 mod runner;
 mod snapshot;
-mod theme;
 
 #[cfg(test)]
 mod tests;
 
+pub use palette::Theme;
 pub use runner::run;

@@ -8,18 +8,15 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
-use super::app::App;
+use super::app::{App, KEYMAP};
 use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
 use super::layout::{
-    A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, MIN_HEIGHT, MIN_WIDTH, REGISTER_TEXT_WIDTH,
-    STORE_ROW_OFFSET, STORE_TEXT_WIDTH, comment_column_width, timeline_bar_geometry,
-    timeline_marker_offset,
+    A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, FlowMode, HEATMAP_BAR_WIDTH, HeatmapMode,
+    MIN_HEIGHT, MIN_WIDTH, REGISTER_TEXT_WIDTH, RW_BAR_WIDTH, STORE_ROW_OFFSET, STORE_TEXT_WIDTH,
+    comment_column_width, timeline_bar_geometry, timeline_marker_offset,
 };
+use super::palette::Palette;
 use super::snapshot::Snapshot;
-use super::theme::{
-    EXEC_RAMP, FlowMode, HEATMAP_BAR_WIDTH, HeatmapMode, KEYMAP, READ_RAMP, RW_BAR_WIDTH,
-    WRITE_RAMP, opcode_color,
-};
 use crate::ssem::{Opcode, Store};
 
 /// Extra width required when pointer arrows are shown
@@ -48,9 +45,9 @@ impl App {
     /// Compute one heatmap bar: `count` relative to `max`, `width` cells wide,
     /// filled proportionally and colored on the given 3-step `ramp`.
     /// A zero count (or an all-zero heatmap) is dim.
-    fn heat_bar(count: u64, max: u64, width: usize, ramp: [Color; 3]) -> (String, Color) {
+    fn heat_bar(&self, count: u64, max: u64, width: usize, ramp: [Color; 3]) -> (String, Color) {
         if count == 0 || max == 0 {
-            return ("\u{b7}".repeat(width), Color::DarkGray);
+            return ("\u{b7}".repeat(width), self.palette().dim);
         }
 
         let ratio = count as f64 / max as f64;
@@ -89,20 +86,28 @@ impl App {
             HeatmapMode::Off => Vec::new(),
             HeatmapMode::Exec => {
                 let max = snap.exec_counts.iter().max().copied().unwrap_or(0);
-                let (bar, color) =
-                    Self::heat_bar(snap.exec_counts[index], max, HEATMAP_BAR_WIDTH, EXEC_RAMP);
+                let (bar, color) = self.heat_bar(
+                    snap.exec_counts[index],
+                    max,
+                    HEATMAP_BAR_WIDTH,
+                    self.palette().exec_ramp,
+                );
                 vec![Span::styled(format!(" {bar} "), Style::default().fg(color))]
             }
             HeatmapMode::Rw => {
                 let read_max = snap.read_counts.iter().max().copied().unwrap_or(0);
                 let write_max = snap.write_counts.iter().max().copied().unwrap_or(0);
-                let (rbar, rcolor) =
-                    Self::heat_bar(snap.read_counts[index], read_max, RW_BAR_WIDTH, READ_RAMP);
-                let (wbar, wcolor) = Self::heat_bar(
+                let (rbar, rcolor) = self.heat_bar(
+                    snap.read_counts[index],
+                    read_max,
+                    RW_BAR_WIDTH,
+                    self.palette().read_ramp,
+                );
+                let (wbar, wcolor) = self.heat_bar(
                     snap.write_counts[index],
                     write_max,
                     RW_BAR_WIDTH,
-                    WRITE_RAMP,
+                    self.palette().write_ramp,
                 );
                 vec![
                     Span::raw(" r"),
@@ -132,7 +137,7 @@ impl App {
     /// incremented before each fetch). Returns `None` when no instruction
     /// has executed yet, or when the instruction moves no store data (CMP
     /// and STP ignore their data field).
-    fn current_arrow(snap: &Snapshot) -> Option<PointerArrow> {
+    fn current_arrow(palette: &Palette, snap: &Snapshot) -> Option<PointerArrow> {
         let li = snap.last_instruction?;
         let word_row = STORE_ROW_OFFSET + li.data as usize;
         let (source, target) = match li.opcode {
@@ -145,7 +150,7 @@ impl App {
         Some(PointerArrow {
             source,
             target,
-            color: opcode_color(li.opcode),
+            color: palette.opcode(li.opcode),
         })
     }
 
@@ -177,6 +182,15 @@ impl App {
     pub(super) fn draw(&mut self, f: &mut Frame, snap: &Snapshot) {
         let area = f.area();
         self.last_area = area;
+
+        // Paint the theme's base colors over the whole frame. Only fg/bg are
+        // patched, so this touches no text; the widgets drawn below keep
+        // them unless they set their own (the zebra stripes and the scrub
+        // pop-up override the background).
+        f.buffer_mut().set_style(
+            area,
+            Style::default().fg(self.palette().fg).bg(self.palette().bg),
+        );
 
         // Clamp scroll to keep the content within the visible area
         let visible_height = area.height.saturating_sub(CHROME_HEIGHT) as usize;
@@ -237,14 +251,15 @@ impl App {
 
         // Draw pop-ups on top
         if self.help_popup.is_open() {
-            self.help_popup.draw(f, area);
+            self.help_popup.draw(f, area, self.palette());
         }
         if self.breakpoint_popup.is_open() {
-            self.breakpoint_popup.draw(f, area, &snap.breakpoints);
+            self.breakpoint_popup
+                .draw(f, area, &snap.breakpoints, self.palette());
         }
         if self.editor_popup.is_open() {
             self.editor_popup
-                .draw(f, area, snap.ci, snap.a, &snap.store);
+                .draw(f, area, snap.ci, snap.a, &snap.store, self.palette());
         }
 
         // While scrubbing the timeline, show the current cycle above the cursor
@@ -263,16 +278,16 @@ impl App {
         comment_width: usize,
     ) {
         let (status, status_color) = if self.scrubbing {
-            ("REWIND", Color::Yellow)
+            ("REWIND", self.palette().status_rewind)
         } else if snap.stop_flag {
-            ("STOPPED", Color::Blue)
+            ("STOPPED", self.palette().status_stopped)
         } else {
-            ("RUNNING", Color::Green)
+            ("RUNNING", self.palette().status_running)
         };
 
         // The chrome keeps a single color, the last instruction included:
         // the syntax highlighting lives in the store view
-        let chrome = Style::default().fg(Color::Blue);
+        let chrome = Style::default().fg(self.palette().chrome);
         let last_instr = snap
             .last_instruction
             .map(|li| li.to_string())
@@ -300,6 +315,8 @@ impl App {
         if let Some(label) = self.flow.label() {
             text.push_str(&format!(" [FLOW: {label}]"));
         }
+
+        text.push_str(&format!(" [THEME: {}]", self.theme.label()));
 
         if comment_width > 0 {
             text.push_str(" [COMMENTS]");
@@ -329,12 +346,13 @@ impl App {
 
         // In graph mode the gutter draws the static control-flow edges
         // between the store lines instead of the data-flow arrow
-        let graph = (self.flow == FlowMode::Control).then(|| GraphGutter::new(&snap.store));
+        let graph =
+            (self.flow == FlowMode::Control).then(|| GraphGutter::new(&snap.store, self.palette()));
 
         // Pointer arrow: gutter cells appended after a line's text, following
         // the data flow of the last executed instruction
         let arrow = if self.flow == FlowMode::Data {
-            Self::current_arrow(snap)
+            Self::current_arrow(self.palette(), snap)
         } else {
             None
         };
@@ -436,11 +454,11 @@ impl App {
         let ci_bits = self.format_bits(snap.ci);
         let ci_style = if arrow_target == Some(CI_ROW) {
             Style::default()
-                .fg(Color::Yellow)
+                .fg(self.palette().highlight)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
-                .fg(Color::Green)
+                .fg(self.palette().value)
                 .add_modifier(Modifier::BOLD)
         };
         let mut ci_spans = vec![
@@ -461,11 +479,11 @@ impl App {
         let a_bits = self.format_bits(snap.a);
         let a_style = if arrow_target == Some(A_ROW) {
             Style::default()
-                .fg(Color::Yellow)
+                .fg(self.palette().highlight)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
-                .fg(Color::Green)
+                .fg(self.palette().value)
                 .add_modifier(Modifier::BOLD)
         };
         let mut a_spans = vec![
@@ -520,11 +538,11 @@ impl App {
                 (
                     "\u{bb}",
                     Style::default()
-                        .fg(Color::Blue)
+                        .fg(self.palette().next_marker)
                         .add_modifier(Modifier::BOLD),
                 )
             } else if paused && snap.exec_counts[index] > 0 {
-                ("\u{2022}", Style::default().fg(Color::DarkGray))
+                ("\u{2022}", Style::default().fg(self.palette().dim))
             } else {
                 (" ", Style::default())
             };
@@ -535,11 +553,11 @@ impl App {
                 Style::default().add_modifier(Modifier::BOLD)
             } else if is_target {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.palette().highlight)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(self.palette().value)
                     .add_modifier(Modifier::BOLD)
             };
 
@@ -553,7 +571,7 @@ impl App {
                 Span::styled(
                     format!("{:<4}", opcode.to_string()),
                     Style::default()
-                        .fg(opcode_color(opcode))
+                        .fg(self.palette().opcode(opcode))
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(format!(" {:02}", data)),
@@ -579,7 +597,7 @@ impl App {
                         let truncated: String = text.chars().take(comment_width).collect();
                         spans.push(Span::styled(
                             format!(" ;{truncated:<comment_width$}"),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(self.palette().dim),
                         ));
                     }
                     None => spans.push(Span::raw(" ".repeat(comment_extra))),
@@ -590,6 +608,32 @@ impl App {
 
         let paragraph = Paragraph::new(lines).scroll((self.store_scroll, 0));
         f.render_widget(paragraph, area);
+
+        // Zebra stripes: every other line of the main body gets a subtle
+        // background across the full width — but only the machine's own
+        // lines (the CONTENT_HEIGHT content rows: spacers, CI, accumulator,
+        // store words); below them the background stays plain. The parity
+        // follows the content row (not the screen row), so the stripes stay
+        // in place while the store view is scrolled. Applied on the buffer
+        // because a line's style only covers the cells its spans draw.
+        let buf = f.buffer_mut();
+        for i in 0..area.height as usize {
+            let content_row = self.store_scroll as usize + i;
+            if content_row >= CONTENT_HEIGHT {
+                break;
+            }
+            if content_row % 2 == 1 {
+                buf.set_style(
+                    Rect {
+                        x: area.x,
+                        y: area.y + i as u16,
+                        width: area.width,
+                        height: 1,
+                    },
+                    Style::default().bg(self.palette().zebra_bg),
+                );
+            }
+        }
     }
 
     /// Draw the timeline bar: how much history is retained (filled bar) and
@@ -598,7 +642,7 @@ impl App {
         if snap.history_capacity == 0 {
             let line = Line::from(Span::styled(
                 " HISTORY [disabled]",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(self.palette().dim),
             ));
             f.render_widget(Paragraph::new(line), area);
             return;
@@ -617,8 +661,8 @@ impl App {
             snap.cycle_count,
         );
 
-        let blue = Style::default().fg(Color::Blue);
-        let mut spans = vec![Span::styled(" HISTORY  ".to_string(), blue)];
+        let chrome = Style::default().fg(self.palette().chrome);
+        let mut spans = vec![Span::styled(" HISTORY  ".to_string(), chrome)];
         if bar_width > 0 {
             let segment = |from: usize, to: usize| -> String {
                 (from..to)
@@ -626,21 +670,21 @@ impl App {
                     .collect()
             };
             let marker = marker.unwrap_or(0);
-            spans.push(Span::styled(segment(0, marker), blue));
+            spans.push(Span::styled(segment(0, marker), chrome));
             spans.push(Span::styled(
                 "\u{2588}".to_string(),
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.palette().timeline_marker)
                     .add_modifier(Modifier::BOLD),
             ));
             spans.push(Span::styled(
                 segment(marker + 1, usize::from(bar_width)),
-                blue,
+                chrome,
             ));
         }
         spans.push(Span::styled(
             format!("  {}..{}", snap.history_start, snap.history_head),
-            blue,
+            chrome,
         ));
 
         f.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -681,7 +725,11 @@ impl App {
 
         f.render_widget(Clear, popup_area);
         f.render_widget(
-            Paragraph::new(text).style(Style::default().fg(Color::Black).bg(Color::Yellow)),
+            Paragraph::new(text).style(
+                Style::default()
+                    .fg(self.palette().scrub_popup_fg)
+                    .bg(self.palette().scrub_popup_bg),
+            ),
             popup_area,
         );
     }
@@ -689,7 +737,7 @@ impl App {
     /// Draw the bottom bar with keyboard shortcuts.
     fn draw_bottom_bar(&self, f: &mut Frame, area: Rect) {
         let key_style = Style::default()
-            .fg(Color::Blue)
+            .fg(self.palette().key_hint)
             .add_modifier(Modifier::REVERSED);
         let normal_style = Style::default();
 

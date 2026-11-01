@@ -229,7 +229,7 @@ pub(super) fn graph_view_hides_fall_through_but_marks_stops() {
     }
     // ... but the STP at line 3 (row 8) is marked with a red ■
     assert_eq!('■', glyph(8, G_SEP));
-    assert_eq!(Color::Red, cell(8, G_SEP).fg);
+    assert_eq!(DARK.op_halt, cell(8, G_SEP).fg);
 }
 
 #[test]
@@ -245,18 +245,18 @@ pub(super) fn graph_view_draws_a_forward_jump() {
     assert_eq!(' ', glyph(6, g_vert(0)));
     // The jump 2→10 leaves line 2 (row 7) in lane 0, yellow...
     assert_eq!('╮', glyph(7, g_vert(0)));
-    assert_eq!(Color::Yellow, cell(7, g_vert(0)).fg);
+    assert_eq!(DARK.edge_jump, cell(7, g_vert(0)).fg);
     // ... runs down lane 0 from row 8 to row 14 ...
     for row in 8..15 {
         assert_eq!('│', glyph(row, g_vert(0)), "row {row}");
-        assert_eq!(Color::Yellow, cell(row, g_vert(0)).fg, "row {row}");
+        assert_eq!(DARK.edge_jump, cell(row, g_vert(0)).fg, "row {row}");
     }
     // ... and arrives at line 10 (row 15): arrowhead, a dash spacing it
     // from the corner
     assert_eq!('◀', glyph(15, g_head(0)));
     assert_eq!('─', glyph(15, g_head(0) + 1));
     assert_eq!('╯', glyph(15, g_vert(0)));
-    assert_eq!(Color::Yellow, cell(15, g_head(0)).fg);
+    assert_eq!(DARK.edge_jump, cell(15, g_head(0)).fg);
 }
 
 #[test]
@@ -271,11 +271,11 @@ pub(super) fn graph_view_draws_only_the_cmp_skip() {
     // Only the skip 4→6 is drawn, in lane 0, white: corner leaving line 4
     // (row 9), vertical through row 10, arrowhead arriving at line 6 (row 11)
     assert_eq!('╮', glyph(9, g_vert(0)));
-    assert_eq!(Color::White, cell(9, g_vert(0)).fg);
+    assert_eq!(DARK.edge_skip, cell(9, g_vert(0)).fg);
     assert_eq!('│', glyph(10, g_vert(0)));
-    assert_eq!(Color::White, cell(10, g_vert(0)).fg);
+    assert_eq!(DARK.edge_skip, cell(10, g_vert(0)).fg);
     assert_eq!('◀', glyph(11, g_head(0)));
-    assert_eq!(Color::White, cell(11, g_head(0)).fg);
+    assert_eq!(DARK.edge_skip, cell(11, g_head(0)).fg);
     // The not-taken branch to line 5 (row 10) draws nothing
     assert_eq!(' ', glyph(10, g_head(1)));
 }
@@ -299,14 +299,14 @@ pub(super) fn graph_view_highlights_backward_jumps_as_loops() {
     // The backward edge leaves line 5 (row 10) with an upward corner in
     // lane 0, bold red ...
     assert_eq!('╯', glyph(10, g_vert(0)));
-    assert_eq!(Color::Red, cell(10, g_vert(0)).fg);
+    assert_eq!(DARK.edge_loop, cell(10, g_vert(0)).fg);
     assert!(cell(10, g_vert(0)).modifier.contains(Modifier::BOLD));
     // ... runs up through row 9 ...
     assert_eq!('│', glyph(9, g_vert(0)));
-    assert_eq!(Color::Red, cell(9, g_vert(0)).fg);
+    assert_eq!(DARK.edge_loop, cell(9, g_vert(0)).fg);
     // ... and arrives at line 3 (row 8)
     assert_eq!('◀', glyph(8, g_head(0)));
-    assert_eq!(Color::Red, cell(8, g_head(0)).fg);
+    assert_eq!(DARK.edge_loop, cell(8, g_head(0)).fg);
 }
 
 #[test]
@@ -342,13 +342,13 @@ pub(super) fn graph_view_crossing_prints_the_vertical_over_the_horizontal() {
     // Only the vertical is printed, in the loop edge's bold red: the
     // vertical arrow reads as passing over the horizontal one
     assert_eq!('│', glyph(row, col));
-    assert_eq!(Color::Red, cell(row, col).fg);
+    assert_eq!(DARK.edge_loop, cell(row, col).fg);
     assert!(cell(row, col).modifier.contains(Modifier::BOLD));
-    assert_eq!(Color::Reset, cell(row, col).bg);
+    assert_eq!(DARK.bg, cell(row, col).bg);
     // The horizontal edge is present on both sides of the crossing...
     for side in [col - 1, col + 1] {
         assert_eq!('─', glyph(row, side), "col {side}");
-        assert_eq!(Color::White, cell(row, side).fg, "col {side}");
+        assert_eq!(DARK.edge_skip, cell(row, side).fg, "col {side}");
     }
 }
 
@@ -365,7 +365,7 @@ pub(super) fn graph_view_draws_self_loops_as_a_circular_arrow() {
     // Line 3 (row 8): ↺ in the separator column, bold red; the incoming
     // jump still arrives in lane 0
     assert_eq!('↺', glyph(8, G_SEP));
-    assert_eq!(Color::Red, cell(8, G_SEP).fg);
+    assert_eq!(DARK.edge_loop, cell(8, G_SEP).fg);
     assert!(cell(8, G_SEP).modifier.contains(Modifier::BOLD));
     assert_eq!('╯', glyph(8, g_vert(0)));
     // Line 2 decodes as STP but is unreachable: no halt marker
@@ -378,7 +378,7 @@ pub(super) fn graph_gutter_renders_the_overflow_label_after_the_lanes() {
         cells: vec![vec![None; GUTTER_COLS]; CONTENT_HEIGHT],
         overflow: vec![None; CONTENT_HEIGHT],
     };
-    gutter.overflow[line_row(4)] = Some((31, Style::default().fg(Color::Red)));
+    gutter.overflow[line_row(4)] = Some((31, Style::default().fg(DARK.edge_loop)));
     let spans = gutter.row_spans(line_row(4));
     let text: String = spans.iter().flat_map(|span| span.content.chars()).collect();
     assert_eq!(GUTTER_COLS + OVERFLOW_LABEL_WIDTH, text.chars().count());
@@ -399,7 +399,11 @@ pub(super) fn graph_view_hides_the_data_flow_arrow() {
     // The gutter columns carry graph edges only: no magenta arrow
     for y in 0..buffer.area.height {
         for x in STORE_TEXT_WIDTH..(STORE_TEXT_WIDTH + GRAPH_EXTRA_WIDTH as usize) {
-            assert_ne!(Color::Magenta, buffer[(x as u16, y)].fg, "cell ({x}, {y})");
+            assert_ne!(
+                DARK.op_movement,
+                buffer[(x as u16, y)].fg,
+                "cell ({x}, {y})"
+            );
         }
     }
 }

@@ -27,14 +27,14 @@ pub(super) fn mnemonics_are_colored_by_category() {
     // pointer-arrow palette: magenta for a data movement, cyan for an
     // arithmetic combination.
     let expected = [
-        (0, "JMP", Color::Magenta),
-        (1, "JRP", Color::Cyan),
-        (2, "LDN", Color::Magenta),
-        (3, "STO", Color::Magenta),
-        (4, "SUB", Color::Cyan),
-        (5, "SUB2", Color::Cyan),
-        (6, "CMP", Color::White),
-        (7, "STP", Color::Red),
+        (0, "JMP", DARK.op_movement),
+        (1, "JRP", DARK.op_arithmetic),
+        (2, "LDN", DARK.op_movement),
+        (3, "STO", DARK.op_movement),
+        (4, "SUB", DARK.op_arithmetic),
+        (5, "SUB2", DARK.op_arithmetic),
+        (6, "CMP", DARK.op_test),
+        (7, "STP", DARK.op_halt),
     ];
     for (line, mnemonic, color) in expected {
         let row = 5 + line as u16;
@@ -56,6 +56,58 @@ pub(super) fn mnemonics_are_colored_by_category() {
 }
 
 #[test]
+pub(super) fn main_body_lines_have_an_alternating_background() {
+    // The main body starts at screen row 1 (the top bar takes row 0), and
+    // content row r is drawn at screen row r + 1 while unscrolled. Odd
+    // content rows — the spacers, CI, and every other store word — carry
+    // the zebra background across the full width of the body...
+    let snap = snapshot_with_history(0);
+    let mut app = App::new();
+    // One row taller than the body needs, so the area below the machine's
+    // lines includes an odd (stripe-eligible) row
+    let buffer = render(&mut app, &snap, 80, 41);
+
+    for content_row in 0..CONTENT_HEIGHT {
+        let screen_row = 1 + content_row as u16;
+        let expected = if content_row % 2 == 1 {
+            DARK.zebra_bg
+        } else {
+            DARK.bg
+        };
+        for x in [0, 1, 40, 79] {
+            assert_eq!(
+                expected,
+                buffer[(x, screen_row)].bg,
+                "content row {content_row}, column {x}"
+            );
+        }
+    }
+
+    // Below the machine's own lines the background stays plain (the theme's
+    // base background, not striped), and so do the timeline, bottom bar, and
+    // top bar
+    for row in (1 + CONTENT_HEIGHT as u16)..buffer.area.height {
+        for x in 0..buffer.area.width {
+            assert_eq!(DARK.bg, buffer[(x, row)].bg, "row below the body {row}");
+        }
+    }
+    for x in 0..buffer.area.width {
+        assert_eq!(DARK.bg, buffer[(x, 0)].bg, "top bar column {x}");
+    }
+
+    // The stripes are a background only: the CI bits keep their green
+    // foreground on the striped CI row (content row 1 = screen row 2)
+    let ci_screen_row = 1 + CI_ROW as u16;
+    let cell = &buffer[(2, ci_screen_row)];
+    assert_eq!(DARK.value, cell.fg);
+    assert_eq!(DARK.zebra_bg, cell.bg);
+
+    // Plain (unstyled) text carries the theme's default foreground
+    // (screen row 1 is the blank first line of the body)
+    assert_eq!(DARK.fg, buffer[(0, 1)].fg);
+}
+
+#[test]
 pub(super) fn top_bar_stays_blue_when_stopped() {
     // The chrome keeps a single color, the last instruction's mnemonic
     // included: the syntax highlighting lives in the store view. STOPPED
@@ -69,11 +121,11 @@ pub(super) fn top_bar_stays_blue_when_stopped() {
 
     let row = row_text(&buffer, 0);
     let pos = row.find("SUB").expect("last instruction in the top bar");
-    assert_eq!(Color::Blue, buffer[(pos as u16, 0)].fg);
+    assert_eq!(DARK.chrome, buffer[(pos as u16, 0)].fg);
     for x in 0..buffer.area.width {
         let cell = &buffer[(x, 0)];
         if cell.symbol() != " " {
-            assert_eq!(Color::Blue, cell.fg, "top bar column {x}");
+            assert_eq!(DARK.chrome, cell.fg, "top bar column {x}");
         }
     }
 }
@@ -93,13 +145,13 @@ pub(super) fn status_word_is_colored_by_state() {
     let pos = row.find("RUNNING").expect("status in the top bar");
     for i in 0.."RUNNING".len() {
         assert_eq!(
-            Color::Green,
+            DARK.status_running,
             buffer[((pos + i) as u16, 0)].fg,
             "RUNNING char {i}"
         );
     }
     let pos = row.find("CYCLES").expect("cycles in the top bar");
-    assert_eq!(Color::Blue, buffer[(pos as u16, 0)].fg);
+    assert_eq!(DARK.chrome, buffer[(pos as u16, 0)].fg);
 
     let mut app = App::new();
     app.scrubbing = true;
@@ -108,7 +160,7 @@ pub(super) fn status_word_is_colored_by_state() {
     let pos = row.find("REWIND").expect("status in the top bar");
     for i in 0.."REWIND".len() {
         assert_eq!(
-            Color::Yellow,
+            DARK.status_rewind,
             buffer[((pos + i) as u16, 0)].fg,
             "REWIND char {i}"
         );
@@ -119,7 +171,7 @@ pub(super) fn status_word_is_colored_by_state() {
     let buffer = render(&mut app, &snap, 80, 40);
     let row = row_text(&buffer, 0);
     let pos = row.find("STOPPED").expect("status in the top bar");
-    assert_eq!(Color::Blue, buffer[(pos as u16, 0)].fg);
+    assert_eq!(DARK.chrome, buffer[(pos as u16, 0)].fg);
 }
 
 #[test]

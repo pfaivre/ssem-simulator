@@ -15,11 +15,11 @@ use super::graph::{
     OVERFLOW_LABEL_WIDTH, assign_lanes, control_flow_edges, line_row, reachable_edges,
 };
 use super::layout::{
-    CONTENT_HEIGHT, MAX_COMMENT_WIDTH, MIN_WIDTH, STORE_TEXT_WIDTH, comment_column_width,
-    timeline_bar_geometry, timeline_marker_offset,
+    CI_ROW, CONTENT_HEIGHT, FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, MIN_WIDTH, STORE_TEXT_WIDTH,
+    comment_column_width, timeline_bar_geometry, timeline_marker_offset,
 };
+use super::palette::DARK;
 use super::snapshot::Snapshot;
-use super::theme::{FlowMode, HeatmapMode};
 use crate::ssem::Store;
 use crate::ssem::simulator::{LastInstruction, Simulator};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
@@ -27,7 +27,7 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use std::sync::Arc;
 
 /// A simulator that never halts: an empty store executes `JMP 0` forever.

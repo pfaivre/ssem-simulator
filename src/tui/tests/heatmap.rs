@@ -55,17 +55,17 @@ pub(super) fn exec_heatmap_draws_one_bar_per_word() {
     let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
     assert_eq!(&['█', '█', '█', '█', '█', '█'], &chars[2..8]);
     assert_eq!(' ', chars[8]);
-    assert_eq!(Color::Red, buffer[(2, 10)].fg, "hottest line is red");
+    assert_eq!(DARK.exec_ramp[2], buffer[(2, 10)].fg, "hottest line is red");
 
     // Word 9 (row 14): ratio 1/4 = 0.25 -> filled = ceil(0.25*6) = 2, green
     let chars: Vec<char> = row_text(&buffer, 14).chars().collect();
     assert_eq!(&['█', '█', '·', '·', '·', '·'], &chars[2..8]);
-    assert_eq!(Color::Green, buffer[(2, 14)].fg);
+    assert_eq!(DARK.exec_ramp[0], buffer[(2, 14)].fg);
 
     // Untouched word 0 (row 5): all dim dots
     let chars: Vec<char> = row_text(&buffer, 5).chars().collect();
     assert_eq!(&['·', '·', '·', '·', '·', '·'], &chars[2..8]);
-    assert_eq!(Color::DarkGray, buffer[(2, 5)].fg);
+    assert_eq!(DARK.dim, buffer[(2, 5)].fg);
 }
 
 /// In r/w mode a store row reads: pointer, " r", read bar (3), " w",
@@ -93,21 +93,21 @@ pub(super) fn rw_heatmap_draws_labeled_read_and_write_bars() {
     let chars: Vec<char> = row_text(&buffer, 8).chars().collect();
     assert_eq!('r', chars[RW_R_COL]);
     assert_eq!(&['█', '█', '█'], &chars[RW_RBAR_COL..RW_RBAR_COL + 3]);
-    assert_eq!(Color::LightCyan, buffer[(RW_RBAR_COL as u16, 8)].fg);
+    assert_eq!(DARK.read_ramp[2], buffer[(RW_RBAR_COL as u16, 8)].fg);
     assert_eq!('w', chars[RW_W_COL]);
     assert_eq!(&['·', '·', '·'], &chars[RW_WBAR_COL..RW_WBAR_COL + 3]);
-    assert_eq!(Color::DarkGray, buffer[(RW_WBAR_COL as u16, 8)].fg);
+    assert_eq!(DARK.dim, buffer[(RW_WBAR_COL as u16, 8)].fg);
 
     // Word 7 (row 12): read ratio 0.2 -> one filled cell, blue
     let chars: Vec<char> = row_text(&buffer, 12).chars().collect();
     assert_eq!(&['█', '·', '·'], &chars[RW_RBAR_COL..RW_RBAR_COL + 3]);
-    assert_eq!(Color::Blue, buffer[(RW_RBAR_COL as u16, 12)].fg);
+    assert_eq!(DARK.read_ramp[0], buffer[(RW_RBAR_COL as u16, 12)].fg);
 
     // Word 8 (row 13): no reads, full write bar in the hottest write color
     let chars: Vec<char> = row_text(&buffer, 13).chars().collect();
     assert_eq!(&['·', '·', '·'], &chars[RW_RBAR_COL..RW_RBAR_COL + 3]);
     assert_eq!(&['█', '█', '█'], &chars[RW_WBAR_COL..RW_WBAR_COL + 3]);
-    assert_eq!(Color::LightRed, buffer[(RW_WBAR_COL as u16, 13)].fg);
+    assert_eq!(DARK.write_ramp[2], buffer[(RW_WBAR_COL as u16, 13)].fg);
 
     // The bits still start right after the heatmap area (col 12)
     let chars: Vec<char> = row_text(&buffer, 8).chars().collect();

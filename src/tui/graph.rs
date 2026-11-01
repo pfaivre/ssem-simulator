@@ -1,10 +1,11 @@
 //! The static control-flow graph between store lines, drawn in the right
 //! margin in the "control" flow mode.
 
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::Span;
 
 use super::layout::{CONTENT_HEIGHT, STORE_ROW_OFFSET};
+use super::palette::Palette;
 use crate::ssem::{Opcode, Store};
 
 /// Maximum number of edge lanes drawn side by side in the graph gutter.
@@ -124,16 +125,18 @@ pub(super) fn reachable_edges(store: &[i32; 32]) -> (Vec<CfgEdge>, [bool; 32]) {
 }
 
 /// The style of a control-flow edge: a backward edge (target at or above the
-/// source) closes a loop and is highlighted in bold red; forward edges take
+/// source) closes a loop and is highlighted in bold; forward edges take
 /// the color of their kind.
-fn edge_style(edge: &CfgEdge) -> Style {
+fn edge_style(edge: &CfgEdge, palette: &Palette) -> Style {
     if edge.target <= edge.source {
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(palette.edge_loop)
+            .add_modifier(Modifier::BOLD)
     } else {
         match edge.kind {
-            EdgeKind::FallThrough => Style::default().fg(Color::DarkGray),
-            EdgeKind::Jump => Style::default().fg(Color::Yellow),
-            EdgeKind::Skip => Style::default().fg(Color::White),
+            EdgeKind::FallThrough => Style::default().fg(palette.edge_fallthrough),
+            EdgeKind::Jump => Style::default().fg(palette.edge_jump),
+            EdgeKind::Skip => Style::default().fg(palette.edge_skip),
         }
     }
 }
@@ -237,7 +240,7 @@ pub(super) struct GraphGutter {
 }
 
 impl GraphGutter {
-    pub(super) fn new(store: &[i32; 32]) -> Self {
+    pub(super) fn new(store: &[i32; 32], palette: &Palette) -> Self {
         let (mut edges, reachable) = reachable_edges(store);
         // Fall-through to the next line is the default flow and is left
         // implicit; only jumps, CMP skips, and backward edges (loops,
@@ -248,7 +251,7 @@ impl GraphGutter {
         let mut overflow = vec![None; CONTENT_HEIGHT];
 
         for (i, edge) in edges.iter().enumerate() {
-            let style = edge_style(edge);
+            let style = edge_style(edge, palette);
             let source_row = line_row(edge.source);
             let target_row = line_row(edge.target);
             let Some(lane) = lanes[i] else {
@@ -308,7 +311,7 @@ impl GraphGutter {
                     line_row(line),
                     0,
                     '■',
-                    Style::default().fg(Color::Red),
+                    Style::default().fg(palette.op_halt),
                 );
             }
         }

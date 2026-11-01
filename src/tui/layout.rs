@@ -1,5 +1,6 @@
-//! Layout: geometry constants for the bars and main body, and the timeline
-//! bar's geometry helpers.
+//! Layout: geometry constants for the bars and main body, the timeline bar's
+//! geometry helpers, and the optional view modes (heatmap, flow) with the
+//! width they add to the store view.
 
 use ratatui::layout::Rect;
 
@@ -82,4 +83,89 @@ pub(super) fn comment_column_width(comments: &[Option<String>; 32]) -> usize {
         .max()
         .unwrap_or(0)
         .min(MAX_COMMENT_WIDTH)
+}
+
+/// Width of the execution heatmap bar (in cells) shown next to each store word.
+pub(super) const HEATMAP_BAR_WIDTH: usize = 6;
+
+/// Width of each bar (reads, writes) in the read/write heatmap.
+pub(super) const RW_BAR_WIDTH: usize = 3;
+
+/// Extra width required by the execution heatmap (bar + surrounding spaces).
+const EXEC_EXTRA_WIDTH: u16 = (HEATMAP_BAR_WIDTH + 2) as u16;
+
+/// Extra width required by the read/write heatmap:
+/// leading space + "r" + bar + space + "w" + bar + trailing space.
+const RW_EXTRA_WIDTH: u16 = (2 + RW_BAR_WIDTH + 2 + RW_BAR_WIDTH + 1) as u16;
+
+/// Which heatmap (if any) is shown next to each store word in the store view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum HeatmapMode {
+    /// No heatmap.
+    Off,
+    /// Execution frequency of each store word, as one bar per word.
+    Exec,
+    /// Per-word store reads vs writes, as two labeled bars per word.
+    Rw,
+}
+
+impl HeatmapMode {
+    /// The next mode when the heatmap key is pressed: off → exec → r/w → off.
+    pub(super) fn cycle(self) -> Self {
+        match self {
+            HeatmapMode::Off => HeatmapMode::Exec,
+            HeatmapMode::Exec => HeatmapMode::Rw,
+            HeatmapMode::Rw => HeatmapMode::Off,
+        }
+    }
+
+    /// Extra screen width (in cells) the mode adds next to each store word.
+    pub(super) fn extra_width(self) -> u16 {
+        match self {
+            HeatmapMode::Off => 0,
+            HeatmapMode::Exec => EXEC_EXTRA_WIDTH,
+            HeatmapMode::Rw => RW_EXTRA_WIDTH,
+        }
+    }
+
+    /// The label shown in the top bar, or None when the heatmap is off.
+    pub(super) fn label(self) -> Option<&'static str> {
+        match self {
+            HeatmapMode::Off => None,
+            HeatmapMode::Exec => Some("EXEC"),
+            HeatmapMode::Rw => Some("R/W"),
+        }
+    }
+}
+
+/// Which flow visualization (if any) is shown next to the store view,
+/// cycled with the F key like the heatmap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FlowMode {
+    /// The control flow between the store lines, drawn as a static graph.
+    Control,
+    /// The data flow of the last executed instruction, drawn as a pointer arrow.
+    Data,
+    /// No flow visualization.
+    Off,
+}
+
+impl FlowMode {
+    /// The next mode when the key is pressed: control → data → off → control.
+    pub(super) fn cycle(self) -> Self {
+        match self {
+            FlowMode::Control => FlowMode::Data,
+            FlowMode::Data => FlowMode::Off,
+            FlowMode::Off => FlowMode::Control,
+        }
+    }
+
+    /// The label shown in the top bar, or None when the visualization is off.
+    pub(super) fn label(self) -> Option<&'static str> {
+        match self {
+            FlowMode::Control => Some("CONTROL"),
+            FlowMode::Data => Some("DATA"),
+            FlowMode::Off => None,
+        }
+    }
 }

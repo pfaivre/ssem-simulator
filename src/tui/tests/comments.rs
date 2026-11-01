@@ -49,7 +49,7 @@ pub(super) fn comments_are_shown_by_default_next_to_each_word() {
     let col = comment_column(app.flow);
     let row1: String = row_text(&buffer, 6).chars().skip(col).collect();
     assert!(row1.starts_with(" ; A = -a"), "row1: {row1:?}");
-    assert_eq!(Color::DarkGray, buffer[(col as u16, 6)].fg);
+    assert_eq!(DARK.dim, buffer[(col as u16, 6)].fg);
     let row4: String = row_text(&buffer, 9).chars().skip(col).collect();
     assert!(row4.starts_with(" ;   x"), "row4: {row4:?}");
     // A word without a comment gets blank padding, keeping the column aligned

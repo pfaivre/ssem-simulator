@@ -4,6 +4,7 @@ use clap::Parser;
 
 use crate::ssem::history::MAX_CAPACITY;
 use crate::ssem::simulator::Simulator;
+use crate::tui::Theme;
 
 pub mod ssem;
 pub mod tui;
@@ -23,6 +24,10 @@ struct Args {
     /// interface (0 to disable)
     #[arg(long, value_name = "NUM", default_value_t = 100_000)]
     history_size: usize,
+
+    /// Color theme of the interactive interface (the T key toggles it at runtime)
+    #[arg(long, value_enum, default_value_t = Theme::Dark)]
+    theme: Theme,
 
     /// Input file to initialize the store. Can be .asm or .snp format
     #[arg(value_name = "FILE")]
@@ -50,7 +55,7 @@ fn main() {
             simulator.enable_history(history_size);
         }
         // Launch the interactive TUI; it returns the simulator when the user quits
-        simulator = match tui::run(simulator, args.max_cycles) {
+        simulator = match tui::run(simulator, args.max_cycles, args.theme) {
             Ok(sim) => sim,
             Err(e) => {
                 eprintln!("Error: {e}");

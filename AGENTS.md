@@ -29,6 +29,14 @@ timeline bar with the mouse, or use `,` `.` `Home` `End`), capped by
 `--history-size` past states (default 100,000, 0 to disable). Headless mode
 never records.
 
+All interface colors live in `src/tui/palette/` — a `Palette` struct plus
+one file per theme (`dark.rs`, `light.rs`, `monokai.rs`, `macchiato.rs`,
+`terminal.rs`; all but `terminal.rs` use exact RGB hex values, `terminal.rs`
+the terminal's own default/ANSI colors). Pick a theme with `--theme
+dark|light|monokai|macchiato|terminal` (default dark) or cycle at runtime
+with the `T` key. To add a theme: new file in `src/tui/palette/`, a `Theme`
+variant, an entry in `Theme::ALL`.
+
 Sample programs live in `samples/ssem/`.
 
 ## Test

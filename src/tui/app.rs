@@ -6,11 +6,69 @@ use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-use super::layout::{CHROME_HEIGHT, CONTENT_HEIGHT, MIN_HEIGHT, MIN_WIDTH, timeline_bar_geometry};
+use super::layout::{
+    CHROME_HEIGHT, CONTENT_HEIGHT, FlowMode, HeatmapMode, MIN_HEIGHT, MIN_WIDTH,
+    timeline_bar_geometry,
+};
+use super::palette::{Palette, Theme};
 use super::popups::{BreakpointPopup, EditorPopup, HelpPopup};
-use super::theme::{BIT_REPRESENTATIONS, FlowMode, HeatmapMode};
 use crate::ssem::history::History;
 use crate::ssem::simulator::Simulator;
+
+/// Bit representations cycled through with the D key: (on_char, off_char).
+pub(super) const BIT_REPRESENTATIONS: [(char, char); 5] = [
+    ('#', '.'),             // High contrast ASCII
+    ('\u{25CF}', '\u{b7}'), // Fancy characters (● and ·)
+    ('\u{2212}', '\u{b7}'), // Fancy characters (− and ·)
+    ('_', '.'),             // ASCII compatible
+    ('1', '0'),             // Binary digits
+];
+
+/// The keymap: (key, legend, help description).
+/// An empty legend means the key does not appear in the bottom bar (e.g. arrow keys).
+pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
+    ("Q", "QUIT", "Quit the simulator"),
+    ("H", "HELP", "Toggle this help pop-up"),
+    ("P", "RUN/STOP", "Run the program or pause it"),
+    ("F10", "STEP", "Execute one instruction"),
+    (",", "BACK", "Step back one cycle in the execution history"),
+    (
+        ".",
+        "FWD",
+        "Step forward one cycle in the execution history",
+    ),
+    ("\u{2191}/\u{2193}", "", "Scroll the store view"),
+    ("I", "SPEED UP", "Increase the execution speed"),
+    ("K", "SPEED DOWN", "Decrease the execution speed"),
+    ("D", "DISPLAY", "Cycle the bit representations"),
+    (
+        "E",
+        "EDIT",
+        "Edit a register or store word (or double-click a line)",
+    ),
+    (
+        "M",
+        "HEATMAP",
+        "Cycle the heatmap: off, execution frequency, reads/writes",
+    ),
+    (
+        "F",
+        "FLOW",
+        "Cycle the flow view: data flow, control flow, off",
+    ),
+    (
+        "C",
+        "COMMENTS",
+        "Toggle the source-comment column next to each store word",
+    ),
+    ("B", "BREAKPT", "Open the breakpoint pop-up"),
+    ("T", "THEME", "Cycle through the color themes"),
+    (
+        "MOUSE",
+        "",
+        "Drag the timeline bar to scrub through the history",
+    ),
+];
 
 /// How often the displayed speed is refreshed.
 const SPEED_DISPLAY_PERIOD: Duration = Duration::from_millis(500);
@@ -53,6 +111,10 @@ pub(super) struct App {
     /// no comments.
     pub(super) show_comments: bool,
 
+    /// The color theme used to draw the interface (cycled with the T key,
+    /// or chosen with the `--theme` command-line option).
+    pub(super) theme: Theme,
+
     /// Whether the user is currently dragging the timeline scrubber.
     pub(super) scrubbing: bool,
 
@@ -81,10 +143,24 @@ impl App {
             heatmap: HeatmapMode::Off,
             flow: FlowMode::Control,
             show_comments: true,
+            theme: Theme::Dark,
             scrubbing: false,
             timeline_area: Rect::default(),
             should_quit: false,
         }
+    }
+
+    /// An app using the given color theme instead of the default dark one.
+    pub(super) fn with_theme(theme: Theme) -> Self {
+        App {
+            theme,
+            ..Self::new()
+        }
+    }
+
+    /// The palette of the current color theme.
+    pub(super) fn palette(&self) -> &'static Palette {
+        self.theme.palette()
     }
 
     /// Update the smoothed speed display value from the latest cycle count.
@@ -184,6 +260,7 @@ impl App {
                 'm' => self.heatmap = self.heatmap.cycle(),
                 'f' => self.flow = self.flow.cycle(),
                 'c' => self.show_comments = !self.show_comments,
+                't' => self.theme = self.theme.cycle(),
                 'h' => self.help_popup.open(),
                 ',' | '.' => self.handle_scrub_key(key.code, sim),
                 _ => {}

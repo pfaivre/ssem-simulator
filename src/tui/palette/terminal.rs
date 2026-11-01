@@ -1,0 +1,52 @@
+//! The terminal theme: defer to the terminal's own color scheme.
+
+use ratatui::style::Color;
+
+use super::Palette;
+
+pub const TERMINAL: Palette = Palette {
+    // Base: the terminal's own default foreground/background
+    fg: Color::Reset,
+    bg: Color::Reset,
+    chrome: Color::Blue,
+    status_running: Color::Green,
+    status_stopped: Color::Blue,
+    status_rewind: Color::Yellow,
+    key_hint: Color::Blue,
+    selection: Color::Blue,
+
+    // Main body
+    value: Color::Green,
+    highlight: Color::Yellow,
+    next_marker: Color::Blue,
+    dim: Color::DarkGray,
+    zebra_bg: Color::Reset,
+
+    // Opcodes (shared with the pointer arrows)
+    op_movement: Color::Magenta,
+    op_arithmetic: Color::Cyan,
+    op_test: Color::White,
+    op_halt: Color::Red,
+    op_num: Color::DarkGray,
+
+    // Heatmap ramps (low, mid, high)
+    exec_ramp: [Color::Green, Color::Yellow, Color::Red],
+    read_ramp: [Color::Blue, Color::Cyan, Color::LightCyan],
+    write_ramp: [Color::Yellow, Color::Red, Color::LightRed],
+
+    // Control-flow graph edges
+    edge_loop: Color::Red,
+    edge_fallthrough: Color::DarkGray,
+    edge_jump: Color::Yellow,
+    edge_skip: Color::White,
+
+    // Timeline and scrub pop-up
+    timeline_marker: Color::Yellow,
+    scrub_popup_fg: Color::Black,
+    scrub_popup_bg: Color::Yellow,
+
+    // Pop-ups
+    breakpoint_border: Color::Red,
+    editor_border: Color::Yellow,
+    preview: Color::Green,
+};

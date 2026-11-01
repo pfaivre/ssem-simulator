@@ -16,6 +16,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 use super::app::App;
+use super::palette::Theme;
 use super::snapshot::Snapshot;
 use crate::ssem::simulator::Simulator;
 
@@ -107,8 +108,9 @@ fn machine_thread(sim: Arc<Mutex<Simulator>>, quit: Arc<AtomicBool>, max_cycles:
 /// Run the interactive TUI.
 ///
 /// Takes ownership of the simulator and returns it when the user quits,
-/// so the caller can print the final state.
-pub fn run(simulator: Simulator, max_cycles: u32) -> io::Result<Simulator> {
+/// so the caller can print the final state. The interface is drawn with
+/// the given color theme (toggleable at runtime with the T key).
+pub fn run(simulator: Simulator, max_cycles: u32, theme: Theme) -> io::Result<Simulator> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -117,7 +119,7 @@ pub fn run(simulator: Simulator, max_cycles: u32) -> io::Result<Simulator> {
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
 
-    let result = run_app(&mut terminal, simulator, max_cycles);
+    let result = run_app(&mut terminal, simulator, max_cycles, theme);
 
     // Always restore the terminal, even on error
     disable_raw_mode()?;
@@ -135,6 +137,7 @@ fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     simulator: Simulator,
     max_cycles: u32,
+    theme: Theme,
 ) -> io::Result<Simulator> {
     // Shared state between the machine and UI threads
     let sim = Arc::new(Mutex::new(simulator));
@@ -151,7 +154,7 @@ fn run_app(
     });
 
     // UI thread (main thread)
-    let mut app = App::new();
+    let mut app = App::with_theme(theme);
 
     loop {
         // Handle input (non-blocking with a short timeout)
