@@ -1,11 +1,13 @@
 //! The application state (UI thread only) and its input handling:
 //! keyboard, mouse, history scrubbing, speed display.
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
+use super::config::Config;
 use super::layout::{
     CHROME_HEIGHT, CONTENT_HEIGHT, FlowMode, HeatmapMode, MIN_HEIGHT, MIN_WIDTH,
     timeline_bar_geometry,
@@ -31,11 +33,10 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
     ("H", "HELP", "Toggle this help pop-up"),
     ("P", "RUN/STOP", "Run the program or pause it"),
     ("F10", "STEP", "Execute one instruction"),
-    (",", "BACK", "Step back one cycle in the execution history"),
     (
-        ".",
-        "FWD",
-        "Step forward one cycle in the execution history",
+        "\u{2190}/\u{2192}",
+        "BACK/FWD",
+        "Step back/forward one cycle in the execution history",
     ),
     ("\u{2191}/\u{2193}", "", "Scroll the store view"),
     ("I", "SPEED UP", "Increase the execution speed"),
@@ -79,6 +80,19 @@ const SPEED_SMOOTHING: f64 = 0.5;
 /// Maximum time between two left-clicks for them to count as a double-click.
 const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 
+/// Minimum interval between two presses of the same view-mode key (T/F/M/C/D)
+/// for the second press to count. OS key-repeat fires every ~30 ms, so a held
+/// key is swallowed; a human double-press (~100 ms apart) always counts.
+const MODE_KEY_REPEAT_GUARD: Duration = Duration::from_millis(50);
+
+/// Whether the key is a view-mode key that must not auto-repeat when held.
+fn is_mode_key(code: KeyCode) -> bool {
+    matches!(
+        code,
+        KeyCode::Char('m' | 'M' | 'f' | 'F' | 'c' | 'C' | 't' | 'T' | 'd' | 'D')
+    )
+}
+
 /// The application state for the TUI (UI thread only).
 pub(super) struct App {
     pub(super) bit_representation: usize,
@@ -115,6 +129,20 @@ pub(super) struct App {
     /// or chosen with the `--theme` command-line option).
     pub(super) theme: Theme,
 
+    /// Where to save the view modes when the application closes
+    /// (None in tests: persistence disabled).
+    pub(super) config_path: Option<PathBuf>,
+
+    /// The last config-save failure, reported when the TUI exits.
+    pub(super) config_error: Option<String>,
+
+    /// The last view-mode key press (key, time), to swallow OS key-repeat.
+    pub(super) last_mode_key: Option<(KeyCode, Instant)>,
+
+    /// Minimum interval between two presses of the same view-mode key for the
+    /// second one to count (tests set it to zero).
+    pub(super) mode_key_guard: Duration,
+
     /// Whether the user is currently dragging the timeline scrubber.
     pub(super) scrubbing: bool,
 
@@ -125,10 +153,27 @@ pub(super) struct App {
 }
 
 impl App {
+    /// An app with the default view modes and no config file (tests).
+    #[cfg(test)]
     pub(super) fn new() -> Self {
+        let mut app = Self::from_parts(Config::default(), None, None);
+        // Tests press the same key in quick succession on purpose
+        app.mode_key_guard = Duration::ZERO;
+        app
+    }
+
+    /// An app starting from the given persisted view modes, saving changes
+    /// back to `config_path`. The `theme_override` (from `--theme`) wins
+    /// over the persisted theme for this session.
+    pub(super) fn from_parts(
+        config: Config,
+        theme_override: Option<Theme>,
+        config_path: Option<PathBuf>,
+    ) -> Self {
         let now = Instant::now();
         App {
-            bit_representation: 0,
+            // Clamp so a hand-edited out-of-range index cannot panic format_bits
+            bit_representation: config.bit_representation.min(BIT_REPRESENTATIONS.len() - 1),
             store_scroll: 0,
             last_area: Rect::default(),
             current_speed: 0.0,
@@ -140,21 +185,36 @@ impl App {
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
             last_click: None,
-            heatmap: HeatmapMode::Off,
-            flow: FlowMode::Control,
-            show_comments: true,
-            theme: Theme::Dark,
+            heatmap: config.heatmap,
+            flow: config.flow,
+            show_comments: config.comments,
+            theme: theme_override.unwrap_or(config.theme),
+            config_path,
+            config_error: None,
+            last_mode_key: None,
+            mode_key_guard: MODE_KEY_REPEAT_GUARD,
             scrubbing: false,
             timeline_area: Rect::default(),
             should_quit: false,
         }
     }
 
-    /// An app using the given color theme instead of the default dark one.
-    pub(super) fn with_theme(theme: Theme) -> Self {
-        App {
-            theme,
-            ..Self::new()
+    /// Persist the current view modes to the config file, called once when
+    /// the application closes (best effort: a failure is remembered in
+    /// `config_error` and reported after the TUI exits).
+    pub(super) fn save_config(&mut self) {
+        let Some(path) = &self.config_path else {
+            return;
+        };
+        let config = Config {
+            theme: self.theme,
+            flow: self.flow,
+            heatmap: self.heatmap,
+            comments: self.show_comments,
+            bit_representation: self.bit_representation,
+        };
+        if let Err(e) = config.save(path) {
+            self.config_error = Some(format!("could not save {}: {e}", path.display()));
         }
     }
 
@@ -190,7 +250,9 @@ impl App {
 
     /// Handle a keyboard event, mutating the simulator as needed.
     pub(super) fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        // Holding a scrub key repeats it, for continuous time-travel.
+        // Holding a key may report Repeat events. Only the scrub keys act on
+        // repeats (for continuous time-travel); the view-mode keys (T/F/M/C/D)
+        // must not repeat, so they are ignored here.
         // Pop-ups keep priority over the scrub keys.
         if key.kind == KeyEventKind::Repeat {
             if self.help_popup.is_open() {
@@ -245,6 +307,14 @@ impl App {
             return;
         }
 
+        // Swallow OS key-repeat for the view-mode keys (T/F/M/C/D): a held
+        // key fires a press every ~30 ms, which must not cycle the modes.
+        // This is what makes the no-repeat rule hold on every terminal,
+        // without relying on the kitty keyboard protocol.
+        if is_mode_key(key.code) && !self.mode_key_accepted(key.code) {
+            return;
+        }
+
         match key.code {
             KeyCode::Char(c) => match c.to_ascii_lowercase() {
                 'q' => self.should_quit = true,
@@ -262,7 +332,6 @@ impl App {
                 'c' => self.show_comments = !self.show_comments,
                 't' => self.theme = self.theme.cycle(),
                 'h' => self.help_popup.open(),
-                ',' | '.' => self.handle_scrub_key(key.code, sim),
                 _ => {}
             },
             KeyCode::F(10) => {
@@ -271,7 +340,9 @@ impl App {
                 sim.instruction_cycle();
                 sim.check_breakpoints();
             }
-            KeyCode::Home | KeyCode::End => self.handle_scrub_key(key.code, sim),
+            KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End => {
+                self.handle_scrub_key(key.code, sim)
+            }
             KeyCode::Up => {
                 self.store_scroll = self.store_scroll.saturating_sub(1);
             }
@@ -285,11 +356,24 @@ impl App {
         }
     }
 
-    /// Handle a history-scrubbing key: `,` `.` Home End.
+    /// Whether a view-mode key press should be acted on: false when it is an
+    /// OS key-repeat arriving less than `mode_key_guard` after the previous
+    /// press of the same key. The last-press time is updated on every event,
+    /// so a whole burst of repeats is swallowed.
+    fn mode_key_accepted(&mut self, code: KeyCode) -> bool {
+        let now = Instant::now();
+        let accepted = self
+            .last_mode_key
+            .is_none_or(|(last, at)| last != code || now.duration_since(at) >= self.mode_key_guard);
+        self.last_mode_key = Some((code, now));
+        accepted
+    }
+
+    /// Handle a history-scrubbing key: Left Right Home End.
     pub(super) fn handle_scrub_key(&mut self, code: KeyCode, sim: &mut Simulator) {
         match code {
-            KeyCode::Char(',') => self.scrub_relative(-1, sim),
-            KeyCode::Char('.') => self.scrub_relative(1, sim),
+            KeyCode::Left => self.scrub_relative(-1, sim),
+            KeyCode::Right => self.scrub_relative(1, sim),
             KeyCode::Home => {
                 if let Some(target) = sim.history.as_ref().map(History::start)
                     && target != sim.cycle_count

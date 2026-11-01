@@ -1,6 +1,6 @@
 //! Pop-up windows for the TUI: help and breakpoint editor.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
@@ -21,6 +21,41 @@ fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
     let y = area.y + area.height.saturating_sub(height) / 2;
     let x = area.x + area.width.saturating_sub(width) / 2;
     Rect::new(x, y, width, height)
+}
+
+/// The content area inside a bordered block, with a 1-column horizontal margin
+/// on each side so text does not touch the border.
+/// The digit a key event represents, if any.
+///
+/// Besides plain ASCII digits, this maps the French AZERTY top row: on
+/// terminals sending CSI-u key events, Shift+key arrives as the *unshifted*
+/// character plus the SHIFT modifier (the shifted key is only reported with
+/// the kitty "alternate keys" flag, which we do not enable), so the AZERTY
+/// digit keys deliver `& é " ' ( - è _ ç à` + Shift, which we translate back
+/// to `1 2 3 4 5 6 7 8 9 0`.
+fn digit_of(key: &KeyEvent) -> Option<char> {
+    let KeyCode::Char(c) = key.code else {
+        return None;
+    };
+    if c.is_ascii_digit() {
+        return Some(c);
+    }
+    if !key.modifiers.contains(KeyModifiers::SHIFT) {
+        return None;
+    }
+    Some(match c {
+        '&' => '1',
+        '\u{e9}' => '2', // é
+        '"' => '3',
+        '\'' => '4',
+        '(' => '5',
+        '-' => '6',
+        '\u{e8}' => '7', // è
+        '_' => '8',
+        '\u{e7}' => '9', // ç
+        '\u{e0}' => '0', // à
+        _ => return None,
+    })
 }
 
 /// The content area inside a bordered block, with a 1-column horizontal margin
@@ -373,16 +408,6 @@ impl BreakpointPopup {
             KeyCode::Enter => {
                 self.validate_field(breakpoints);
             }
-            KeyCode::Char('t') | KeyCode::Char('T') => {
-                // Cycle the condition type
-                self.kind = match self.kind {
-                    BreakpointKind::Word => BreakpointKind::Ci,
-                    BreakpointKind::Ci => BreakpointKind::Word,
-                };
-                self.field = InputField::Address;
-                self.buffer.clear();
-                self.message.clear();
-            }
             KeyCode::Up => {
                 self.selected = self.selected.saturating_sub(1);
             }
@@ -391,19 +416,37 @@ impl BreakpointPopup {
                     self.selected = (self.selected + 1).min(breakpoints.len() - 1);
                 }
             }
-            KeyCode::Char('x') | KeyCode::Char('X') | KeyCode::Delete => {
+            KeyCode::Delete => {
                 self.delete_selected(breakpoints);
             }
-            KeyCode::Char('-') => {
-                if self.field == InputField::Value && self.buffer.is_empty() {
-                    self.buffer.push('-');
+            KeyCode::Char(c) => {
+                // A digit, possibly typed with Shift on a French AZERTY
+                // keyboard (checked first so Shift+"-" is the digit 6,
+                // not the minus sign)
+                if let Some(d) = digit_of(&key) {
+                    if self.buffer.len() < 11 {
+                        self.buffer.push(d);
+                    }
+                    self.message.clear();
+                } else {
+                    match c {
+                        't' | 'T' => {
+                            // Cycle the condition type
+                            self.kind = match self.kind {
+                                BreakpointKind::Word => BreakpointKind::Ci,
+                                BreakpointKind::Ci => BreakpointKind::Word,
+                            };
+                            self.field = InputField::Address;
+                            self.buffer.clear();
+                            self.message.clear();
+                        }
+                        'x' | 'X' => self.delete_selected(breakpoints),
+                        '-' if self.field == InputField::Value && self.buffer.is_empty() => {
+                            self.buffer.push('-');
+                        }
+                        _ => {}
+                    }
                 }
-            }
-            KeyCode::Char(c) if c.is_ascii_digit() => {
-                if self.buffer.len() < 11 {
-                    self.buffer.push(c);
-                }
-                self.message.clear();
             }
             _ => {}
         }
@@ -709,6 +752,9 @@ impl EditorPopup {
                 self.message.clear();
             }
             KeyCode::Char(ch) => {
+                // A digit typed with Shift on a French AZERTY keyboard arrives
+                // as the unshifted top-row char + SHIFT; translate it first
+                let ch = digit_of(&key).unwrap_or(ch);
                 // Accept digits everywhere; letters, spaces, and minus only in Value field
                 let accepted = match ch {
                     '-' => self.field == EditField::Value && self.buffer.is_empty(),
@@ -912,5 +958,70 @@ impl EditorPopup {
         ];
 
         f.render_widget(Paragraph::new(lines), content);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn press(c: char, mods: KeyModifiers) -> KeyEvent {
+        KeyEvent::new_with_kind(KeyCode::Char(c), mods, KeyEventKind::Press)
+    }
+
+    #[test]
+    fn breakpoint_popup_accepts_plain_and_azerty_shifted_digits() {
+        let mut popup = BreakpointPopup::new();
+        popup.open();
+        let mut breakpoints = Vec::new();
+
+        popup.handle_key(press('9', KeyModifiers::NONE), &mut breakpoints);
+        // AZERTY top row with Shift, as CSI-u terminals deliver it
+        // (unshifted char + SHIFT modifier)
+        popup.handle_key(press('&', KeyModifiers::SHIFT), &mut breakpoints); // -> 1
+        popup.handle_key(press('\u{e9}', KeyModifiers::SHIFT), &mut breakpoints); // é -> 2
+        popup.handle_key(press('"', KeyModifiers::SHIFT), &mut breakpoints); // -> 3
+        popup.handle_key(press('\'', KeyModifiers::SHIFT), &mut breakpoints); // -> 4
+        popup.handle_key(press('(', KeyModifiers::SHIFT), &mut breakpoints); // -> 5
+        popup.handle_key(press('-', KeyModifiers::SHIFT), &mut breakpoints); // -> 6
+        popup.handle_key(press('\u{e8}', KeyModifiers::SHIFT), &mut breakpoints); // è -> 7
+        popup.handle_key(press('_', KeyModifiers::SHIFT), &mut breakpoints); // -> 8
+        popup.handle_key(press('\u{e7}', KeyModifiers::SHIFT), &mut breakpoints); // ç -> 9
+        popup.handle_key(press('\u{e0}', KeyModifiers::SHIFT), &mut breakpoints); // à -> 0
+        assert_eq!("91234567890", popup.buffer); // 9 then AZERTY 1..0 (11-char cap fits)
+
+        // Without Shift, the AZERTY chars are not digits
+        popup.handle_key(press('&', KeyModifiers::NONE), &mut breakpoints);
+        assert_eq!("91234567890", popup.buffer);
+    }
+
+    #[test]
+    fn breakpoint_popup_minus_still_works_without_shift() {
+        let mut popup = BreakpointPopup::new();
+        popup.open();
+        let mut breakpoints = Vec::new();
+
+        // Enter an address to move to the Value field
+        popup.handle_key(press('3', KeyModifiers::NONE), &mut breakpoints);
+        popup.handle_key(
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut breakpoints,
+        );
+        assert!(matches!(popup.field, InputField::Value));
+
+        popup.handle_key(press('-', KeyModifiers::NONE), &mut breakpoints);
+        assert_eq!("-", popup.buffer);
+    }
+
+    #[test]
+    fn editor_popup_accepts_azerty_shifted_digits() {
+        let mut popup = EditorPopup::new();
+        popup.open_for_ci();
+        let mut sim = Simulator::new();
+
+        popup.handle_key(press('\u{e0}', KeyModifiers::SHIFT), &mut sim); // à -> 0
+        popup.handle_key(press('(', KeyModifiers::SHIFT), &mut sim); // ( -> 5
+        popup.handle_key(press('7', KeyModifiers::NONE), &mut sim);
+        assert_eq!("057", popup.buffer);
     }
 }

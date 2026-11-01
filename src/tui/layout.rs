@@ -3,6 +3,7 @@
 //! width they add to the store view.
 
 use ratatui::layout::Rect;
+use serde::{Deserialize, Serialize};
 
 /// Minimum terminal width to display the store in full.
 pub(super) const MIN_WIDTH: u16 = 59;
@@ -99,7 +100,8 @@ const EXEC_EXTRA_WIDTH: u16 = (HEATMAP_BAR_WIDTH + 2) as u16;
 const RW_EXTRA_WIDTH: u16 = (2 + RW_BAR_WIDTH + 2 + RW_BAR_WIDTH + 1) as u16;
 
 /// Which heatmap (if any) is shown next to each store word in the store view.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub(super) enum HeatmapMode {
     /// No heatmap.
     Off,
@@ -140,7 +142,8 @@ impl HeatmapMode {
 
 /// Which flow visualization (if any) is shown next to the store view,
 /// cycled with the F key like the heatmap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub(super) enum FlowMode {
     /// The control flow between the store lines, drawn as a static graph.
     Control,

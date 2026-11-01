@@ -56,13 +56,25 @@ pub(super) fn scrub_keys_step_through_history() {
     let mut sim = looping_sim(10);
     let mut app = App::new();
 
-    app.handle_scrub_key(KeyCode::Char(','), &mut sim);
+    // Arrow keys step through the history, via the full key-event path
+    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut sim);
     assert_eq!(9, sim.cycle_count);
-    app.handle_scrub_key(KeyCode::Char('.'), &mut sim);
+    app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE), &mut sim);
     assert_eq!(10, sim.cycle_count);
-    app.handle_scrub_key(KeyCode::Home, &mut sim);
+    app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE), &mut sim);
     assert_eq!(0, sim.cycle_count);
-    app.handle_scrub_key(KeyCode::End, &mut sim);
+    app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE), &mut sim);
+    assert_eq!(10, sim.cycle_count);
+
+    // The old , . keys no longer scrub
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char(','), KeyModifiers::NONE),
+        &mut sim,
+    );
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('.'), KeyModifiers::NONE),
+        &mut sim,
+    );
     assert_eq!(10, sim.cycle_count);
 }
 
@@ -72,7 +84,7 @@ pub(super) fn scrub_without_history_is_noop() {
     sim.run(10);
     let mut app = App::new();
 
-    app.handle_scrub_key(KeyCode::Char(','), &mut sim);
+    app.handle_scrub_key(KeyCode::Left, &mut sim);
     assert_eq!(10, sim.cycle_count);
     assert!(!sim.stop_flag);
 }

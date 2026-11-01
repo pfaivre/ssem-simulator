@@ -24,6 +24,7 @@ pub mod terminal;
 
 use clap::ValueEnum;
 use ratatui::style::Color;
+use serde::{Deserialize, Serialize};
 
 use crate::ssem::Opcode;
 
@@ -128,7 +129,11 @@ impl Palette {
 }
 
 /// The built-in color themes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+///
+/// Serialized in kebab-case, so the config file accepts the same spellings
+/// as the `--theme` command-line option.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Theme {
     /// For terminals with a dark background (the default).
     Dark,

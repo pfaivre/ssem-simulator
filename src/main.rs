@@ -25,9 +25,10 @@ struct Args {
     #[arg(long, value_name = "NUM", default_value_t = 100_000)]
     history_size: usize,
 
-    /// Color theme of the interactive interface (the T key toggles it at runtime)
-    #[arg(long, value_enum, default_value_t = Theme::Dark)]
-    theme: Theme,
+    /// Color theme of the interactive interface, overriding the one saved in
+    /// the config file for this session (the T key cycles themes at runtime)
+    #[arg(long, value_enum)]
+    theme: Option<Theme>,
 
     /// Input file to initialize the store. Can be .asm or .snp format
     #[arg(value_name = "FILE")]

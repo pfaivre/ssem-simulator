@@ -25,7 +25,7 @@ cargo run -r -- --max-cycles 1000 samples/ssem/nightmare.snp
 ```
 
 The interactive TUI records an execution history for time-travel (scrub the
-timeline bar with the mouse, or use `,` `.` `Home` `End`), capped by
+timeline bar with the mouse, or use `←` `→` `Home` `End`), capped by
 `--history-size` past states (default 100,000, 0 to disable). Headless mode
 never records.
 
@@ -33,9 +33,21 @@ All interface colors live in `src/tui/palette/` — a `Palette` struct plus
 one file per theme (`dark.rs`, `light.rs`, `monokai.rs`, `macchiato.rs`,
 `terminal.rs`; all but `terminal.rs` use exact RGB hex values, `terminal.rs`
 the terminal's own default/ANSI colors). Pick a theme with `--theme
-dark|light|monokai|macchiato|terminal` (default dark) or cycle at runtime
+dark|light|monokai|macchiato|terminal` or cycle at runtime
 with the `T` key. To add a theme: new file in `src/tui/palette/`, a `Theme`
 variant, an entry in `Theme::ALL`.
+
+The interactive view modes (theme, flow, heatmap, comments toggle, bit
+representation) are
+persisted in TOML to `$XDG_CONFIG_HOME/ssem-simulator/config.toml` (default
+`$HOME/.config/ssem-simulator/config.toml`), written when the TUI exits and
+read at startup (`src/tui/config.rs`); `--theme` overrides the saved theme
+for one session without saving it. Holding a view-mode key (T/F/M/C/D) does
+not repeat it: `App::mode_key_accepted` in `app.rs` ignores a press within
+50 ms of the previous press of the same key, which swallows OS key-repeat on
+every terminal (no kitty-protocol flags are pushed — they broke key delivery
+on some terminals). The history-scrub keys (← → Home End) still repeat for
+continuous time-travel.
 
 Sample programs live in `samples/ssem/`.
 
@@ -69,3 +81,9 @@ cargo clippy
 - Keep the codebase warning-free: run `cargo clippy` before committing.
 - Match the existing style (snake_case, module-per-concern under `src/ssem/`).
 - Don't commit changes to `Cargo.lock` dependency version bumps unless asked.
+
+## Suggestions for later development
+
+- Keep the heatmap values while scrubbing history. Reset it only when restarting the machine from a previous state.
+- Create a release and publish binaries (in a zip with sample programmes bundled).
+- Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.

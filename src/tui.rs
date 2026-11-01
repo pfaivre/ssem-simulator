@@ -29,7 +29,7 @@
 //! scroll wheel scrolls the store view.
 //!
 //! Time-travel: the timeline bar shows the retained execution history. Drag it
-//! with the mouse (or use , . Home End, or the scroll wheel over it) to move
+//! with the mouse (or use ← → Home End, or the scroll wheel over it) to move
 //! through the recorded cycles; the machine pauses and its state is restored to
 //! the scrubbed cycle, and a small pop-up above the bar's position marker shows
 //! the current cycle. Press P to resume from there — re-executing overwrites
@@ -80,6 +80,15 @@
 //! Every color lives in `palette/`, one file per built-in theme (`dark.rs`,
 //! `light.rs`, etc.).
 //!
+//! The view modes — theme (T), flow view (F), heatmap (M), the comments
+//! toggle (C), and the bit representation (D) — are saved to `config.toml` in the XDG config directory
+//! (`$XDG_CONFIG_HOME/ssem-simulator/`, default `$HOME/.config/ssem-simulator/`)
+//! when the application exits, and restored on the next start.
+//! The `--theme` option overrides the saved theme for one session. Holding a
+//! view-mode key (T/F/M/C/D) does not repeat it: a press within 50 ms of the
+//! previous press of the same key is ignored, which swallows OS key-repeat on
+//! every terminal. The history-scrub keys (← → Home End) do repeat.
+//!
 //! When the machine is paused, the pointer column shows the execution
 //! footprint of the current run: `>` marks the last executed line, `»` the
 //! next line to execute (where P or F10 resumes), and `•` every other line
@@ -90,6 +99,7 @@
 //!
 //! - `palette`: the color themes — every color of the UI, one file per theme
 //! - `layout`: geometry constants, timeline-bar helpers, view modes and widths
+//! - `config`: the persistent view modes (`config.toml` in the XDG config dir)
 //! - `snapshot`: the lock-free state snapshot used for drawing
 //! - `graph`: the static control-flow graph (flow mode "control")
 //! - `app`: application state and input handling (keymap, bit glyphs)
@@ -98,6 +108,7 @@
 //! - `popups`: the help, breakpoint, and editor pop-ups
 
 mod app;
+mod config;
 mod draw;
 mod graph;
 mod layout;

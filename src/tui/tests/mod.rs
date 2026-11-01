@@ -3,6 +3,7 @@
 
 mod arrows;
 mod comments;
+mod config;
 mod graph;
 mod heatmap;
 mod render;

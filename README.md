@@ -16,7 +16,7 @@ cargo run -r samples/ssem/factorct.asm
 
 ## Rewind
 
-Use the mouse to navigate in previous states of the machine. Or use the `,` and `.` keys to step back and forth.
+Use the mouse to navigate in previous states of the machine. Or use the `←` and `→` arrow keys to step back and forth.
 The machine can then be modified and restarted from any point.
 
 ![Scrub bar to rewind the history](docs/rewind_history.png)
@@ -63,6 +63,10 @@ The `;` comment on each line of the input file is kept with its store word and s
 ## Headless mode
 
 Run the machine as fast as possible without any graphical interface and only print the last state of the machine
+
+## Persistent preferences
+
+The interactive interface remembers the last view modes — color theme (`T`), flow view (`F`), heatmap (`M`), the comments toggle (`C`), and the bit representation (`D`) — in `$XDG_CONFIG_HOME/ssem-simulator/config.toml` (default `$HOME/.config/ssem-simulator/config.toml`). The file is written when the application exits, and read back on the next start.
 
 # Documentation
 

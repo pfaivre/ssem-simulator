@@ -16,6 +16,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 use super::app::App;
+use super::config::ConfigStore;
 use super::palette::Theme;
 use super::snapshot::Snapshot;
 use crate::ssem::simulator::Simulator;
@@ -108,9 +109,18 @@ fn machine_thread(sim: Arc<Mutex<Simulator>>, quit: Arc<AtomicBool>, max_cycles:
 /// Run the interactive TUI.
 ///
 /// Takes ownership of the simulator and returns it when the user quits,
-/// so the caller can print the final state. The interface is drawn with
-/// the given color theme (toggleable at runtime with the T key).
-pub fn run(simulator: Simulator, max_cycles: u32, theme: Theme) -> io::Result<Simulator> {
+/// so the caller can print the final state. The interface starts from the
+/// view modes saved in the config file; `theme` (from `--theme`), when
+/// given, overrides the saved theme for this session. The view modes are
+/// saved back to the config file when the user quits.
+pub fn run(simulator: Simulator, max_cycles: u32, theme: Option<Theme>) -> io::Result<Simulator> {
+    // Load the persisted view modes before touching the terminal, so a
+    // warning about an invalid config file prints cleanly
+    let (store, load_warning) = ConfigStore::load();
+    if let Some(warning) = load_warning {
+        eprintln!("Warning: {warning}");
+    }
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -119,7 +129,7 @@ pub fn run(simulator: Simulator, max_cycles: u32, theme: Theme) -> io::Result<Si
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
 
-    let result = run_app(&mut terminal, simulator, max_cycles, theme);
+    let result = run_app(&mut terminal, simulator, max_cycles, theme, store);
 
     // Always restore the terminal, even on error
     disable_raw_mode()?;
@@ -130,15 +140,22 @@ pub fn run(simulator: Simulator, max_cycles: u32, theme: Theme) -> io::Result<Si
     )?;
     terminal.show_cursor()?;
 
-    result
+    // A config-save failure cannot be printed while the TUI owns the
+    // terminal, so report it now
+    if let Ok((_, Some(error))) = &result {
+        eprintln!("Warning: {error}");
+    }
+
+    result.map(|(sim, _)| sim)
 }
 
 fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     simulator: Simulator,
     max_cycles: u32,
-    theme: Theme,
-) -> io::Result<Simulator> {
+    theme: Option<Theme>,
+    store: ConfigStore,
+) -> io::Result<(Simulator, Option<String>)> {
     // Shared state between the machine and UI threads
     let sim = Arc::new(Mutex::new(simulator));
     let quit = Arc::new(AtomicBool::new(false));
@@ -154,7 +171,8 @@ fn run_app(
     });
 
     // UI thread (main thread)
-    let mut app = App::with_theme(theme);
+    let (config, config_path) = store.into_parts();
+    let mut app = App::from_parts(config, theme, config_path);
 
     loop {
         // Handle input (non-blocking with a short timeout)
@@ -188,6 +206,9 @@ fn run_app(
         }
     }
 
+    // Save the view modes once, on close
+    app.save_config();
+
     // Signal the machine thread to exit and wait for it
     quit.store(true, Ordering::Relaxed);
     machine_handle.join().unwrap();
@@ -198,5 +219,5 @@ fn run_app(
         .expect("machine thread should have released its Arc reference")
         .into_inner()
         .unwrap_or_else(|e| e.into_inner());
-    Ok(sim)
+    Ok((sim, app.config_error))
 }
