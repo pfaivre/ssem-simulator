@@ -33,11 +33,11 @@ pub(super) fn top_bar_shows_the_heatmap_mode() {
 
     app.heatmap = HeatmapMode::Exec;
     let buffer = render(&mut app, &snap, 120, 40);
-    assert!(row_text(&buffer, 0).contains("[ HEATMAP: EXEC ]"));
+    assert!(row_text(&buffer, 0).contains("[HEATMAP: EXEC]"));
 
     app.heatmap = HeatmapMode::Rw;
     let buffer = render(&mut app, &snap, 120, 40);
-    assert!(row_text(&buffer, 0).contains("[ HEATMAP: R/W ]"));
+    assert!(row_text(&buffer, 0).contains("[HEATMAP: R/W]"));
 }
 
 #[test]
@@ -140,7 +140,7 @@ pub(super) fn rw_heatmap_is_dropped_when_it_does_not_fit() {
     // ... and the top-bar label shows too (needs a wider screen, the
     // label sits far right in the bar)
     let buffer = render(&mut app, &snap, 120, 40);
-    assert!(row_text(&buffer, 0).contains("[ HEATMAP: R/W ]"));
+    assert!(row_text(&buffer, 0).contains("[HEATMAP: R/W]"));
 }
 
 #[test]

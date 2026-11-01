@@ -5,8 +5,9 @@ use ratatui::style::Color;
 use crate::ssem::Opcode;
 
 /// Bit representations cycled through with the D key: (on_char, off_char).
-pub(super) const BIT_REPRESENTATIONS: [(char, char); 4] = [
+pub(super) const BIT_REPRESENTATIONS: [(char, char); 5] = [
     ('#', '.'),             // High contrast ASCII
+    ('\u{25CF}', '\u{b7}'), // Fancy characters (● and ·)
     ('\u{2212}', '\u{b7}'), // Fancy characters (− and ·)
     ('_', '.'),             // ASCII compatible
     ('1', '0'),             // Binary digits
@@ -16,6 +17,7 @@ pub(super) const BIT_REPRESENTATIONS: [(char, char); 4] = [
 /// An empty legend means the key does not appear in the bottom bar (e.g. arrow keys).
 pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
     ("Q", "QUIT", "Quit the simulator"),
+    ("H", "HELP", "Toggle this help pop-up"),
     ("P", "RUN/STOP", "Run the program or pause it"),
     ("F10", "STEP", "Execute one instruction"),
     (",", "BACK", "Step back one cycle in the execution history"),
@@ -24,7 +26,6 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
         "FWD",
         "Step forward one cycle in the execution history",
     ),
-    ("HOME/END", "", "Jump to the oldest / newest recorded cycle"),
     ("\u{2191}/\u{2193}", "", "Scroll the store view"),
     ("I", "SPEED UP", "Increase the execution speed"),
     ("K", "SPEED DOWN", "Decrease the execution speed"),
@@ -50,7 +51,6 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
         "Toggle the source-comment column next to each store word",
     ),
     ("B", "BREAKPT", "Open the breakpoint pop-up"),
-    ("H", "HELP", "Toggle this help pop-up"),
     (
         "MOUSE",
         "",

@@ -56,9 +56,10 @@ pub(super) fn mnemonics_are_colored_by_category() {
 }
 
 #[test]
-pub(super) fn top_bar_stays_monochrome_blue() {
+pub(super) fn top_bar_stays_blue_when_stopped() {
     // The chrome keeps a single color, the last instruction's mnemonic
-    // included: the syntax highlighting lives in the store view
+    // included: the syntax highlighting lives in the store view. STOPPED
+    // keeps the chrome color too.
     let mut store = [0; 32];
     store[2] = Store::parse_word("SUB 10").unwrap();
     let snap = pointer_snapshot(2, store);
@@ -75,6 +76,50 @@ pub(super) fn top_bar_stays_monochrome_blue() {
             assert_eq!(Color::Blue, cell.fg, "top bar column {x}");
         }
     }
+}
+
+#[test]
+pub(super) fn status_word_is_colored_by_state() {
+    // RUNNING is green while the machine runs, REWIND is yellow while
+    // scrubbing the timeline; the rest of the bar keeps the chrome blue.
+    let mut store = [0; 32];
+    store[2] = Store::parse_word("SUB 10").unwrap();
+    let mut snap = pointer_snapshot(2, store);
+    snap.stop_flag = false;
+
+    let mut app = App::new();
+    let buffer = render(&mut app, &snap, 80, 40);
+    let row = row_text(&buffer, 0);
+    let pos = row.find("RUNNING").expect("status in the top bar");
+    for i in 0.."RUNNING".len() {
+        assert_eq!(
+            Color::Green,
+            buffer[((pos + i) as u16, 0)].fg,
+            "RUNNING char {i}"
+        );
+    }
+    let pos = row.find("CYCLES").expect("cycles in the top bar");
+    assert_eq!(Color::Blue, buffer[(pos as u16, 0)].fg);
+
+    let mut app = App::new();
+    app.scrubbing = true;
+    let buffer = render(&mut app, &snap, 80, 40);
+    let row = row_text(&buffer, 0);
+    let pos = row.find("REWIND").expect("status in the top bar");
+    for i in 0.."REWIND".len() {
+        assert_eq!(
+            Color::Yellow,
+            buffer[((pos + i) as u16, 0)].fg,
+            "REWIND char {i}"
+        );
+    }
+
+    let snap = pointer_snapshot(2, store); // stop_flag = true
+    let mut app = App::new();
+    let buffer = render(&mut app, &snap, 80, 40);
+    let row = row_text(&buffer, 0);
+    let pos = row.find("STOPPED").expect("status in the top bar");
+    assert_eq!(Color::Blue, buffer[(pos as u16, 0)].fg);
 }
 
 #[test]
@@ -152,4 +197,154 @@ pub(super) fn help_popup_documents_the_color_code_and_paused_markers() {
         "marker legend missing"
     );
     assert!(all.contains("Heatmap"), "heatmap legend missing");
+}
+
+#[test]
+pub(super) fn help_popup_shows_the_plain_footer_when_everything_fits() {
+    let mut app = App::new();
+    app.help_popup.open();
+    let snap = snapshot_with_history(0);
+    // Tall enough for the whole pop-up: no scroll hint in the footer
+    let buffer = render(&mut app, &snap, 100, 50);
+
+    let all: String = (0..buffer.area.height)
+        .map(|y| row_text(&buffer, y))
+        .collect();
+    assert!(all.contains("Press H to close"), "footer missing");
+    assert!(
+        !all.contains("scroll \u{b7} H close"),
+        "unexpected scroll hint"
+    );
+    assert!(
+        all.contains("Control-flow graph:"),
+        "bottom of the text clipped"
+    );
+}
+
+#[test]
+pub(super) fn help_popup_scrolls_when_the_window_is_too_small() {
+    let mut app = App::new();
+    app.help_popup.open();
+    let snap = snapshot_with_history(0);
+    let mut sim = looping_sim(0);
+
+    let all_text = |buffer: &Buffer| -> String {
+        (0..buffer.area.height)
+            .map(|y| row_text(buffer, y))
+            .collect()
+    };
+
+    // Small window: the pop-up is clamped, the tail of the text is hidden
+    let buffer = render(&mut app, &snap, 100, 20);
+    let all = all_text(&buffer);
+    assert!(all.contains("SSEM SIMULATOR"), "title missing");
+    assert!(
+        all.contains("Quit the simulator"),
+        "top of the text missing"
+    );
+    assert!(
+        !all.contains("Control-flow graph:"),
+        "tail should be hidden at scroll 0"
+    );
+    // The footer stays pinned just above the bottom border and advertises scrolling
+    let footer_row = buffer.area.height - 2;
+    let footer_text = row_text(&buffer, footer_row);
+    assert!(
+        footer_text.contains("scroll \u{b7} H close"),
+        "pinned scroll footer missing: {footer_text:?}"
+    );
+
+    // End jumps to the bottom: the tail becomes visible, the footer stays
+    app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE), &mut sim);
+    let buffer = render(&mut app, &snap, 100, 20);
+    let all = all_text(&buffer);
+    assert!(
+        all.contains("Control-flow graph:"),
+        "tail missing after End"
+    );
+    assert!(
+        row_text(&buffer, buffer.area.height - 2).contains("scroll \u{b7} H close"),
+        "footer should stay pinned at the bottom"
+    );
+
+    // Down past the end stays clamped at the bottom
+    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &mut sim);
+    let buffer = render(&mut app, &snap, 100, 20);
+    assert!(all_text(&buffer).contains("Control-flow graph:"));
+
+    // Home scrolls back to the top
+    app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE), &mut sim);
+    let buffer = render(&mut app, &snap, 100, 20);
+    let all = all_text(&buffer);
+    assert!(all.contains("Quit the simulator"), "top missing after Home");
+    assert!(
+        !all.contains("Control-flow graph:"),
+        "tail visible after Home"
+    );
+
+    // A few Down presses scroll line by line
+    for _ in 0..3 {
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &mut sim);
+    }
+    let buffer = render(&mut app, &snap, 100, 20);
+    assert!(!all_text(&buffer).contains("Control-flow graph:"));
+}
+
+#[test]
+pub(super) fn help_popup_scrolls_with_the_mouse_wheel_over_it() {
+    let mut app = App::new();
+    app.help_popup.open();
+    let snap = snapshot_with_history(0);
+    let mut sim = looping_sim(0);
+
+    let all_text = |buffer: &Buffer| -> String {
+        (0..buffer.area.height)
+            .map(|y| row_text(buffer, y))
+            .collect()
+    };
+    let wheel = |kind, column, row| MouseEvent {
+        column,
+        row,
+        kind,
+        modifiers: KeyModifiers::NONE,
+    };
+
+    // Small window; render once so the pop-up rect and max scroll are known
+    let buffer = render(&mut app, &snap, 100, 20);
+    assert!(!all_text(&buffer).contains("Control-flow graph:"));
+
+    // Wheel down over the pop-up (screen center) scrolls the text to the bottom
+    for _ in 0..50 {
+        app.handle_mouse(wheel(MouseEventKind::ScrollDown, 50, 10), &mut sim);
+    }
+    let buffer = render(&mut app, &snap, 100, 20);
+    assert!(
+        all_text(&buffer).contains("Control-flow graph:"),
+        "wheel down over the pop-up should reveal the tail"
+    );
+
+    // Wheel up past the top stays clamped at scroll 0
+    for _ in 0..100 {
+        app.handle_mouse(wheel(MouseEventKind::ScrollUp, 50, 10), &mut sim);
+    }
+    let buffer = render(&mut app, &snap, 100, 20);
+    let all = all_text(&buffer);
+    assert!(
+        all.contains("Quit the simulator"),
+        "top missing after wheel up"
+    );
+    assert!(
+        !all.contains("Control-flow graph:"),
+        "wheel up should be clamped at the top"
+    );
+
+    // Wheel outside the pop-up (left of it) does not scroll the help text
+    app.handle_mouse(wheel(MouseEventKind::ScrollDown, 0, 10), &mut sim);
+    let buffer = render(&mut app, &snap, 100, 20);
+    let all = all_text(&buffer);
+    assert!(
+        all.contains("Quit the simulator"),
+        "wheel outside changed the scroll"
+    );
+    assert!(!all.contains("Control-flow graph:"));
 }

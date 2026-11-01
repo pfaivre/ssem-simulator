@@ -8,7 +8,7 @@ use super::layout::{CONTENT_HEIGHT, STORE_ROW_OFFSET};
 use crate::ssem::{Opcode, Store};
 
 /// Maximum number of edge lanes drawn side by side in the graph gutter.
-pub(super) const MAX_EDGE_LANES: usize = 4;
+pub(super) const MAX_EDGE_LANES: usize = 3;
 
 /// Columns in the graph gutter: a separator, then per lane an arrowhead
 /// column, a dash column, and the corner/vertical column.
@@ -335,8 +335,14 @@ impl GraphGutter {
         if !run.is_empty() {
             spans.push(Span::styled(run, run_style));
         }
-        if let Some((target, style)) = self.overflow[row] {
-            spans.push(Span::styled(format!("⇢ {target:02}"), style));
+        // The overflow slot is always drawn, blank when no edge overflows,
+        // so the gutter keeps its fixed width: the comment column stays
+        // aligned and is not cropped early on rows without a label.
+        match self.overflow[row] {
+            Some((target, style)) => {
+                spans.push(Span::styled(format!("⇢ {target:02}"), style));
+            }
+            None => spans.push(Span::raw(" ".repeat(OVERFLOW_LABEL_WIDTH))),
         }
         spans
     }

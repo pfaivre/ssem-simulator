@@ -22,7 +22,7 @@ use super::snapshot::Snapshot;
 use super::theme::{FlowMode, HeatmapMode};
 use crate::ssem::Store;
 use crate::ssem::simulator::{LastInstruction, Simulator};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;

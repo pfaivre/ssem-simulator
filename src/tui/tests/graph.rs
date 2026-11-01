@@ -443,14 +443,14 @@ pub(super) fn flow_mode_is_shown_in_the_top_bar() {
     let snap = snapshot_with_history(0);
     let mut app = App::new();
 
-    // Default mode: data
+    // Default mode: control
     let buffer = render(&mut app, &snap, 120, 40);
-    assert!(row_text(&buffer, 0).contains("[ FLOW: DATA ]"));
+    assert!(row_text(&buffer, 0).contains("[FLOW: CONTROL]"));
 
-    app.flow = FlowMode::Control;
+    app.flow = FlowMode::Data;
     let buffer = render(&mut app, &snap, 120, 40);
-    assert!(row_text(&buffer, 0).contains("[ FLOW: CONTROL ]"));
-    assert!(!row_text(&buffer, 0).contains("DATA ]"));
+    assert!(row_text(&buffer, 0).contains("[FLOW: DATA]"));
+    assert!(!row_text(&buffer, 0).contains("CONTROL]"));
 
     // Off: no flow label at all
     app.flow = FlowMode::Off;

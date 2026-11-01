@@ -442,31 +442,13 @@ pub(super) fn pointer_arrow_hidden_when_toggled_off() {
 }
 
 #[test]
-pub(super) fn pointer_arrows_shown_by_default() {
-    let mut store = [0; 32];
-    store[2] = Store::parse_word("STO 24").unwrap();
-    let snap = pointer_snapshot(2, store);
-
-    // No toggle needed: the arrow is drawn from the start
-    let mut app = App::new();
-    assert_eq!(FlowMode::Data, app.flow);
-    let buffer = render(&mut app, &snap, 80, 40);
-    let source = row_text(&buffer, 3);
-    assert_eq!(
-        '╮',
-        source.chars().nth(GUTTER_COLUMN).unwrap(),
-        "source row: {source:?}"
-    );
-}
-
-#[test]
 pub(super) fn flow_mode_cycles_with_the_f_key() {
     let mut sim = Simulator::new();
     let mut app = App::new();
-    assert_eq!(FlowMode::Data, app.flow);
+    assert_eq!(FlowMode::Control, app.flow);
 
     // data → control → off → data
-    for expected in [FlowMode::Control, FlowMode::Off, FlowMode::Data] {
+    for expected in [FlowMode::Data, FlowMode::Off, FlowMode::Control] {
         app.handle_key(
             KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
             &mut sim,
@@ -479,7 +461,7 @@ pub(super) fn flow_mode_cycles_with_the_f_key() {
         KeyEvent::new(KeyCode::Char('F'), KeyModifiers::NONE),
         &mut sim,
     );
-    assert_eq!(FlowMode::Control, app.flow);
+    assert_eq!(FlowMode::Data, app.flow);
 }
 
 #[test]

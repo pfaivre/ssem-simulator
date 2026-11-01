@@ -117,10 +117,9 @@ impl App {
         // Holding a scrub key repeats it, for continuous time-travel.
         // Pop-ups keep priority over the scrub keys.
         if key.kind == KeyEventKind::Repeat {
-            if !self.breakpoint_popup.is_open()
-                && !self.editor_popup.is_open()
-                && !self.help_popup.is_open()
-            {
+            if self.help_popup.is_open() {
+                self.help_popup.handle_key(key);
+            } else if !self.breakpoint_popup.is_open() && !self.editor_popup.is_open() {
                 self.handle_scrub_key(key.code, sim);
             }
             return;
@@ -157,13 +156,15 @@ impl App {
             return;
         }
 
-        // While the help pop-up is open, only H or Esc closes it
+        // While the help pop-up is open, H or Esc closes it; other keys scroll it
         if self.help_popup.is_open() {
             if key.code == KeyCode::Char('h')
                 || key.code == KeyCode::Char('H')
                 || key.code == KeyCode::Esc
             {
                 self.help_popup.close();
+            } else {
+                self.help_popup.handle_key(key);
             }
             return;
         }
@@ -278,7 +279,24 @@ impl App {
         // While scrubbing, drags anywhere on screen move the cursor
         // (scrub_to_column clamps the column to the bar)
         if self.scrubbing && matches!(mouse.kind, MouseEventKind::Drag(MouseButton::Left)) {
-            self.scrub_to_column(mouse.column, sim);
+            self.scrub_to_column(mouse.column + 1, sim);
+            return;
+        }
+
+        // The wheel over the help pop-up scrolls its text
+        if self.help_popup.is_open()
+            && matches!(
+                mouse.kind,
+                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+            )
+            && self.help_popup.contains(mouse.column, mouse.row)
+        {
+            let delta = if matches!(mouse.kind, MouseEventKind::ScrollUp) {
+                -1
+            } else {
+                1
+            };
+            self.help_popup.scroll_by(delta);
             return;
         }
 
@@ -289,7 +307,7 @@ impl App {
                     // Scrubbing requires a non-empty history
                     if sim.history.as_ref().is_some_and(|h| !h.is_empty()) {
                         self.scrubbing = true;
-                        self.scrub_to_column(mouse.column, sim);
+                        self.scrub_to_column(mouse.column + 1, sim);
                     }
                 }
                 MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {

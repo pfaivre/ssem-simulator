@@ -39,6 +39,7 @@ pub(super) fn comments_are_shown_by_default_next_to_each_word() {
     let snap = comment_snapshot(comments);
 
     let mut app = App::new();
+    app.flow = FlowMode::Data; // pin the flow mode: the comment column follows the gutter
     assert!(app.show_comments, "the comment column is on by default");
     // Wide enough that the top-bar label is not truncated by the screen edge
     let buffer = render(&mut app, &snap, 120, 40);
@@ -58,7 +59,7 @@ pub(super) fn comments_are_shown_by_default_next_to_each_word() {
         "row2: {row2:?}"
     );
     // The top bar advertises the column
-    assert!(row_text(&buffer, 0).contains("[ COMMENTS ]"));
+    assert!(row_text(&buffer, 0).contains("[COMMENTS]"));
 }
 
 #[test]
@@ -111,6 +112,7 @@ pub(super) fn long_comments_are_truncated_to_the_column_width() {
     let snap = comment_snapshot(comments);
 
     let mut app = App::new();
+    app.flow = FlowMode::Data; // 4-cell arrow gutter, as assumed below
     // Wide enough that the terminal crop does not kick in before the
     // MAX_COMMENT_WIDTH cap: 58 + 4 gutter + 2 + 80 = 144 cells needed
     let buffer = render(&mut app, &snap, 160, 40);
@@ -151,7 +153,7 @@ pub(super) fn comment_column_is_cropped_when_the_terminal_is_narrow() {
     // Wide enough: the full comment and the top-bar label are drawn
     let buffer = render(&mut app, &snap, (full + 20) as u16, 40);
     assert!(row_text(&buffer, 5).contains("; a comment"));
-    assert!(row_text(&buffer, 0).contains("[ COMMENTS ]"));
+    assert!(row_text(&buffer, 0).contains("[COMMENTS]"));
 }
 
 #[test]
@@ -183,7 +185,8 @@ pub(super) fn arrow_gutter_stays_left_of_the_comment_column() {
     let mut snap = pointer_snapshot(2, store);
     snap.comments = Arc::new(comments);
 
-    let mut app = App::new(); // flow: Data
+    let mut app = App::new();
+    app.flow = FlowMode::Data; // the pointer arrow gutter under test
     let col = comment_column(app.flow);
 
     // Wide: the arrow keeps its usual columns, the comment follows the gutter
@@ -227,4 +230,28 @@ pub(super) fn snapshot_carries_the_store_comments() {
     let snap = Snapshot::from_sim(&sim);
     assert_eq!(Some("fifth word".to_string()), snap.comments[5]);
     assert_eq!(None, snap.comments[0]);
+}
+
+#[test]
+pub(super) fn comment_column_reaches_the_right_edge_in_every_flow_mode() {
+    let mut comments: [Option<String>; 32] = std::array::from_fn(|_| None);
+    comments[0] = Some("x".repeat(100)); // cropped by the terminal, not by the cap
+    let snap = comment_snapshot(comments);
+
+    for flow in [FlowMode::Control, FlowMode::Data, FlowMode::Off] {
+        let mut app = App::new();
+        app.flow = flow;
+        for width in [80u16, 100, 120] {
+            let buffer = render(&mut app, &snap, width, 40);
+            // Store line 0 is drawn on screen row 5: when the terminal is
+            // the limiting factor, the comment must fill the row up to the
+            // last cell, leaving no blank gap on the right of the window
+            let row = row_text(&buffer, 5);
+            assert_eq!(
+                width as usize,
+                row.trim_end().chars().count(),
+                "flow={flow:?} width={width} row='{row}'"
+            );
+        }
+    }
 }

@@ -2,10 +2,10 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use crate::ssem::Opcode;
 use crate::ssem::Store;
@@ -44,13 +44,26 @@ fn display_width(s: &str) -> usize {
 }
 
 /// The help pop-up, listing all keyboard shortcuts.
+///
+/// When the terminal is too small to show the whole text, the body scrolls
+/// with the arrow keys; the footer stays pinned to the bottom row.
 pub struct HelpPopup {
     open: bool,
+    scroll: usize,
+    /// Maximum scroll offset, refreshed on every draw so key handling can clamp.
+    max_scroll: usize,
+    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
+    last_rect: Rect,
 }
 
 impl HelpPopup {
     pub fn new() -> Self {
-        HelpPopup { open: false }
+        HelpPopup {
+            open: false,
+            scroll: 0,
+            max_scroll: 0,
+            last_rect: Rect::default(),
+        }
     }
 
     pub fn is_open(&self) -> bool {
@@ -59,13 +72,38 @@ impl HelpPopup {
 
     pub fn open(&mut self) {
         self.open = true;
+        self.scroll = 0;
     }
 
     pub fn close(&mut self) {
         self.open = false;
     }
 
-    pub fn draw(&self, f: &mut Frame, area: Rect) {
+    /// Scroll by `delta` lines (negative goes up), clamped to the content.
+    pub fn scroll_by(&mut self, delta: i32) {
+        self.scroll = (self.scroll as i64 + delta as i64).clamp(0, self.max_scroll as i64) as usize;
+    }
+
+    /// Whether the given screen cell lies inside the pop-up.
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        self.last_rect.contains(Position::new(column, row))
+    }
+
+    /// Handle a key press while the pop-up is open: arrows scroll the text.
+    pub fn handle_key(&mut self, key: KeyEvent) {
+        if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
+            return;
+        }
+        match key.code {
+            KeyCode::Up => self.scroll_by(-1),
+            KeyCode::Down => self.scroll_by(1),
+            KeyCode::Home => self.scroll = 0,
+            KeyCode::End => self.scroll = self.max_scroll,
+            _ => {}
+        }
+    }
+
+    pub fn draw(&mut self, f: &mut Frame, area: Rect) {
         let key_column = KEYMAP
             .iter()
             .map(|(key, _, _)| key.chars().count())
@@ -75,6 +113,7 @@ impl HelpPopup {
 
         let title = "SSEM SIMULATOR";
         let footer = "Press H to close";
+        let footer_scrollable = "\u{2191}/\u{2193} scroll \u{b7} H close";
 
         let key_style = Style::default()
             .fg(Color::Blue)
@@ -119,8 +158,11 @@ impl HelpPopup {
                 Span::raw(description),
             ]));
         }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from("Markers when paused:"));
         lines.push(Line::from(vec![
-            Span::raw("Markers when paused: > last  "),
+            Span::raw("  > last  "),
             Span::styled(
                 "\u{bb}",
                 Style::default()
@@ -131,69 +173,122 @@ impl HelpPopup {
             Span::styled("\u{2022}", Style::default().fg(Color::DarkGray)),
             Span::raw(" executed"),
         ]));
+
         lines.push(Line::from(""));
+        lines.push(Line::from("Heatmap:"));
         lines.push(Line::from(vec![
-            Span::raw("Heatmap: "),
+            Span::raw("  "),
             Span::styled(
-                "exec",
+                "EXEC",
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" line frequency \u{b7} "),
+            Span::raw(" execution word frequency"),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
             Span::styled(
-                "r",
+                "R",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("/"),
             Span::styled(
-                "w",
+                "W",
                 Style::default()
                     .fg(Color::LightRed)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" store reads vs writes per word"),
-        ]));
-        lines.push(Line::from(vec![
-            Span::raw("Control-flow graph: "),
-            Span::styled("╮ jump", Style::default().fg(Color::Yellow)),
-            Span::raw("  "),
-            Span::styled("╮ CMP skip", Style::default().fg(Color::White)),
-            Span::raw("  "),
-            Span::styled(
-                "↺ loop",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  "),
-            Span::styled("■ halt", Style::default().fg(Color::Red)),
+            Span::raw("  store reads vs writes per word"),
         ]));
 
-        // Blank line before footer
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            footer.to_string(),
-            Style::default().add_modifier(Modifier::DIM),
-        )));
+        lines.push(Line::from("Control-flow graph:"));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "\u{25c0}\u{2500}\u{2500} jump forward",
+                Style::default().fg(Color::Yellow),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "\u{25c0}\u{2500}\u{2500} jump backward (loop)",
+                Style::default().fg(Color::Red),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "\u{25c0}\u{2500}\u{2500} CMP skip",
+                Style::default().fg(Color::White),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("■   halt", Style::default().fg(Color::Red)),
+        ]));
+
+        // Blank line before the footer, which is pinned to the bottom row
+        lines.push(Line::from(""));
 
         let content_width = display_width(title)
             .max(display_width(footer))
+            .max(display_width(footer_scrollable))
             .max(lines.iter().map(Line::width).max().unwrap_or(0));
 
         // 2 border columns, 1 left margin, 1 right margin
         let width = (content_width + 4) as u16;
-        // 2 border rows around the content
-        let height = (lines.len() + 2) as u16;
+        // 1 footer row + 2 border rows around the content
+        let height = (lines.len() + 3) as u16;
 
         let rect = popup_rect(height, width, area);
+        self.last_rect = rect;
         f.render_widget(Clear, rect);
 
-        let block = Block::default()
+        let block = Block::bordered()
             .title(format!(" {title} "))
-            .borders(Borders::ALL);
+            .border_type(BorderType::Rounded);
         let content = content_area(&block, rect);
         f.render_widget(block, rect);
 
-        f.render_widget(Paragraph::new(lines), content);
+        // The footer takes the bottom content row; the body scrolls above it.
+        let body_height = content.height.saturating_sub(1) as usize;
+        let max_scroll = lines.len().saturating_sub(body_height);
+        self.max_scroll = max_scroll;
+        self.scroll = self.scroll.min(max_scroll);
+
+        let body_area = Rect {
+            x: content.x,
+            y: content.y,
+            width: content.width,
+            height: body_height as u16,
+        };
+        let footer_area = Rect {
+            x: content.x,
+            y: content.y + body_height as u16,
+            width: content.width,
+            height: content.height - body_height as u16,
+        };
+
+        f.render_widget(
+            Paragraph::new(lines).scroll((self.scroll as u16, 0)),
+            body_area,
+        );
+
+        let footer = if max_scroll > 0 {
+            footer_scrollable
+        } else {
+            footer
+        };
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                footer.to_string(),
+                Style::default().add_modifier(Modifier::DIM),
+            ))),
+            footer_area,
+        );
     }
 }
 
@@ -420,9 +515,10 @@ impl BreakpointPopup {
         let rect = popup_rect(height, width, area);
         f.render_widget(Clear, rect);
 
-        let block = Block::default()
+        let block = Block::bordered()
             .title(" BREAKPOINTS ")
-            .borders(Borders::ALL);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::new().red());
         let content = content_area(&block, rect);
         f.render_widget(block, rect);
 
@@ -762,7 +858,10 @@ impl EditorPopup {
         let rect = popup_rect(height, width, area);
         f.render_widget(Clear, rect);
 
-        let block = Block::default().title(" EDIT ").borders(Borders::ALL);
+        let block = Block::bordered()
+            .title(" EDIT ")
+            .border_type(BorderType::Rounded)
+            .border_style(Style::new().yellow());
         let content = content_area(&block, rect);
         f.render_widget(block, rect);
 

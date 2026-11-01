@@ -238,43 +238,51 @@ impl App {
         heatmap: HeatmapMode,
         comment_width: usize,
     ) {
-        let status = if self.scrubbing {
-            "REWIND"
+        let (status, status_color) = if self.scrubbing {
+            ("REWIND", Color::Yellow)
         } else if snap.stop_flag {
-            "STOPPED"
+            ("STOPPED", Color::Blue)
         } else {
-            "RUNNING"
+            ("RUNNING", Color::Green)
         };
 
         // The chrome keeps a single color, the last instruction included:
         // the syntax highlighting lives in the store view
+        let chrome = Style::default().fg(Color::Blue);
         let last_instr = snap
             .last_instruction
             .map(|li| li.to_string())
             .unwrap_or_else(|| "-- -- --".to_string());
 
+        let mut spans = vec![
+            Span::styled("[STATUS: ", chrome),
+            Span::styled(status, Style::default().fg(status_color)),
+            Span::styled("]", chrome),
+        ];
+
         let mut text = format!(
-            "[ STATUS: {status} ]  [ CYCLES: {} ]  [ {last_instr} ]  [ SPEED: {:2}/{} ips ] ",
+            " [CYCLES: {}] [{last_instr}] [SPEED: {:2}/{} ips]",
             snap.cycle_count, self.displayed_speed, snap.speed
         );
 
         if !snap.breakpoints.is_empty() {
-            text.push_str(&format!(" [ BREAKPOINTS: {} ] ", snap.breakpoints.len()));
+            text.push_str(&format!(" [BREAKPOINTS: {}]", snap.breakpoints.len()));
         }
 
         if let Some(label) = heatmap.label() {
-            text.push_str(&format!(" [ HEATMAP: {label} ] "));
+            text.push_str(&format!(" [HEATMAP: {label}]"));
         }
 
         if let Some(label) = self.flow.label() {
-            text.push_str(&format!(" [ FLOW: {label} ] "));
+            text.push_str(&format!(" [FLOW: {label}]"));
         }
 
         if comment_width > 0 {
-            text.push_str(" [ COMMENTS ] ");
+            text.push_str(" [COMMENTS]");
         }
 
-        let line = Line::from(Span::styled(text, Style::default().fg(Color::Blue)));
+        spans.push(Span::styled(text, chrome));
+        let line = Line::from(spans);
         f.render_widget(Paragraph::new(line), area);
     }
 
@@ -566,17 +574,17 @@ impl App {
         );
 
         let blue = Style::default().fg(Color::Blue);
-        let mut spans = vec![Span::styled(" HISTORY [".to_string(), blue)];
+        let mut spans = vec![Span::styled(" HISTORY  ".to_string(), blue)];
         if bar_width > 0 {
             let segment = |from: usize, to: usize| -> String {
                 (from..to)
-                    .map(|i| if i < filled { '\u{2588}' } else { '\u{b7}' })
+                    .map(|i| if i < filled { '\u{2592}' } else { '\u{2591}' })
                     .collect()
             };
             let marker = marker.unwrap_or(0);
             spans.push(Span::styled(segment(0, marker), blue));
             spans.push(Span::styled(
-                ">".to_string(),
+                "\u{2588}".to_string(),
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
@@ -587,7 +595,7 @@ impl App {
             ));
         }
         spans.push(Span::styled(
-            format!("] {}..{}", snap.history_start, snap.history_head),
+            format!("  {}..{}", snap.history_start, snap.history_head),
             blue,
         ));
 
