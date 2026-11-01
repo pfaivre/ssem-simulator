@@ -5,15 +5,20 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: dist-linux
+          - os: windows-latest
+            artifact: dist-windows
+    runs-on: ${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v4
@@ -28,7 +33,27 @@ jobs:
       run: cargo test --verbose
 
     - name: Package binary and samples
+      shell: bash
       run: ./scripts/package.sh
+
+    - name: Upload packaged zip
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact }}
+        path: dist/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download packaged zips
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+        merge-multiple: true
 
     - name: Publish GitHub release
       uses: softprops/action-gh-release@v2

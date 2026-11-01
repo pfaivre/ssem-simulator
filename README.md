@@ -6,11 +6,19 @@ This program aims at simulating accurately the SSEM while allowing to play with 
 
 ![Screenshot](docs/screenshot.png)
 
-# Test it
+# Download
+
+Prebuilt binaries bundled with the sample programs are published as zip
+artifacts on the [releases page](https://github.com/pfaivre/ssem-simulator/releases)
+for Linux (`linux-x86_64`) and Windows (`windows-x86_64`). Download the zip for
+your platform, unzip it, and run:
 
 ```sh
-cargo run -r samples/ssem/factorct.asm
+./ssem-simulator samples/ssem/factorct.asm     # Linux
+ssem-simulator.exe samples\ssem\factorct.asm   # Windows
 ```
+
+Add `--headless` to run without the interactive interface.
 
 # Features
 
