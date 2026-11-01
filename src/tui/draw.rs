@@ -610,6 +610,12 @@ impl App {
             // Heatmap bars (no span when the heatmap is off)
             let bars = self.heatmap_spans(index, snap, heatmap);
 
+            let data_span = if opcode.uses_address() {
+                Span::raw(format!(" {:02}", data))
+            } else {
+                Span::raw("   ")
+            };
+
             let mut spans = vec![
                 Span::styled(pointer.to_string(), pointer_style),
                 Span::styled(bits, bits_style),
@@ -620,7 +626,7 @@ impl App {
                         .fg(self.palette().opcode(opcode))
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(format!(" {:02}", data)),
+                data_span,
             ];
             spans.splice(1..1, bars);
             // The flow gutter (pointer arrow or control-flow graph) sits

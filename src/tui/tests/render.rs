@@ -56,6 +56,36 @@ pub(super) fn mnemonics_are_colored_by_category() {
 }
 
 #[test]
+pub(super) fn cmp_and_stp_show_no_data_value_on_the_margin() {
+    let mut store = [0; 32];
+    store[2] = Store::parse_word("LDN 7").unwrap();
+    // Words decoding to CMP/STP with a non-zero data field
+    store[6] = Store::parse_word("CMP 5").unwrap();
+    store[7] = Store::parse_word("STP 31").unwrap();
+    let snap = Snapshot {
+        store,
+        ..snapshot_with_history(0)
+    };
+
+    let mut app = App::new();
+    let buffer = render(&mut app, &snap, 80, 40);
+
+    // The data value sits at the right margin of the store text, right
+    // after the 4-wide mnemonic (column 51): columns 55..58. LDN shows its
+    // operand; CMP and STP ignore their data field, so the margin is blank.
+    let margin = |line: u16| -> String {
+        row_text(&buffer, 5 + line)
+            .chars()
+            .skip(55)
+            .take(3)
+            .collect()
+    };
+    assert_eq!(" 07", margin(2), "LDN row: {:?}", row_text(&buffer, 7));
+    assert_eq!("   ", margin(6), "CMP row: {:?}", row_text(&buffer, 11));
+    assert_eq!("   ", margin(7), "STP row: {:?}", row_text(&buffer, 12));
+}
+
+#[test]
 pub(super) fn main_body_lines_have_an_alternating_background() {
     // The main body starts at screen row 1 (the top bar takes row 0), and
     // content row r is drawn at screen row r + 1 while unscrolled. Odd
