@@ -68,6 +68,10 @@ Set conditions that will stop the machines if one of them is met.
 
 The `;` comment on each line of the input file is kept with its store word and shown next to the disassembly (`01 LDN 24  ; A = -a`), so machine code maps back to intent.
 
+## Save the machine
+
+Press `S` to save the current machine state in a file.
+
 ## Headless mode
 
 Run the machine as fast as possible without any graphical interface and only print the last state of the machine

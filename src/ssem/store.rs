@@ -15,6 +15,36 @@ const SSEM_DATA_MASK: i32 = 0b00000000000000000000000000011111; // u5 equivalent
 const SSEM_OPCODE_MASK: i32 = 0b00000000000000000000000000000111; // u3 equivalent
 const SSEM_OPCODE_BIT_SHIFT: u8 = 13;
 
+/// The on-disk format of a program/snapshot file, chosen by the file
+/// extension: `.asm` for assembly, `.snp` for a raw binary snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FileFormat {
+    Asm,
+    Snp,
+}
+
+impl FileFormat {
+    /// The format implied by the file name's extension (case-insensitive).
+    ///
+    /// Returns an `InvalidInput` error when the extension is missing or
+    /// unknown, so a mistyped name never silently picks a format.
+    pub(crate) fn from_path(path: &Path) -> std::io::Result<FileFormat> {
+        match path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("asm") => Ok(FileFormat::Asm),
+            Some("snp") => Ok(FileFormat::Snp),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("file name must end with .asm or .snp: {}", path.display()),
+            )),
+        }
+    }
+}
+
 /// Main memory of a SSEM-like machine
 ///
 /// Note: SSEM writes integers with its least significant to most significant bits from left to right.
@@ -406,6 +436,71 @@ impl Store {
         }
     }
 
+    /// Serialize the store as an assembly file's content, one line per word:
+    /// ```
+    /// 00 JMP 00  ; comment
+    /// 01 LDN 24  ; A = -a
+    /// 20 NUM -3  ; JRP offset
+    /// ```
+    /// A word is written as an instruction (`OPCODE operand`) only when no
+    /// bit outside the opcode and data fields is set; any other bit pattern
+    /// (a data word) is written as `NUM <value>`, which the assembler stores
+    /// verbatim. Each word's source comment, when it has one, is appended
+    /// after `;`, exactly as `from_asm_file` would parse it back.
+    pub fn to_asm_string(&self) -> String {
+        let mut out = String::new();
+        for (index, &word) in self.words.iter().enumerate() {
+            let (opcode, data) = Self::decode_word(word);
+            // Re-encode the decoded fields: equal to the original word only
+            // when every bit outside the opcode/data fields is clear
+            let instruction = (opcode as i32) << SSEM_OPCODE_BIT_SHIFT | data;
+            let body = if word == instruction {
+                format!("{index:02} {opcode} {data:02}")
+            } else {
+                format!("{index:02} NUM {word}")
+            };
+            match &self.comments[index] {
+                Some(comment) => out.push_str(&format!("{body};{comment}\n")),
+                None => out.push_str(&format!("{body}\n")),
+            }
+        }
+        out
+    }
+
+    /// Serialize the store as a snapshot file's content, one line per word:
+    /// ```
+    /// 0000: 10000000000000000000000000000000 ; comment
+    /// 0001: 01010000000000100000000000000000
+    /// ```
+    /// Each word is written as its 32 bits in SSEM order (least significant
+    /// bit first), with the source comment appended after `;` when present,
+    /// exactly as `from_snp_file` would parse it back.
+    pub fn to_snp_string(&self) -> String {
+        let mut out = String::new();
+        for (index, &word) in self.words.iter().enumerate() {
+            let bits = format!("{:032b}", word.reverse_bits());
+            let body = format!("{index:04}: {bits}");
+            match &self.comments[index] {
+                Some(comment) => out.push_str(&format!("{body};{comment}\n")),
+                None => out.push_str(&format!("{body}\n")),
+            }
+        }
+        out
+    }
+
+    /// Write the store to `path`, in the format given by the file extension
+    /// (`.asm` or `.snp`), with each word's source comment if it has one.
+    ///
+    /// Returns an `InvalidInput` error when the extension is missing or
+    /// unknown, and the underlying I/O error when the write fails.
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        let content = match FileFormat::from_path(path)? {
+            FileFormat::Asm => self.to_asm_string(),
+            FileFormat::Snp => self.to_snp_string(),
+        };
+        std::fs::write(path, content)
+    }
+
     fn _check(&self) {
         // Sanity checks
         if SSEM_DATA_MASK as usize >= SSEM_STORE_WORDS {
@@ -523,6 +618,7 @@ impl fmt::Display for Store {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
     use crate::ssem::opcode::Opcode;
 
@@ -1175,5 +1271,121 @@ mod tests {
         assert!(Store::parse_word("LDN abc").is_err());
         assert!(Store::parse_word("LDN 1 2").is_err());
         assert!(Store::parse_word("STO 99").is_err());
+    }
+
+    /// A store with one word of each kind: a plain instruction, an
+    /// instruction with a non-zero data field, and raw data words.
+    fn mixed_store() -> Store {
+        let mut store = Store::new();
+        store.words[0] = instr(Opcode::JMP, 0);
+        store.words[1] = instr(Opcode::LDN, 24);
+        store.words[2] = instr(Opcode::CMP, 5); // data bits set: still an instruction
+        store.words[3] = -3; // data word
+        store.words[4] = instr(Opcode::SUB, 7) | (1 << 20); // stray bit: not a plain instruction
+        Arc::make_mut(&mut store.comments)[1] = Some(" A = -a".to_string());
+        Arc::make_mut(&mut store.comments)[3] = Some("   negative three".to_string());
+        store
+    }
+
+    #[test]
+    fn to_asm_string_writes_instructions_and_num_words() {
+        let store = mixed_store();
+        let text = store.to_asm_string();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(32, lines.len());
+        assert_eq!("00 JMP 00", lines[0]);
+        assert_eq!("01 LDN 24; A = -a", lines[1]);
+        assert_eq!("02 CMP 05", lines[2]);
+        assert_eq!("03 NUM -3;   negative three", lines[3]);
+        // A word with a bit outside the opcode/data fields is saved as NUM
+        assert_eq!(
+            format!("04 NUM {}", instr(Opcode::SUB, 7) | (1 << 20)),
+            lines[4]
+        );
+        // A zero word is a valid "JMP 00" instruction, not a NUM
+        assert_eq!("05 JMP 00", lines[5]);
+    }
+
+    #[test]
+    fn to_asm_string_round_trips_through_from_asm_file() {
+        let store = mixed_store();
+        let file = temp_file("round_trip.asm", &store.to_asm_string());
+        let reloaded = Store::from_asm_file(file.path());
+        assert_eq!(store.words, reloaded.words);
+        assert_eq!(store.comments, reloaded.comments);
+    }
+
+    #[test]
+    fn to_snp_string_writes_ssem_bit_order_and_comments() {
+        let store = mixed_store();
+        let text = store.to_snp_string();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(32, lines.len());
+        // Least significant bit first: word 0 = JMP 0 = 0
+        assert_eq!("0000: 00000000000000000000000000000000", lines[0]);
+        // word 1 = LDN 24 = (2 << 13) | 24, bits reversed
+        assert_eq!(
+            format!("0001: {:032b}; A = -a", store.words[1].reverse_bits()),
+            lines[1]
+        );
+        // word 3 = -3, all bits set except the two low ones
+        assert_eq!(
+            format!("0003: {:032b};   negative three", (-3i32).reverse_bits()),
+            lines[3]
+        );
+    }
+
+    #[test]
+    fn to_snp_string_round_trips_through_from_snp_file() {
+        let store = mixed_store();
+        let file = temp_file("round_trip.snp", &store.to_snp_string());
+        let reloaded = Store::from_snp_file(file.path());
+        assert_eq!(store.words, reloaded.words);
+        assert_eq!(store.comments, reloaded.comments);
+    }
+
+    #[test]
+    fn save_picks_the_format_from_the_extension() {
+        let store = mixed_store();
+        let asm = temp_file("save.asm", "");
+        store.save(asm.path()).unwrap();
+        let content = std::fs::read_to_string(asm.path()).unwrap();
+        assert!(content.starts_with("00 JMP 00\n"), "asm body: {content}");
+
+        let snp = temp_file("save.snp", "");
+        store.save(snp.path()).unwrap();
+        let content = std::fs::read_to_string(snp.path()).unwrap();
+        assert!(content.starts_with("0000: "), "snp body: {content}");
+
+        // The extension check is case-insensitive
+        let upper = temp_file("save.SNP", "");
+        store.save(upper.path()).unwrap();
+        assert!(
+            std::fs::read_to_string(upper.path())
+                .unwrap()
+                .starts_with("0000: ")
+        );
+    }
+
+    #[test]
+    fn save_rejects_missing_or_unknown_extensions() {
+        let store = Store::new();
+        let txt = temp_file("save.txt", "");
+        let err = store.save(txt.path()).unwrap_err();
+        assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
+        assert!(err.to_string().contains(".asm or .snp"));
+        assert!(!txt.path().exists() || std::fs::read_to_string(txt.path()).unwrap().is_empty());
+
+        let no_ext = temp_file("save", "");
+        assert!(store.save(no_ext.path()).is_err());
+    }
+
+    #[test]
+    fn save_reports_io_errors() {
+        let store = Store::new();
+        let err = store
+            .save(Path::new("/nonexistent_dir_hopefully/save.snp"))
+            .unwrap_err();
+        assert_eq!(std::io::ErrorKind::NotFound, err.kind());
     }
 }

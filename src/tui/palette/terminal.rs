@@ -48,5 +48,6 @@ pub const TERMINAL: Palette = Palette {
     // Pop-ups
     breakpoint_border: Color::Red,
     editor_border: Color::Yellow,
+    save_border: Color::LightBlue,
     preview: Color::Green,
 };

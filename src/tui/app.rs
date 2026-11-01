@@ -13,7 +13,7 @@ use super::layout::{
     timeline_bar_geometry,
 };
 use super::palette::{Palette, Theme};
-use super::popups::{BreakpointPopup, EditorPopup, HelpPopup};
+use super::popups::{BreakpointPopup, EditorPopup, HelpPopup, SavePopup};
 use crate::ssem::history::History;
 use crate::ssem::simulator::Simulator;
 
@@ -63,6 +63,11 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
         "Toggle the source-comment column next to each store word",
     ),
     ("B", "BREAKPT", "Open the breakpoint pop-up"),
+    (
+        "S",
+        "SAVE",
+        "Save the machine state to a .asm/.snp file in the input file's folder",
+    ),
     ("T", "THEME", "Cycle through the color themes"),
     (
         "MOUSE",
@@ -109,6 +114,7 @@ pub(super) struct App {
     pub(super) help_popup: HelpPopup,
     pub(super) breakpoint_popup: BreakpointPopup,
     pub(super) editor_popup: EditorPopup,
+    pub(super) save_popup: SavePopup,
 
     /// The last left-click, for double-click detection: (time, column, row).
     pub(super) last_click: Option<(Instant, u16, u16)>,
@@ -184,6 +190,7 @@ impl App {
             help_popup: HelpPopup::new(),
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
+            save_popup: SavePopup::new(),
             last_click: None,
             heatmap: config.heatmap,
             flow: config.flow,
@@ -257,6 +264,8 @@ impl App {
         if key.kind == KeyEventKind::Repeat {
             if self.help_popup.is_open() {
                 self.help_popup.handle_key(key);
+            } else if self.save_popup.is_open() {
+                self.save_popup.handle_key(key, sim);
             } else if !self.breakpoint_popup.is_open() && !self.editor_popup.is_open() {
                 self.handle_scrub_key(key.code, sim);
             }
@@ -294,6 +303,17 @@ impl App {
             return;
         }
 
+        // While the save pop-up is open, keys go to it; only Esc closes it,
+        // because every letter can appear in a file name
+        if self.save_popup.is_open() {
+            if key.code == KeyCode::Esc {
+                self.save_popup.close();
+            } else {
+                self.save_popup.handle_key(key, sim);
+            }
+            return;
+        }
+
         // While the help pop-up is open, H or Esc closes it; other keys scroll it
         if self.help_popup.is_open() {
             if key.code == KeyCode::Char('h')
@@ -327,6 +347,7 @@ impl App {
                 }
                 'b' => self.breakpoint_popup.open(),
                 'e' => self.editor_popup.open(),
+                's' => self.save_popup.open(sim.source_path.as_deref()),
                 'm' => self.heatmap = self.heatmap.cycle(),
                 'f' => self.flow = self.flow.cycle(),
                 'c' => self.show_comments = !self.show_comments,

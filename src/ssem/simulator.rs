@@ -1,9 +1,12 @@
-use std::{fmt, path::Path};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 
 use super::{
     history::{History, Snapshot},
     opcode::Opcode,
-    store::{Bits, Store},
+    store::{Bits, FileFormat, Store},
 };
 
 /// The default execution speed in instructions per second,
@@ -143,6 +146,11 @@ pub struct Simulator {
     /// previous state, resets the heatmap counters once, and clears this
     /// flag. Scrubbing alone does not reset them.
     pub heatmap_reset_pending: bool,
+
+    /// The file the store was loaded from, when built with
+    /// `Simulator::from_file`. The save pop-up opens on its folder and
+    /// proposes a default name derived from it.
+    pub source_path: Option<PathBuf>,
 }
 
 impl Default for Simulator {
@@ -167,6 +175,7 @@ impl Simulator {
             write_counts: [0; 32],
             history: None,
             heatmap_reset_pending: false,
+            source_path: None,
         }
     }
 
@@ -175,9 +184,10 @@ impl Simulator {
     pub fn from_file(filename: &Path) -> Simulator {
         let store = match filename.extension() {
             Some(ext) => {
-                if ext == "asm" {
+                // Case-insensitive, so a file saved as e.g. "STATE.SNP" reloads
+                if ext.eq_ignore_ascii_case("asm") {
                     Store::from_asm_file(filename)
-                } else if ext == "snp" {
+                } else if ext.eq_ignore_ascii_case("snp") {
                     Store::from_snp_file(filename)
                 } else {
                     panic!("Unkown file format '{}'", ext.to_str().unwrap_or(""));
@@ -200,12 +210,38 @@ impl Simulator {
             write_counts: [0; 32],
             history: None,
             heatmap_reset_pending: false,
+            source_path: Some(filename.to_path_buf()),
         }
     }
 
     /// Whether the machine is currently running (not stopped).
     pub fn is_running(&self) -> bool {
         !self.stop_flag
+    }
+
+    /// Write the current machine state to `path`, in the format given by the
+    /// file extension (`.asm` assembly or `.snp` snapshot, case-insensitive).
+    ///
+    /// The store words are written with their source comments, if any. The
+    /// registers cannot live in either format, so CI, the accumulator and
+    /// the cycle count are recorded in a leading comment line — both loaders
+    /// skip comment-only lines, so the file reloads as the same store.
+    ///
+    /// Returns an `InvalidInput` error when the extension is missing or
+    /// unknown, and the underlying I/O error when the write fails.
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        let body = match FileFormat::from_path(path)? {
+            FileFormat::Asm => self.store.to_asm_string(),
+            FileFormat::Snp => self.store.to_snp_string(),
+        };
+        let header = format!(
+            "; Machine state saved by ssem-simulator v{}\n; CI: {}  A: {}  cycles: {}\n",
+            env!("CARGO_PKG_VERSION"),
+            self.ci,
+            self.a,
+            self.cycle_count
+        );
+        std::fs::write(path, format!("{header}{body}"))
     }
 
     /// Enable execution history, retaining up to `capacity` past states.
@@ -441,6 +477,7 @@ impl From<Vec<String>> for Simulator {
             write_counts: [0; 32],
             history: None,
             heatmap_reset_pending: false,
+            source_path: None,
         }
     }
 }
@@ -1389,5 +1426,84 @@ mod tests {
         assert_eq!(None, h.get(3), "stale future must be truncated");
         assert_ne!(old_cycle2_a, h.get(2).unwrap().a);
         assert_eq!(-105, h.get(2).unwrap().a); // -5 - 100
+    }
+
+    /// A temporary file removed when dropped, even if the test panics
+    struct TempFile(std::path::PathBuf);
+
+    impl TempFile {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("ssem_simulator_tests_{name}"));
+            let _ = std::fs::remove_file(&path); // Remove any leftover from a previous run
+            TempFile(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    #[test]
+    fn save_writes_a_header_comment_and_the_store() {
+        let mut sim = Simulator::from_file(Path::new("samples/ssem/factorct.asm"));
+        sim.run(10);
+        let file = TempFile::new("save.snp");
+        sim.save(file.path()).unwrap();
+
+        let content = std::fs::read_to_string(file.path()).unwrap();
+        let mut lines = content.lines();
+        assert!(
+            lines
+                .next()
+                .unwrap()
+                .starts_with("; Machine state saved by ssem-simulator v")
+        );
+        let header = lines.next().unwrap();
+        assert!(
+            header.contains(&format!("CI: {}", sim.ci)),
+            "header: {header}"
+        );
+        assert!(
+            header.contains(&format!("A: {}", sim.a)),
+            "header: {header}"
+        );
+        assert!(
+            header.contains(&format!("cycles: {}", sim.cycle_count)),
+            "header: {header}"
+        );
+        assert!(lines.next().unwrap().starts_with("0000: "));
+
+        // The saved file reloads as the same store, comments included
+        let reloaded = Simulator::from_file(file.path());
+        assert_eq!(sim.store, reloaded.store);
+        assert_eq!(sim.store.comments, reloaded.store.comments);
+    }
+
+    #[test]
+    fn save_asm_round_trips_and_keeps_comments() {
+        let mut sim = Simulator::from_file(Path::new("samples/ssem/factorct.asm"));
+        sim.run(10);
+        let file = TempFile::new("save.asm");
+        sim.save(file.path()).unwrap();
+
+        let content = std::fs::read_to_string(file.path()).unwrap();
+        assert!(content.contains("01 LDN 24; A = -a"), "asm line: {content}");
+        let reloaded = Simulator::from_file(file.path());
+        assert_eq!(sim.store, reloaded.store);
+        assert_eq!(sim.store.comments, reloaded.store.comments);
+    }
+
+    #[test]
+    fn save_rejects_unknown_extension() {
+        let sim = Simulator::new();
+        let err = sim.save(Path::new("state.txt")).unwrap_err();
+        assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
+        assert!(err.to_string().contains(".asm or .snp"));
     }
 }

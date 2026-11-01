@@ -107,6 +107,7 @@ pub struct Palette {
     /// Pop-up border colors.
     pub breakpoint_border: Color,
     pub editor_border: Color,
+    pub save_border: Color,
     /// The live preview line of the editor pop-up.
     pub preview: Color,
 }

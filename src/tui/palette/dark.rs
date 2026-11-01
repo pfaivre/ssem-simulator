@@ -51,5 +51,6 @@ pub const DARK: Palette = Palette {
     // Pop-ups (colors.normal red/yellow/green)
     breakpoint_border: rgb(0xCE5564),
     editor_border: rgb(0xEFCD86),
+    save_border: rgb(0x6C9EF8),
     preview: rgb(0x98C38C),
 };

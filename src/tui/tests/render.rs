@@ -274,6 +274,20 @@ pub(super) fn help_popup_shows_the_plain_footer_when_everything_fits() {
 }
 
 #[test]
+pub(super) fn help_popup_title_shows_the_program_version() {
+    let mut app = App::new();
+    app.help_popup.open();
+    let snap = snapshot_with_history(0);
+    let buffer = render(&mut app, &snap, 100, 50);
+
+    let all: String = (0..buffer.area.height)
+        .map(|y| row_text(&buffer, y))
+        .collect();
+    let title = format!("SSEM SIMULATOR v{}", env!("CARGO_PKG_VERSION"));
+    assert!(all.contains(&title), "version missing from the title");
+}
+
+#[test]
 pub(super) fn help_popup_scrolls_when_the_window_is_too_small() {
     let mut app = App::new();
     app.help_popup.open();

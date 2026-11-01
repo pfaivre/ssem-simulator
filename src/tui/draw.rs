@@ -261,6 +261,9 @@ impl App {
             self.editor_popup
                 .draw(f, area, snap.ci, snap.a, &snap.store, self.palette());
         }
+        if self.save_popup.is_open() {
+            self.save_popup.draw(f, area, self.palette());
+        }
 
         // While scrubbing the timeline, show the current cycle above the cursor
         if self.scrubbing {

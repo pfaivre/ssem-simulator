@@ -54,5 +54,6 @@ pub const MONOKAI: Palette = Palette {
     // Pop-ups
     breakpoint_border: rgb(0xF92672),
     editor_border: rgb(0xE6DB74),
+    save_border: rgb(0xAE81FF),
     preview: rgb(0xA6E22E),
 };

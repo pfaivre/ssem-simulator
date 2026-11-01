@@ -1,4 +1,6 @@
-//! Pop-up windows for the TUI: help and breakpoint editor.
+//! Pop-up windows for the TUI: help, breakpoint editor, word editor, and save.
+
+use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
@@ -25,14 +27,15 @@ fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
 
 /// The content area inside a bordered block, with a 1-column horizontal margin
 /// on each side so text does not touch the border.
-/// The digit a key event represents, if any.
+/// The character a key event represents, if any.
 ///
 /// Besides plain ASCII digits, this maps the French AZERTY top row: on
 /// terminals sending CSI-u key events, Shift+key arrives as the *unshifted*
 /// character plus the SHIFT modifier (the shifted key is only reported with
 /// the kitty "alternate keys" flag, which we do not enable), so the AZERTY
 /// digit keys deliver `& é " ' ( - è _ ç à` + Shift, which we translate back
-/// to `1 2 3 4 5 6 7 8 9 0`.
+/// to `1 2 3 4 5 6 7 8 9 0`, and `;`/`:` + Shift to `.`/`/` so file paths
+/// can be typed in the save pop-up.
 fn digit_of(key: &KeyEvent) -> Option<char> {
     let KeyCode::Char(c) = key.code else {
         return None;
@@ -54,6 +57,8 @@ fn digit_of(key: &KeyEvent) -> Option<char> {
         '_' => '8',
         '\u{e7}' => '9', // ç
         '\u{e0}' => '0', // à
+        ';' => '.',      // so paths can be typed in the save pop-up
+        ':' => '/',
         _ => return None,
     })
 }
@@ -147,7 +152,7 @@ impl HelpPopup {
             .unwrap_or(0)
             + 2;
 
-        let title = "SSEM SIMULATOR";
+        let title = format!("SSEM SIMULATOR v{}", env!("CARGO_PKG_VERSION"));
         let footer = "Press H to close";
         let footer_scrollable = "\u{2191}/\u{2193} scroll \u{b7} H close";
 
@@ -271,7 +276,7 @@ impl HelpPopup {
         // Blank line before the footer, which is pinned to the bottom row
         lines.push(Line::from(""));
 
-        let content_width = display_width(title)
+        let content_width = display_width(&title)
             .max(display_width(footer))
             .max(display_width(footer_scrollable))
             .max(lines.iter().map(Line::width).max().unwrap_or(0));
@@ -961,6 +966,199 @@ impl EditorPopup {
     }
 }
 
+/// Maximum length of the file name typed in the save pop-up.
+const MAX_PATH_INPUT: usize = 256;
+
+/// The proposed save name for a loaded file: `<stem>_edited.<ext>`
+/// (e.g. `samples/ssem/factorct.asm` → `factorct_edited.asm`). A stem that
+/// already ends with `_edited` is kept as-is, so re-saving an edited file
+/// does not pile up suffixes (`factorct_edited.asm` stays `factorct_edited.asm`).
+fn default_save_name(path: &Path) -> String {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("state");
+    let stem = if stem.ends_with("_edited") {
+        stem.to_string()
+    } else {
+        format!("{stem}_edited")
+    };
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => format!("{stem}.{ext}"),
+        None => stem,
+    }
+}
+
+/// The save pop-up: a single name field; Enter writes the current machine
+/// state to `<dir>/<field>`.
+///
+/// It opens on the (absolute) folder of the file the machine was loaded
+/// from — shown as the `DIR:` line — with the field prefilled with
+/// `<name>_edited.<ext>` (e.g. `factorct.asm` → `factorct_edited.asm`);
+/// without a source file it opens on the current working directory with an
+/// empty field. The format follows the extension (`.asm` assembly or `.snp`
+/// snapshot), and each word's source comment is saved along. The field
+/// accepts only alphanumerics, `-`, `_` and `.`, so the entered name is
+/// always a plain file name inside the target folder.
+///
+/// While open, all key events are routed here by the main event loop. Only
+/// Esc closes the pop-up — every letter can appear in a file name, so no
+/// letter key closes it. Enter saves but keeps the pop-up open, so a failed
+/// write (bad extension, unwritable path) can be fixed and retried, or
+/// another file saved from the same state.
+pub struct SavePopup {
+    open: bool,
+    /// The folder names are resolved against (the open file's folder).
+    dir: PathBuf,
+    buffer: String,
+    message: String,
+}
+
+impl SavePopup {
+    pub fn new() -> Self {
+        SavePopup {
+            open: false,
+            dir: PathBuf::from("."),
+            buffer: String::new(),
+            message: String::new(),
+        }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// Open the pop-up, resetting the input and message.
+    ///
+    /// When the machine was loaded from a file (`source`), the target folder
+    /// is that file's folder — canonicalized, so it is absolute — and the
+    /// `FILE:` field is prefilled with `<name>_edited.<ext>` (e.g.
+    /// `factorct.asm` → `factorct_edited.asm`). Without a source file, the
+    /// folder is the current working directory and the field is empty.
+    pub fn open(&mut self, source: Option<&Path>) {
+        self.open = true;
+        self.message.clear();
+        let dir = match source {
+            Some(path) => {
+                // A bare file name has an empty parent; use "." then
+                path.parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| PathBuf::from("."))
+            }
+            None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        };
+        // Canonicalize so the target folder is shown and saved as absolute
+        self.dir = std::fs::canonicalize(&dir).unwrap_or(dir);
+        self.buffer = match source {
+            Some(path) => default_save_name(path),
+            None => String::new(),
+        };
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+
+    /// Handle a key press while the pop-up is open. Repeats are accepted so
+    /// holding Backspace deletes several characters.
+    pub fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
+            return;
+        }
+
+        match key.code {
+            KeyCode::Backspace => {
+                self.buffer.pop();
+                self.message.clear();
+            }
+            KeyCode::Enter => {
+                self.save(sim);
+            }
+            KeyCode::Char(c) => {
+                // A digit typed with Shift on a French AZERTY keyboard arrives
+                // as the unshifted top-row char + SHIFT; translate it first
+                let c = digit_of(&key).unwrap_or(c);
+                // Whitelist only: alphanumerics, dash, underscore, dot. With no
+                // path separator accepted, the name can never escape the
+                // target folder (`..` alone just fails to write, see below)
+                if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                    if self.buffer.chars().count() < MAX_PATH_INPUT {
+                        self.buffer.push(c);
+                        self.message.clear();
+                    }
+                } else if !c.is_control() {
+                    self.message = "ONLY A-Z 0-9 - _ . ALLOWED".to_string();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Write the machine state to `<dir>/<buffer>` and report the outcome.
+    fn save(&mut self, sim: &mut Simulator) {
+        let name = self.buffer.trim();
+        if name.is_empty() {
+            self.message = "TYPE A FILE NAME".to_string();
+            return;
+        }
+        // The input whitelist admits no path separator, so the joined path
+        // always stays inside the target folder
+        let path = self.dir.join(name);
+        match sim.save(&path) {
+            Ok(()) => self.message = format!("SAVED TO {}", path.display()),
+            Err(e) => self.message = format!("ERROR: {e}"),
+        }
+    }
+
+    pub fn draw(&self, f: &mut Frame, area: Rect, palette: &Palette) {
+        let explanation = "Save the machine state to a .asm or .snp file";
+        let dir_line = format!("DIR: {}", self.dir.display());
+        let footer = "ENTER save \u{b7} ESC close";
+        let input = format!("FILE: {}_", self.buffer);
+
+        let content_width = display_width(explanation)
+            .max(display_width(&dir_line))
+            .max(display_width(footer))
+            .max(display_width(&input))
+            .max(display_width(&self.message));
+
+        // 2 border columns, 1 left margin, 1 right margin
+        let width = (content_width + 4) as u16;
+        // Title in border. Interior: explanation, dir, blank, input, message,
+        // footer = 6. Plus 2 border rows.
+        let height = 8u16;
+
+        let rect = popup_rect(height, width, area);
+        f.render_widget(Clear, rect);
+        // Clear resets the cells to the terminal default; restore the theme's
+        // base colors under the pop-up
+        f.buffer_mut()
+            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
+
+        let block = Block::bordered()
+            .title(" SAVE ")
+            .border_type(BorderType::Rounded)
+            .border_style(Style::new().fg(palette.save_border));
+        let content = content_area(&block, rect);
+        f.render_widget(block, rect);
+
+        let lines: Vec<Line<'static>> = vec![
+            Line::from(explanation.to_string()),
+            Line::from(Span::styled(
+                dir_line,
+                Style::default().add_modifier(Modifier::DIM),
+            )),
+            Line::from(""),
+            Line::from(input),
+            Line::from(self.message.clone()),
+            Line::from(Span::styled(
+                footer.to_string(),
+                Style::default().add_modifier(Modifier::DIM),
+            )),
+        ];
+
+        f.render_widget(Paragraph::new(lines), content);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1023,5 +1221,34 @@ mod tests {
         popup.handle_key(press('(', KeyModifiers::SHIFT), &mut sim); // ( -> 5
         popup.handle_key(press('7', KeyModifiers::NONE), &mut sim);
         assert_eq!("057", popup.buffer);
+    }
+
+    #[test]
+    fn default_save_name_appends_edited_only_once() {
+        assert_eq!(
+            "factorct_edited.asm",
+            default_save_name(Path::new("samples/ssem/factorct.asm"))
+        );
+        assert_eq!(
+            "nightmare_edited.snp",
+            default_save_name(Path::new("nightmare.snp"))
+        );
+        // Already edited: the suffix is not added again
+        assert_eq!(
+            "factorct_edited.asm",
+            default_save_name(Path::new("/tmp/factorct_edited.asm"))
+        );
+        assert_eq!(
+            "factorct_edited.snp",
+            default_save_name(Path::new("factorct_edited.snp"))
+        );
+        // No extension: just the stem
+        assert_eq!("state_edited", default_save_name(Path::new("state")));
+        assert_eq!("_edited", default_save_name(Path::new("_edited")));
+        // A stem merely containing "edited" (not the suffix) still gets it
+        assert_eq!(
+            "edited_edited.asm",
+            default_save_name(Path::new("edited.asm"))
+        );
     }
 }

@@ -24,6 +24,15 @@
 //!
 //! Two pop-ups are available: a help pop-up (H key) and a breakpoint editor (B key).
 //! A third pop-up, the memory/register editor (E key), lets you modify CI, A, or store words.
+//! A fourth pop-up, the save pop-up (S key), writes the current machine state to a
+//! file: a single name field, opened on the input file's folder (canonicalized, so the
+//! `DIR:` line is absolute) with `<name>_edited.<ext>` prefilled (e.g. `factorct.asm`
+//! → `factorct_edited.asm`). Enter saves to `<dir>/<name>`, with the format following
+//! the extension: `.asm` (assembly, with the source comments) or `.snp` (binary
+//! snapshot). The field accepts only alphanumerics, `-`, `_` and `.`, so the saved
+//! file always lands in that folder. CI, the accumulator and
+//! the cycle count are recorded in a leading comment line. The saved file loads back
+//! as the usual input file. `--save FILE` does the same for the final state on exit.
 //!
 //! Mouse: double-click a line (CI, A, or a store word) to open the editor for it;
 //! scroll wheel scrolls the store view.
@@ -108,7 +117,7 @@
 //! - `app`: application state and input handling (keymap, bit glyphs)
 //! - `draw`: rendering of the bars, main body, and pop-ups
 //! - `runner`: the machine/UI threads and the entry point
-//! - `popups`: the help, breakpoint, and editor pop-ups
+//! - `popups`: the help, breakpoint, editor, and save pop-ups
 
 mod app;
 mod config;

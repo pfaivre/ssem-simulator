@@ -30,6 +30,12 @@ struct Args {
     #[arg(long, value_enum)]
     theme: Option<Theme>,
 
+    /// Write the machine state to this file once the run ends (.asm or .snp,
+    /// with the source comments); in the interactive interface, the S key
+    /// saves the current state at any time
+    #[arg(long, value_name = "FILE")]
+    save: Option<PathBuf>,
+
     /// Input file to initialize the store. Can be .asm or .snp format
     #[arg(value_name = "FILE")]
     file: PathBuf,
@@ -71,4 +77,15 @@ fn main() {
     // Print the final state
     println!("Final state of the machine:");
     println!("{simulator}");
+
+    // Save the final state when asked to (the format follows the extension)
+    if let Some(path) = &args.save {
+        match simulator.save(path) {
+            Ok(()) => println!("Machine state saved to {}", path.display()),
+            Err(e) => {
+                eprintln!("Error: could not save to {}: {e}", path.display());
+                std::process::exit(1);
+            }
+        }
+    }
 }

@@ -7,6 +7,7 @@ mod config;
 mod graph;
 mod heatmap;
 mod render;
+mod save;
 mod timeline;
 
 use super::app::App;

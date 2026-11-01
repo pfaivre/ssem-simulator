@@ -24,6 +24,18 @@ The CLI accepts one input file (`.asm` or `.snp`) and an optional `--max-cycles`
 cargo run -r -- --max-cycles 1000 samples/ssem/nightmare.snp
 ```
 
+Pass `--save FILE` to write the final machine state to `FILE` when the run
+ends, in both headless and interactive mode. In the TUI, press `S` to save
+the current state at any time: the save pop-up has a single `FILE:` field,
+opened on the input file's folder (canonicalized to an absolute path, shown
+as the `DIR:` line) with `<name>_edited.<ext>` prefilled; Enter saves to
+`<dir>/<name>`. The field accepts only alphanumerics, `-`, `_` and `.`, so
+the saved file always lands in that folder.
+The format follows the file extension: `.asm` writes assembly (instructions
+as mnemonics, other words as `NUM`, source comments after `;`), `.snp`
+writes a raw binary snapshot; CI, the accumulator and the cycle count go in
+a leading comment line, and the saved file loads back as a regular input.
+
 The interactive TUI records an execution history for time-travel (scrub the
 timeline bar with the mouse, or use `←` `→` `Home` `End`), capped by
 `--history-size` past states (default 100,000, 0 to disable). Headless mode
@@ -85,5 +97,5 @@ cargo clippy
 
 ## Suggestions for later development
 
-- Save the machine. The user can write the current machine state to a file, either SNP or ASM, with comments (if any). The comments should be editable in the interface.
+- The comments are editable in the interface: double click on a comment to have an inline text box, then press enter to validate it or escape to cancel.
 - Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.

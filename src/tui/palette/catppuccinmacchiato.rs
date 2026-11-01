@@ -54,5 +54,6 @@ pub const CATPPUCCIN_MACCHIATO: Palette = Palette {
     // Pop-ups
     breakpoint_border: rgb(0xED8796),
     editor_border: rgb(0xEED49F),
+    save_border: rgb(0xC6A0F6),
     preview: rgb(0xA6DA95),
 };
