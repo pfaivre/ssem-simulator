@@ -39,9 +39,10 @@ variant, an entry in `Theme::ALL`.
 
 The interactive view modes (theme, flow, heatmap, comments toggle, bit
 representation) are
-persisted in TOML to `$XDG_CONFIG_HOME/ssem-simulator/config.toml` (default
-`$HOME/.config/ssem-simulator/config.toml`), written when the TUI exits and
-read at startup (`src/tui/config.rs`); `--theme` overrides the saved theme
+persisted in TOML to `ssem-simulator/config.toml` in the platform's config
+directory — `$XDG_CONFIG_HOME` (default `$HOME/.config`) on Linux/macOS,
+`%APPDATA%` (default `%USERPROFILE%\AppData\Roaming`) on Windows — written
+when the TUI exits and read at startup (`src/tui/config.rs`); `--theme` overrides the saved theme
 for one session without saving it. Holding a view-mode key (T/F/M/C/D) does
 not repeat it: `App::mode_key_accepted` in `app.rs` ignores a press within
 50 ms of the previous press of the same key, which swallows OS key-repeat on

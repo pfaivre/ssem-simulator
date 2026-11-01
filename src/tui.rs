@@ -81,8 +81,9 @@
 //! `light.rs`, etc.).
 //!
 //! The view modes — theme (T), flow view (F), heatmap (M), the comments
-//! toggle (C), and the bit representation (D) — are saved to `config.toml` in the XDG config directory
-//! (`$XDG_CONFIG_HOME/ssem-simulator/`, default `$HOME/.config/ssem-simulator/`)
+//! toggle (C), and the bit representation (D) — are saved to `config.toml` in the platform's config directory
+//! (`$XDG_CONFIG_HOME/ssem-simulator/`, default `$HOME/.config/ssem-simulator/`, on Linux and macOS;
+//! `%APPDATA%\ssem-simulator\` on Windows)
 //! when the application exits, and restored on the next start.
 //! The `--theme` option overrides the saved theme for one session. Holding a
 //! view-mode key (T/F/M/C/D) does not repeat it: a press within 50 ms of the
