@@ -73,7 +73,7 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
     (
         "MOUSE",
         "",
-        "Drag the timeline bar to scrub the history; double-click a comment to edit it.",
+        "Drag the timeline bar to scrub the history; double-click a comment cell to edit or add it.",
     ),
 ];
 
@@ -131,8 +131,8 @@ pub(super) struct App {
     pub(super) flow: FlowMode,
 
     /// Whether the source-comment column is shown next to each store word
-    /// (toggled with the C key). Renders nothing when the input file has
-    /// no comments.
+    /// (toggled with the C key). A minimal column is kept even when no word
+    /// has a comment yet, so one can be added by double-clicking a row.
     pub(super) show_comments: bool,
 
     /// The color theme used to draw the interface (cycled with the T key,
@@ -578,8 +578,9 @@ impl App {
     /// If the screen position (column, row) lies in the comment column of a
     /// store-word row, return that word's index. The geometry mirrors
     /// `draw`: the column starts after the store text, the (effective)
-    /// heatmap, and the flow gutter, and exists only when comments are shown
-    /// and at least one word has a comment (or an edit is in progress).
+    /// heatmap, and the flow gutter, and exists whenever comments are shown
+    /// — a minimal column is kept even when no word has a comment yet, so
+    /// one can be added (or an edit is in progress).
     fn comment_cell_at(
         &self,
         column: u16,

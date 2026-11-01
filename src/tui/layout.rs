@@ -73,9 +73,16 @@ pub(super) const REGISTER_TEXT_WIDTH: usize = 49;
 /// are truncated to fit.
 pub(super) const MAX_COMMENT_WIDTH: usize = 80;
 
+/// Minimum width (in cells) of the source-comment column when comments are
+/// shown: even when no word has a comment yet, a minimal column (the " ;"
+/// prefix plus this many cells) is kept, so a comment can be added by
+/// double-clicking a store row.
+pub(super) const MIN_COMMENT_WIDTH: usize = 1;
+
 /// Width of the source-comment column for the given per-word comments:
 /// the widest comment, capped at `MAX_COMMENT_WIDTH`. Zero when no word
-/// has a comment, in which case the column is not drawn at all.
+/// has a comment (the drawn column then falls back to `MIN_COMMENT_WIDTH`,
+/// see `drawn_comment_width`).
 pub(super) fn comment_column_width(comments: &[Option<String>; 32]) -> usize {
     comments
         .iter()

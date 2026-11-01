@@ -21,7 +21,11 @@ fn comment_snapshot(comments: [Option<String>; 32]) -> Snapshot {
 #[test]
 pub(super) fn comment_column_width_is_the_widest_comment_capped() {
     let mut comments: [Option<String>; 32] = std::array::from_fn(|_| None);
-    assert_eq!(0, comment_column_width(&comments), "no comments, no column");
+    assert_eq!(
+        0,
+        comment_column_width(&comments),
+        "no comments, zero width"
+    );
     comments[1] = Some("short".into());
     comments[2] = Some("a bit longer".into());
     assert_eq!("a bit longer".len(), comment_column_width(&comments));
@@ -93,13 +97,21 @@ pub(super) fn c_key_toggles_the_comment_column() {
 }
 
 #[test]
-pub(super) fn no_comments_means_no_column_even_when_enabled() {
+pub(super) fn no_comments_still_draws_a_minimal_column_when_enabled() {
     let snap = snapshot_with_history(0); // all comments None
     let mut app = App::new();
+    app.flow = FlowMode::Off; // pin the layout: the comment column starts at 58
     assert!(app.show_comments);
     let buffer = render(&mut app, &snap, 100, 40);
 
-    assert!(!row_text(&buffer, 0).contains("COMMENTS"));
+    // The top bar advertises the column...
+    assert!(row_text(&buffer, 0).contains("[COMMENTS]"));
+    // ...and every store row shows a dim " ;" gutter as the double-click
+    // target for adding the first comment (word 0 is on screen row 5)
+    let col = comment_column(app.flow);
+    let row0: String = row_text(&buffer, 5).chars().skip(col).collect();
+    assert!(row0.starts_with(" ;"), "row0: {row0:?}");
+    assert_eq!(DARK.dim, buffer[(col as u16, 5)].fg);
     // The store text is not shifted: the bits start right after the pointer
     let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
     assert_eq!('.', chars[1]);
@@ -571,17 +583,33 @@ pub(super) fn a_long_buffer_shows_its_tail_with_the_cursor_at_the_end() {
 }
 
 #[test]
-pub(super) fn without_any_comment_there_is_no_column_to_double_click() {
+pub(super) fn double_click_with_no_comments_anywhere_opens_an_empty_editor() {
     let mut sim = Simulator::new(); // no comments at all
     let mut app = comment_edit_app();
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    // Even far right on a store row, a double-click opens the word editor:
-    // no comment column is drawn, so there is no comment cell
+    // Even far right on a store row, a double-click opens the comment
+    // editor: the minimal comment column is drawn, so that cell is a
+    // comment cell (word 1 is on screen row 6)
     double_click(&mut app, &mut sim, 90, 6);
+    assert!(app.comment_editor.is_open());
+    assert!(app.comment_editor.is_open_for(1));
+    assert!(!app.editor_popup.is_open());
+    assert_eq!("", app.comment_editor.buffer());
+
+    // Typing and Enter adds the first comment to the store
+    type_str(&mut app, &mut sim, "first comment");
+    press(&mut app, &mut sim, KeyCode::Enter);
     assert!(!app.comment_editor.is_open());
-    assert!(app.editor_popup.is_open());
+    assert_eq!(Some("first comment".to_string()), sim.store.comments[1]);
+
+    // Once a comment exists, the column grows to fit it and shows the text
+    let snap = Snapshot::from_sim(&sim);
+    let buffer = render(&mut app, &snap, 100, 40);
+    let col = comment_column(app.flow);
+    let row1: String = row_text(&buffer, 6).chars().skip(col).collect();
+    assert!(row1.starts_with(" ;first comment"), "row1: {row1:?}");
 }
 
 /// A Ctrl+Backspace key press, as CSI-u/kitty terminals report it.

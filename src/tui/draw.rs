@@ -12,8 +12,9 @@ use super::app::{App, KEYMAP};
 use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
 use super::layout::{
     A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, FlowMode, HEATMAP_BAR_WIDTH, HeatmapMode,
-    MAX_COMMENT_WIDTH, MIN_HEIGHT, MIN_WIDTH, REGISTER_TEXT_WIDTH, RW_BAR_WIDTH, STORE_ROW_OFFSET,
-    STORE_TEXT_WIDTH, comment_column_width, timeline_bar_geometry, timeline_marker_offset,
+    MAX_COMMENT_WIDTH, MIN_COMMENT_WIDTH, MIN_HEIGHT, MIN_WIDTH, REGISTER_TEXT_WIDTH, RW_BAR_WIDTH,
+    STORE_ROW_OFFSET, STORE_TEXT_WIDTH, comment_column_width, timeline_bar_geometry,
+    timeline_marker_offset,
 };
 use super::palette::Palette;
 use super::snapshot::Snapshot;
@@ -53,7 +54,10 @@ pub(super) fn comment_column_start(heatmap: HeatmapMode, flow: FlowMode) -> usiz
 /// the widest comment — or the in-progress inline edit (`edit_width`), so
 /// the text box stays visible while typing — capped at `MAX_COMMENT_WIDTH`
 /// and at the width left after the store text, the heatmap, and the flow
-/// gutter. Zero when comments are hidden or no word has a comment.
+/// gutter. When comments are shown, at least `MIN_COMMENT_WIDTH` is kept
+/// even when no word has a comment yet, so one can be added by
+/// double-clicking a store row. Zero when comments are hidden or no room
+/// is left at all.
 pub(super) fn drawn_comment_width(
     area_width: u16,
     heatmap: HeatmapMode,
@@ -68,6 +72,7 @@ pub(super) fn drawn_comment_width(
     let available = (area_width as usize).saturating_sub(comment_column_start(heatmap, flow) + 2);
     comment_column_width(comments)
         .max(edit_width.min(MAX_COMMENT_WIDTH))
+        .max(MIN_COMMENT_WIDTH)
         .min(available)
 }
 
@@ -416,6 +421,10 @@ impl App {
         } else {
             0
         };
+        // Whether no word carries a comment yet: the column then shows a
+        // dim " ;" gutter on every store row, as a visible double-click
+        // target to add the first comment
+        let no_comments = snap.comments.iter().all(Option::is_none);
         let mut gutter: Vec<Option<Span<'static>>> = vec![None; CONTENT_HEIGHT];
         if let Some(arrow) = &arrow {
             let style = Style::default().fg(arrow.color);
@@ -663,6 +672,15 @@ impl App {
                             let truncated: String = text.chars().take(comment_width).collect();
                             spans.push(Span::styled(
                                 format!(" ;{truncated:<comment_width$}"),
+                                Style::default().fg(self.palette().dim),
+                            ));
+                        }
+                        None if no_comments => {
+                            // No comment anywhere yet: a dim " ;" gutter
+                            // marks the column as the place to double-click
+                            // for adding one (same total width as padding)
+                            spans.push(Span::styled(
+                                format!(" ;{}", " ".repeat(comment_width)),
                                 Style::default().fg(self.palette().dim),
                             ));
                         }

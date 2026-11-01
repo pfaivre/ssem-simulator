@@ -17,8 +17,9 @@ cargo build
 cargo run -r samples/ssem/factorct.asm
 ```
 
-The CLI accepts one input file (`.asm` or `.snp`) and an optional `--max-cycles`
-/ `-m` limit (default 100,000,000):
+The CLI accepts an optional input file (`.asm` or `.snp`); without one it
+starts with an empty (all-zero) store. It also takes an optional
+`--max-cycles` / `-m` limit (default 100,000,000):
 
 ```sh
 cargo run -r -- --max-cycles 1000 samples/ssem/nightmare.snp
@@ -106,4 +107,3 @@ cargo clippy
 ## Suggestions for later development
 
 - Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.
-- Start with an empty store if no files are provided.

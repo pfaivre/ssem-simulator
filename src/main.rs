@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::Parser;
 
@@ -36,15 +36,19 @@ struct Args {
     #[arg(long, value_name = "FILE")]
     save: Option<PathBuf>,
 
-    /// Input file to initialize the store. Can be .asm or .snp format
+    /// Input file to initialize the store. Can be .asm or .snp format.
+    /// When omitted, the machine starts with an empty (all-zero) store
     #[arg(value_name = "FILE")]
-    file: PathBuf,
+    file: Option<PathBuf>,
 }
 
 fn main() {
     let args = Args::parse();
 
-    let mut simulator = Simulator::from_file(Path::new(&args.file));
+    let mut simulator = match &args.file {
+        Some(file) => Simulator::from_file(file),
+        None => Simulator::new(),
+    };
 
     if args.headless {
         // Headless mode: run to completion (or max-cycles) and print the result
