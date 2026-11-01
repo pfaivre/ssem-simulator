@@ -675,8 +675,9 @@ enum EditField {
 /// The editor pop-up for modifying registers and store words.
 ///
 /// While open, all key events are routed here by the main event loop.
-/// Press T to cycle the target (CI → A → WORD → CI), type a number, and
-/// press Enter to apply.
+/// Press T to cycle the target (CI → A → WORD → CI) — except in the WORD
+/// value field, where T types the letter so mnemonics like STP can be
+/// entered — then type a number or instruction and press Enter to apply.
 pub struct EditorPopup {
     open: bool,
     target: EditTarget,
@@ -757,7 +758,15 @@ impl EditorPopup {
             KeyCode::Enter => {
                 self.apply(sim);
             }
-            KeyCode::Char('t') | KeyCode::Char('T') => {
+            // T cycles the target — except in the WORD value/instruction
+            // field, where letters are typed (mnemonics like STP contain
+            // a T); there the key falls through to the Char arm below
+            KeyCode::Char('t') | KeyCode::Char('T')
+                if !matches!(
+                    (self.target, self.field),
+                    (EditTarget::Word, EditField::Value)
+                ) =>
+            {
                 self.target = match self.target {
                     EditTarget::Ci => EditTarget::A,
                     EditTarget::A => EditTarget::Word,
@@ -1382,6 +1391,44 @@ mod tests {
         popup.handle_key(press('(', KeyModifiers::SHIFT), &mut sim); // ( -> 5
         popup.handle_key(press('7', KeyModifiers::NONE), &mut sim);
         assert_eq!("057", popup.buffer);
+    }
+
+    #[test]
+    fn editor_popup_accepts_t_in_instruction_field() {
+        let mut popup = EditorPopup::new();
+        popup.open_for_word(5);
+        let mut sim = Simulator::new();
+
+        // A mnemonic containing T must be typable in the VALUE/INSTR field
+        popup.handle_key(press('s', KeyModifiers::NONE), &mut sim);
+        popup.handle_key(press('t', KeyModifiers::NONE), &mut sim);
+        popup.handle_key(press('p', KeyModifiers::NONE), &mut sim);
+        assert_eq!("STP", popup.buffer);
+        assert!(matches!(popup.target, EditTarget::Word));
+
+        // Enter applies it as the STP instruction
+        popup.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut sim);
+        assert_eq!(
+            sim.store.words[5],
+            Store::parse_word("STP").unwrap(),
+            "message: {}",
+            popup.message
+        );
+    }
+
+    #[test]
+    fn editor_popup_t_still_cycles_target_outside_instruction_field() {
+        let mut popup = EditorPopup::new();
+        popup.open(); // WORD target, ADDRESS field
+        let mut sim = Simulator::new();
+
+        popup.handle_key(press('t', KeyModifiers::NONE), &mut sim);
+        assert!(matches!(popup.target, EditTarget::Ci));
+        popup.handle_key(press('T', KeyModifiers::NONE), &mut sim);
+        assert!(matches!(popup.target, EditTarget::A));
+        popup.handle_key(press('t', KeyModifiers::NONE), &mut sim);
+        assert!(matches!(popup.target, EditTarget::Word));
+        assert!(matches!(popup.field, EditField::Address));
     }
 
     #[test]
