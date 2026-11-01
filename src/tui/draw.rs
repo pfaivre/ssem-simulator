@@ -149,6 +149,30 @@ impl App {
         })
     }
 
+    /// The assignment made by the last executed instruction, as a margin
+    /// label on the arrow's top line: "CI += -3", "A = 128", "[23] = 54".
+    ///
+    /// Loads, stores, and JMP are absolute (`=`, showing the new value);
+    /// arithmetic combinations (SUB, JRP) are relative (`+=`, with the
+    /// negated operand for SUB). CMP and STP move no data, so they get no
+    /// label — like the arrow, which `current_arrow` withholds for them.
+    fn assignment_label(snap: &Snapshot) -> Option<String> {
+        let li = snap.last_instruction?;
+        // `data` comes from `decode_word`, so it is masked to 0..=31 and
+        // indexing the store is safe
+        let operand = snap.store[li.data as usize];
+        match li.opcode {
+            Opcode::STO => Some(format!("[{:02}] = {}", li.data, snap.a)),
+            Opcode::LDN => Some(format!("A = {}", snap.a)),
+            Opcode::SUB | Opcode::SUB2 => Some(format!("A += {}", operand.wrapping_neg())),
+            Opcode::JMP => Some(format!("CI = {}", snap.ci)),
+            Opcode::JRP => Some(format!("CI += {operand}")),
+            // CMP and STP move no data; NUM never reaches the display
+            // (`Store::decode_word` always yields a real opcode)
+            Opcode::CMP | Opcode::STP | Opcode::NUM => None,
+        }
+    }
+
     /// Draw the entire interface from a state snapshot.
     pub(super) fn draw(&mut self, f: &mut Frame, snap: &Snapshot) {
         let area = f.area();
@@ -315,6 +339,16 @@ impl App {
             None
         };
         let arrow_target = arrow.as_ref().map(|a| a.target);
+        // The assignment label rides on the arrow's top line. The top row is
+        // always the CI or A row: store lines sit below the registers, so one
+        // of the arrow's endpoints is a register and it is the upper one.
+        // The label is drawn in the arrow's color, past the gutter; the
+        // comment column keeps its offset (register rows carry no comment).
+        let arrow_top = arrow.as_ref().map(|a| a.source.min(a.target));
+        let label_span = arrow
+            .as_ref()
+            .zip(Self::assignment_label(snap))
+            .map(|(a, text)| Span::styled(format!(" {text}"), Style::default().fg(a.color)));
 
         // Gutter cells for the rows whose text spans the full store width
         // (store words, and the blank row the arrow's vertical may cross).
@@ -416,6 +450,11 @@ impl App {
         if let Some(cell) = &register_gutter(CI_ROW) {
             ci_spans.push(cell.clone());
         }
+        if arrow_top == Some(CI_ROW)
+            && let Some(span) = &label_span
+        {
+            ci_spans.push(span.clone());
+        }
         lines.push(Line::from(ci_spans));
 
         // Row 2: Accumulator
@@ -435,6 +474,11 @@ impl App {
         ];
         if let Some(cell) = &register_gutter(A_ROW) {
             a_spans.push(cell.clone());
+        }
+        if arrow_top == Some(A_ROW)
+            && let Some(span) = &label_span
+        {
+            a_spans.push(span.clone());
         }
         lines.push(Line::from(a_spans));
 

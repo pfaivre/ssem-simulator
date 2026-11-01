@@ -464,6 +464,166 @@ pub(super) fn flow_mode_cycles_with_the_f_key() {
     assert_eq!(FlowMode::Data, app.flow);
 }
 
+/// The text drawn after the arrow's top-row gutter cell: the assignment
+/// label starts right after the corner column, one space in.
+fn margin_label(buffer: &Buffer, row: u16) -> String {
+    row_text(buffer, row)
+        .chars()
+        .skip(GUTTER_COLUMN + 1)
+        .collect()
+}
+
+#[test]
+pub(super) fn assignment_label_sto_is_on_the_accumulator_line() {
+    // STO 24 with A = 54: the arrow runs from A down to word 24, and its
+    // top line is the accumulator row, labeled "[24] = 54" in magenta
+    let mut store = [0; 32];
+    store[2] = Store::parse_word("STO 24").unwrap();
+    let mut snap = pointer_snapshot(2, store);
+    snap.a = 54;
+
+    let mut app = App::new();
+    app.flow = FlowMode::Data;
+    let buffer = render(&mut app, &snap, 80, 40);
+
+    // The label follows the corner on the accumulator row (screen row 3)
+    let a_row = margin_label(&buffer, 3);
+    assert!(
+        a_row.starts_with(" [24] = 54"),
+        "accumulator row: {a_row:?}"
+    );
+    assert_eq!(Color::Magenta, buffer[(GUTTER_COLUMN as u16 + 2, 3)].fg);
+
+    // Only the top of the arrow carries the label: the CI row and the
+    // destination word row do not
+    assert!(!margin_label(&buffer, 2).contains('='), "CI row");
+    assert!(!row_text(&buffer, 29).contains("[24]"), "target row");
+}
+
+#[test]
+pub(super) fn assignment_label_ldn_is_absolute_on_the_accumulator_line() {
+    // LDN 10 loads A = -store[10]: an absolute "A = ..." label
+    let mut store = [0; 32];
+    store[2] = Store::parse_word("LDN 10").unwrap();
+    store[10] = -128;
+    let mut snap = pointer_snapshot(2, store);
+    snap.a = 128;
+
+    let mut app = App::new();
+    app.flow = FlowMode::Data;
+    let buffer = render(&mut app, &snap, 80, 40);
+
+    let a_row = margin_label(&buffer, 3);
+    assert!(a_row.starts_with(" A = 128"), "accumulator row: {a_row:?}");
+    assert_eq!(Color::Magenta, buffer[(GUTTER_COLUMN as u16 + 2, 3)].fg);
+    assert!(!margin_label(&buffer, 2).contains('='), "CI row");
+}
+
+#[test]
+pub(super) fn assignment_label_sub_is_relative_and_cyan() {
+    // SUB 10 computes A -= store[10]: shown as the relative "A += -3"
+    let mut store = [0; 32];
+    store[2] = Store::parse_word("SUB 10").unwrap();
+    store[10] = 3;
+    let snap = pointer_snapshot(2, store);
+
+    let mut app = App::new();
+    app.flow = FlowMode::Data;
+    let buffer = render(&mut app, &snap, 80, 40);
+
+    let a_row = margin_label(&buffer, 3);
+    assert!(a_row.starts_with(" A += -3"), "accumulator row: {a_row:?}");
+    assert_eq!(Color::Cyan, buffer[(GUTTER_COLUMN as u16 + 2, 3)].fg);
+}
+
+#[test]
+pub(super) fn assignment_label_jmp_is_on_the_ci_line() {
+    // JMP 2 with store[2] = 20 copies the word into CI: "CI = 20",
+    // absolute, on the CI row (the arrow's top line)
+    let mut store = [0; 32];
+    store[1] = Store::parse_word("JMP 2").unwrap();
+    store[2] = 20;
+    let mut snap = pointer_snapshot(1, store);
+    snap.ci = 20;
+
+    let mut app = App::new();
+    app.flow = FlowMode::Data;
+    let buffer = render(&mut app, &snap, 80, 40);
+
+    let ci_row = margin_label(&buffer, 2);
+    assert!(ci_row.starts_with(" CI = 20"), "CI row: {ci_row:?}");
+    assert_eq!(Color::Magenta, buffer[(GUTTER_COLUMN as u16 + 2, 2)].fg);
+    assert!(!margin_label(&buffer, 3).contains('='), "accumulator row");
+}
+
+#[test]
+pub(super) fn assignment_label_jrp_is_relative_on_the_ci_line() {
+    // JRP 3 adds store[3] to CI: the relative "CI += -3", in cyan
+    let mut store = [0; 32];
+    store[10] = Store::parse_word("JRP 3").unwrap();
+    store[3] = -3;
+    let mut snap = pointer_snapshot(10, store);
+    snap.ci = 7; // (10 - 3) & 31, as the machine leaves it
+
+    let mut app = App::new();
+    app.flow = FlowMode::Data;
+    let buffer = render(&mut app, &snap, 80, 40);
+
+    let ci_row = margin_label(&buffer, 2);
+    assert!(ci_row.starts_with(" CI += -3"), "CI row: {ci_row:?}");
+    assert_eq!(Color::Cyan, buffer[(GUTTER_COLUMN as u16 + 2, 2)].fg);
+}
+
+#[test]
+pub(super) fn no_assignment_label_without_an_arrow() {
+    // CMP and STP move no data: no arrow, so no label either
+    let mut store = [0; 32];
+    store[1] = Store::parse_word("CMP").unwrap();
+    let snap = pointer_snapshot(1, store);
+
+    let mut app = App::new();
+    app.flow = FlowMode::Data;
+    let buffer = render(&mut app, &snap, 80, 40);
+    assert!(!margin_label(&buffer, 2).contains('='), "CI row");
+    assert!(!margin_label(&buffer, 3).contains('='), "accumulator row");
+
+    // Flow view off: the arrow is gone and so is the label
+    let mut store = [0; 32];
+    store[2] = Store::parse_word("STO 24").unwrap();
+    let mut snap = pointer_snapshot(2, store);
+    snap.a = 54;
+    app.flow = FlowMode::Off;
+    let buffer = render(&mut app, &snap, 80, 40);
+    assert!(
+        !margin_label(&buffer, 3).contains("[24]"),
+        "accumulator row"
+    );
+}
+
+#[test]
+pub(super) fn assignment_label_keeps_the_comment_column_offset() {
+    // The label overflows past the gutter on the register row only; the
+    // comment column on the store rows keeps its offset
+    let mut store = [0; 32];
+    store[2] = Store::parse_word("STO 10").unwrap();
+    let mut comments: [Option<String>; 32] = std::array::from_fn(|_| None);
+    comments[10] = Some(" stored".into());
+    let mut snap = pointer_snapshot(2, store);
+    snap.a = 54;
+    snap.comments = Arc::new(comments);
+
+    let mut app = App::new();
+    app.flow = FlowMode::Data;
+    let buffer = render(&mut app, &snap, 100, 40);
+
+    // The label is on the accumulator row, after the corner
+    assert!(margin_label(&buffer, 3).starts_with(" [10] = 54"));
+    // The comment of word 10 still starts right after the 4-cell gutter
+    let col = STORE_TEXT_WIDTH + ARROW_EXTRA_WIDTH as usize;
+    let comment: String = row_text(&buffer, 15).chars().skip(col).collect();
+    assert!(comment.starts_with(" ; stored"), "row: {comment:?}");
+}
+
 #[test]
 pub(super) fn pointer_arrows_crop_the_right_side_when_narrow() {
     let snap = pointer_snapshot(0, [0; 32]);

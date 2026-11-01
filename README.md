@@ -34,6 +34,11 @@ A flow graph on the margin displays the logical path of the program:
 
 ![Graph view of the control flow](docs/graph.png)
 
+A second flow graph shows where the data moves:
+
+![Graph view of the control flow](docs/flow_data.png)
+
+
 ## Syntax highlighting
 
 Mnemonics are colored by category, matching the flow arrows: magenta for data movement (LDN, STO, JMP), cyan for arithmetic (SUB, SUB2, JRP), white for CMP and red for STP.
