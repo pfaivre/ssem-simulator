@@ -22,22 +22,27 @@ pub const TERMINAL: Palette = Palette {
     dim: Color::DarkGray,
     zebra_bg: Color::Reset,
 
-    // Opcodes (shared with the pointer arrows)
-    op_movement: Color::Magenta,
-    op_arithmetic: Color::Cyan,
+    // Opcodes (shared with the pointer arrows and the graph edges): jumps
+    // in magenta, memory accesses in cyan, arithmetic in light green; red
+    // is reserved for STP and breakpoints
+    op_jump: Color::Magenta,
+    op_memory: Color::Cyan,
+    op_arithmetic: Color::LightGreen,
     op_test: Color::White,
     op_halt: Color::Red,
     op_num: Color::DarkGray,
 
-    // Heatmap ramps (low, mid, high)
-    exec_ramp: [Color::Green, Color::Yellow, Color::Red],
-    read_ramp: [Color::Blue, Color::Cyan, Color::LightCyan],
-    write_ramp: [Color::Yellow, Color::Red, Color::LightRed],
+    // Heatmap ramps (low, mid, high), each in the hue family of what it
+    // measures: exec in the jump magenta family, reads in the memory cyan
+    // family, writes in the destination yellow family
+    exec_ramp: [Color::Magenta, Color::LightMagenta, Color::White],
+    read_ramp: [Color::Cyan, Color::LightCyan, Color::White],
+    write_ramp: [Color::Yellow, Color::LightYellow, Color::White],
 
-    // Control-flow graph edges
-    edge_loop: Color::Red,
+    // Control-flow graph edges: jump edges take the jump color (backward
+    // edges are bold), CMP skip edges the test color, fall-through is dim
     edge_fallthrough: Color::DarkGray,
-    edge_jump: Color::Yellow,
+    edge_jump: Color::Magenta,
     edge_skip: Color::White,
 
     // Timeline and scrub pop-up

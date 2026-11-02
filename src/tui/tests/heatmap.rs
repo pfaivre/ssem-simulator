@@ -55,7 +55,11 @@ pub(super) fn exec_heatmap_draws_one_bar_per_word() {
     let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
     assert_eq!(&['█', '█', '█', '█', '█', '█'], &chars[2..8]);
     assert_eq!(' ', chars[8]);
-    assert_eq!(DARK.exec_ramp[2], buffer[(2, 10)].fg, "hottest line is red");
+    assert_eq!(
+        DARK.exec_ramp[2],
+        buffer[(2, 10)].fg,
+        "hottest line uses the top of the exec ramp"
+    );
 
     // Word 9 (row 14): ratio 1/4 = 0.25 -> filled = ceil(0.25*6) = 2, green
     let chars: Vec<char> = row_text(&buffer, 14).chars().collect();

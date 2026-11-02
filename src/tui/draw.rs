@@ -170,11 +170,12 @@ impl App {
     /// - LDN: from the source word to the accumulator
     /// - SUB/SUB2: like LDN, in a different color
     /// - JMP: from the word holding the target value to CI (a copy)
-    /// - JRP: like JMP, in a different color (the value is added to CI)
+    /// - JRP: like JMP, in the same jump color (the value is added to CI)
     ///
-    /// Every arrow is a data movement, so the color matches the operation:
-    /// magenta when a value is loaded or stored, cyan when it is
-    /// arithmetically combined. The arrow follows the executed instruction
+    /// The arrow takes the operation's category color, shared with the
+    /// mnemonic and the graph edge: the memory color for LDN/STO, the jump
+    /// color for JMP/JRP, the arithmetic color for SUB/SUB2. The arrow
+    /// follows the executed instruction
     /// rather than CI: after a jump, CI holds the target value, so the word
     /// at CI is neither the last nor the next instruction to execute (CI is
     /// incremented before each fetch). Returns `None` when no instruction

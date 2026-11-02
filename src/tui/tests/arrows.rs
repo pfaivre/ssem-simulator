@@ -29,7 +29,7 @@ pub(super) fn pointer_arrow_sto_points_from_accumulator_to_word() {
         "source row: {source:?}"
     );
     assert_eq!('╮', source.chars().nth(GUTTER_COLUMN).unwrap());
-    assert_eq!(DARK.op_movement, buffer[(GUTTER_COLUMN as u16, 3)].fg);
+    assert_eq!(DARK.op_memory, buffer[(GUTTER_COLUMN as u16, 3)].fg);
 
     // Intermediate rows hold the vertical segment (including the blank row 4)
     for row in 4..29 {
@@ -79,7 +79,7 @@ pub(super) fn pointer_arrow_ldn_points_from_word_to_accumulator() {
         "source row: {source:?}"
     );
     assert_eq!('╯', source.chars().nth(GUTTER_COLUMN).unwrap());
-    assert_eq!(DARK.op_movement, buffer[(GUTTER_COLUMN as u16, 15)].fg);
+    assert_eq!(DARK.op_memory, buffer[(GUTTER_COLUMN as u16, 15)].fg);
 
     // Intermediate rows hold the vertical segment
     for row in 4..15 {
@@ -121,7 +121,7 @@ pub(super) fn pointer_arrow_sub_uses_a_different_color() {
     app.flow = FlowMode::Data;
     let buffer = render(&mut app, &snap, 80, 40);
 
-    // Like LDN, but the arrow is cyan instead of magenta
+    // Like LDN, but in the arithmetic color instead of the memory color
     assert_eq!(DARK.op_arithmetic, buffer[(GUTTER_COLUMN as u16, 15)].fg);
     assert_eq!(DARK.op_arithmetic, buffer[(GUTTER_COLUMN as u16, 10)].fg);
     // The accumulator is still the highlighted destination
@@ -148,7 +148,7 @@ pub(super) fn pointer_arrow_jmp_points_from_word_to_ci() {
         "source row: {source:?}"
     );
     assert_eq!('╯', source.chars().nth(GUTTER_COLUMN).unwrap());
-    assert_eq!(DARK.op_movement, buffer[(GUTTER_COLUMN as u16, 29)].fg);
+    assert_eq!(DARK.op_jump, buffer[(GUTTER_COLUMN as u16, 29)].fg);
 
     // The vertical crosses the blank row and the accumulator row
     for row in 3..29 {
@@ -172,7 +172,7 @@ pub(super) fn pointer_arrow_jmp_points_from_word_to_ci() {
 }
 
 #[test]
-pub(super) fn pointer_arrow_jrp_adds_the_word_to_ci_in_cyan() {
+pub(super) fn pointer_arrow_jrp_adds_the_word_to_ci_like_jmp() {
     // JRP adds the word to CI: the same data flow as JMP (word to CI),
     // but cyan like SUB, marking an arithmetic combination.
     let mut store = [0; 32];
@@ -200,13 +200,13 @@ pub(super) fn pointer_arrow_jrp_adds_the_word_to_ci_in_cyan() {
             "row {row}: {text:?}"
         );
     }
-    assert_eq!(DARK.op_arithmetic, buffer[(GUTTER_COLUMN as u16, 3)].fg);
-    assert_eq!(DARK.op_arithmetic, buffer[(GUTTER_COLUMN as u16, 8)].fg);
+    assert_eq!(DARK.op_jump, buffer[(GUTTER_COLUMN as u16, 3)].fg);
+    assert_eq!(DARK.op_jump, buffer[(GUTTER_COLUMN as u16, 8)].fg);
 
     // The arrow arrives at the CI row, the highlighted destination
     let target = row_text(&buffer, 2);
     assert_eq!('◀', target.chars().nth(50).unwrap(), "CI row: {target:?}");
-    assert_eq!(DARK.op_arithmetic, buffer[(GUTTER_COLUMN as u16, 2)].fg);
+    assert_eq!(DARK.op_jump, buffer[(GUTTER_COLUMN as u16, 2)].fg);
     assert_eq!(DARK.highlight, buffer[(5, 2)].fg);
 }
 
@@ -492,7 +492,7 @@ pub(super) fn assignment_label_sto_is_on_the_accumulator_line() {
         a_row.starts_with(" [24] = 54"),
         "accumulator row: {a_row:?}"
     );
-    assert_eq!(DARK.op_movement, buffer[(GUTTER_COLUMN as u16 + 2, 3)].fg);
+    assert_eq!(DARK.op_memory, buffer[(GUTTER_COLUMN as u16 + 2, 3)].fg);
 
     // Only the top of the arrow carries the label: the CI row and the
     // destination word row do not
@@ -515,7 +515,7 @@ pub(super) fn assignment_label_ldn_is_absolute_on_the_accumulator_line() {
 
     let a_row = margin_label(&buffer, 3);
     assert!(a_row.starts_with(" A = 128"), "accumulator row: {a_row:?}");
-    assert_eq!(DARK.op_movement, buffer[(GUTTER_COLUMN as u16 + 2, 3)].fg);
+    assert_eq!(DARK.op_memory, buffer[(GUTTER_COLUMN as u16 + 2, 3)].fg);
     assert!(!margin_label(&buffer, 2).contains('='), "CI row");
 }
 
@@ -552,7 +552,7 @@ pub(super) fn assignment_label_jmp_is_on_the_ci_line() {
 
     let ci_row = margin_label(&buffer, 2);
     assert!(ci_row.starts_with(" CI = 20"), "CI row: {ci_row:?}");
-    assert_eq!(DARK.op_movement, buffer[(GUTTER_COLUMN as u16 + 2, 2)].fg);
+    assert_eq!(DARK.op_jump, buffer[(GUTTER_COLUMN as u16 + 2, 2)].fg);
     assert!(!margin_label(&buffer, 3).contains('='), "accumulator row");
 }
 
@@ -571,7 +571,7 @@ pub(super) fn assignment_label_jrp_is_relative_on_the_ci_line() {
 
     let ci_row = margin_label(&buffer, 2);
     assert!(ci_row.starts_with(" CI += -3"), "CI row: {ci_row:?}");
-    assert_eq!(DARK.op_arithmetic, buffer[(GUTTER_COLUMN as u16 + 2, 2)].fg);
+    assert_eq!(DARK.op_jump, buffer[(GUTTER_COLUMN as u16 + 2, 2)].fg);
 }
 
 #[test]

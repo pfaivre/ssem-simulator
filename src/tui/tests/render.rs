@@ -24,13 +24,13 @@ pub(super) fn mnemonics_are_colored_by_category() {
     let buffer = render(&mut app, &snap, 80, 40);
 
     // Store word i is drawn on screen row 5 + i. The colors match the
-    // pointer-arrow palette: magenta for a data movement, cyan for an
-    // arithmetic combination.
+    // pointer-arrow palette: jumps (JMP, JRP) together, memory accesses
+    // (LDN, STO) together, then arithmetic, test, and halt.
     let expected = [
-        (0, "JMP", DARK.op_movement),
-        (1, "JRP", DARK.op_arithmetic),
-        (2, "LDN", DARK.op_movement),
-        (3, "STO", DARK.op_movement),
+        (0, "JMP", DARK.op_jump),
+        (1, "JRP", DARK.op_jump),
+        (2, "LDN", DARK.op_memory),
+        (3, "STO", DARK.op_memory),
         (4, "SUB", DARK.op_arithmetic),
         (5, "SUB2", DARK.op_arithmetic),
         (6, "CMP", DARK.op_test),
@@ -273,7 +273,7 @@ pub(super) fn help_popup_documents_the_color_code_and_paused_markers() {
         .map(|y| row_text(&buffer, y))
         .collect();
     assert!(all.contains("Mnemonic colors:"), "color legend missing");
-    assert!(all.contains("data movement"), "color legend missing");
+    assert!(all.contains("memory access"), "color legend missing");
     assert!(
         all.contains("Markers when paused:"),
         "marker legend missing"

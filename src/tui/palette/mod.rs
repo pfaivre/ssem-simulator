@@ -79,20 +79,29 @@ pub struct Palette {
 
     /// Mnemonic and pointer-arrow colors, by operation category. The two
     /// share the palette so a mnemonic's color tells the same story as the
-    /// arrow its instruction draws.
-    pub op_movement: Color,
+    /// arrow its instruction draws. The hue families follow the meaning:
+    /// jumps and their graph edges share one family, memory accesses
+    /// (LDN/STO and the read heatmap) another, and red is reserved for
+    /// halting (STP and breakpoints).
+    pub op_jump: Color,
+    pub op_memory: Color,
     pub op_arithmetic: Color,
     pub op_test: Color,
     pub op_halt: Color,
     pub op_num: Color,
 
-    /// Heatmap bar ramps (low, mid, high).
+    /// Heatmap bar ramps (low, mid, high). Each ramp stays in the hue family
+    /// of the feature it measures: exec in the jump/control-flow family,
+    /// reads in the memory family, writes in the data-destination
+    /// (highlight) family.
     pub exec_ramp: [Color; 3],
     pub read_ramp: [Color; 3],
     pub write_ramp: [Color; 3],
 
-    /// Control-flow graph edges.
-    pub edge_loop: Color,
+    /// Control-flow graph edges, colored after the instruction family that
+    /// creates them: a jump edge takes `op_jump` (a backward edge is the
+    /// same color, bold), a CMP skip edge takes `op_test`, and a plain
+    /// fall-through is dimmed.
     pub edge_fallthrough: Color,
     pub edge_jump: Color,
     pub edge_skip: Color,
@@ -114,14 +123,15 @@ pub struct Palette {
 
 impl Palette {
     /// The syntax-highlight color of an instruction mnemonic, by category:
-    /// a data movement (LDN, STO, JMP), an arithmetic combination (SUB,
-    /// SUB2, JRP), a test (CMP), a halt (STP). NUM never reaches the display
-    /// (`Store::decode_word` always yields a real opcode); it is mapped
-    /// anyway to keep the match exhaustive.
+    /// a jump (JMP, JRP), a memory access (LDN, STO), an arithmetic
+    /// combination (SUB, SUB2), a test (CMP), a halt (STP). NUM never
+    /// reaches the display (`Store::decode_word` always yields a real
+    /// opcode); it is mapped anyway to keep the match exhaustive.
     pub fn opcode(&self, opcode: Opcode) -> Color {
         match opcode {
-            Opcode::JMP | Opcode::LDN | Opcode::STO => self.op_movement,
-            Opcode::JRP | Opcode::SUB | Opcode::SUB2 => self.op_arithmetic,
+            Opcode::JMP | Opcode::JRP => self.op_jump,
+            Opcode::LDN | Opcode::STO => self.op_memory,
+            Opcode::SUB | Opcode::SUB2 => self.op_arithmetic,
             Opcode::CMP => self.op_test,
             Opcode::STP => self.op_halt,
             Opcode::NUM => self.op_num,

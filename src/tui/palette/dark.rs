@@ -22,24 +22,28 @@ pub const DARK: Palette = Palette {
     dim: rgb(0x6C707D),
     zebra_bg: rgb(0x2f343f),
 
-    // Opcodes (shared with the pointer arrows):
-    // colors.normal magenta/cyan/white/red, colors.bright black
-    op_movement: rgb(0xBD88AC),
-    op_arithmetic: rgb(0x8DB7B5),
+    // Opcodes (shared with the pointer arrows and the graph edges): jumps
+    // in magenta, memory accesses in cyan, arithmetic in blue; red is
+    // reserved for STP and breakpoints
+    op_jump: rgb(0xBD88AC),
+    op_memory: rgb(0x8DB7B5),
+    op_arithmetic: rgb(0x6C9EF8),
     op_test: rgb(0xEFF1F5),
     op_halt: rgb(0xCE5564),
     op_num: rgb(0x6C707D),
 
-    // Heatmap ramps (low, mid, high): normal green/yellow/red,
-    // normal blue/cyan, normal yellow/red; highs are the bright variants
-    exec_ramp: [rgb(0x98C38C), rgb(0xEFCD86), rgb(0xCE5564)],
-    read_ramp: [rgb(0x8CA1B4), rgb(0x8DB7B5), rgb(0xA0BBBA)],
-    write_ramp: [rgb(0xEFCD86), rgb(0xCE5564), rgb(0xCF6773)],
+    // Heatmap ramps (low, mid, high), each in the hue family of what it
+    // measures: exec in the jump magenta family, reads in the memory cyan
+    // family, writes in the destination yellow family (all distinct shades
+    // of the corresponding flat op/highlight colors)
+    exec_ramp: [rgb(0x8A6284), rgb(0xB07BA0), rgb(0xDDB8DC)],
+    read_ramp: [rgb(0x628E8C), rgb(0x7FA8A6), rgb(0xC2E2E0)],
+    write_ramp: [rgb(0xB39A5F), rgb(0xD4B96F), rgb(0xF0E2B4)],
 
-    // Control-flow graph edges (colors.normal red/yellow/white, bright black)
-    edge_loop: rgb(0xCE5564),
+    // Control-flow graph edges: jump edges take the jump color (backward
+    // edges are bold), CMP skip edges the test color, fall-through is dim
     edge_fallthrough: rgb(0x6C707D),
-    edge_jump: rgb(0xEFCD86),
+    edge_jump: rgb(0xBD88AC),
     edge_skip: rgb(0xEFF1F5),
 
     // Timeline and scrub pop-up (normal yellow; the pop-up text is the
@@ -48,9 +52,10 @@ pub const DARK: Palette = Palette {
     scrub_popup_fg: rgb(0x2B303B),
     scrub_popup_bg: rgb(0xEFCD86),
 
-    // Pop-ups (colors.normal red/yellow/green)
+    // Pop-ups (red for the breakpoint "stop", yellow for the editor, a
+    // cool tint for save; the preview is the value green)
     breakpoint_border: rgb(0xCE5564),
     editor_border: rgb(0xEFCD86),
-    save_border: rgb(0x6C9EF8),
+    save_border: rgb(0xA0BBBA),
     preview: rgb(0x98C38C),
 };

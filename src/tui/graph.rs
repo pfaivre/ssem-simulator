@@ -124,13 +124,14 @@ pub(super) fn reachable_edges(store: &[i32; 32]) -> (Vec<CfgEdge>, [bool; 32]) {
     (edges, reachable)
 }
 
-/// The style of a control-flow edge: a backward edge (target at or above the
-/// source) closes a loop and is highlighted in bold; forward edges take
-/// the color of their kind.
+/// The style of a control-flow edge: edges are colored after the
+/// instruction family that creates them (a jump edge takes the jump
+/// color, a CMP skip edge the test color), and a backward edge (target at
+/// or above the source) closes a loop: same jump color, bold.
 fn edge_style(edge: &CfgEdge, palette: &Palette) -> Style {
     if edge.target <= edge.source {
         Style::default()
-            .fg(palette.edge_loop)
+            .fg(palette.edge_jump)
             .add_modifier(Modifier::BOLD)
     } else {
         match edge.kind {

@@ -198,8 +198,9 @@ impl HelpPopup {
         lines.push(Line::from(""));
         lines.push(Line::from("Mnemonic colors:"));
         for (mnemonics, opcode, description) in [
-            ("LDN STO  JMP", Opcode::LDN, "data movement"),
-            ("SUB SUB2 JRP", Opcode::SUB, "arithmetic"),
+            ("JMP JRP", Opcode::JMP, "jump"),
+            ("LDN STO", Opcode::LDN, "memory access"),
+            ("SUB SUB2", Opcode::SUB, "arithmetic"),
             ("CMP", Opcode::CMP, "test"),
             ("STP", Opcode::STP, "halt"),
         ] {
@@ -265,15 +266,8 @@ impl HelpPopup {
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "\u{25c0}\u{2500}\u{2500} jump forward",
+                "\u{25c0}\u{2500}\u{2500} jump",
                 Style::default().fg(palette.edge_jump),
-            ),
-        ]));
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(
-                "\u{25c0}\u{2500}\u{2500} jump backward (loop)",
-                Style::default().fg(palette.edge_loop),
             ),
         ]));
         lines.push(Line::from(vec![

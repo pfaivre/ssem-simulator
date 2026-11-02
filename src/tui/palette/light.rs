@@ -20,22 +20,29 @@ pub const LIGHT: Palette = Palette {
     dim: rgb(0x8A8F98),
     zebra_bg: rgb(0xECECEC),
 
-    // Opcodes (shared with the pointer arrows)
-    op_movement: rgb(0xA626A4),
-    op_arithmetic: rgb(0x0E7C86),
+    // Opcodes (shared with the pointer arrows and the graph edges): jumps
+    // in purple, memory accesses in teal, arithmetic in blue; red is
+    // reserved for STP and breakpoints
+    op_jump: rgb(0xA626A4),
+    op_memory: rgb(0x0E7C86),
+    op_arithmetic: rgb(0x0550AE),
     op_test: rgb(0x1F2328),
     op_halt: rgb(0xD1242F),
     op_num: rgb(0x8A8F98),
 
-    // Heatmap ramps (low, mid, high)
-    exec_ramp: [rgb(0x2E7D32), rgb(0xC77400), rgb(0xD1242F)],
-    read_ramp: [rgb(0x3B6FD4), rgb(0x0E7C86), rgb(0x0891B2)],
-    write_ramp: [rgb(0xC77400), rgb(0xD1242F), rgb(0xB91C1C)],
+    // Heatmap ramps (low, mid, high), each in the hue family of what it
+    // measures: exec in the jump purple family, reads in the memory teal
+    // family, writes in the destination amber family. On a light background
+    // the ramps run the other way round from the dark themes: the darkest
+    // shade marks the highest count
+    exec_ramp: [rgb(0xDDB6E6), rgb(0xB07FC0), rgb(0x8F5C96)],
+    read_ramp: [rgb(0x8FCCC6), rgb(0x2E8B85), rgb(0x0A565D)],
+    write_ramp: [rgb(0xF2C063), rgb(0xC87F1F), rgb(0x93450A)],
 
-    // Control-flow graph edges
-    edge_loop: rgb(0xD1242F),
+    // Control-flow graph edges: jump edges take the jump color (backward
+    // edges are bold), CMP skip edges the test color, fall-through is dim
     edge_fallthrough: rgb(0x8A8F98),
-    edge_jump: rgb(0xB45309),
+    edge_jump: rgb(0xA626A4),
     edge_skip: rgb(0x1F2328),
 
     // Timeline and scrub pop-up
