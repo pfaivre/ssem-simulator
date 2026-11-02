@@ -107,3 +107,9 @@ cargo clippy
 ## Suggestions for later development
 
 - Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.
+- When rewinding back in the earliest state, we lose all changes we made. It would be would be more useful that the earliest state in history is the one where changes have been made.
+- Close pop-ups by clicking outside
+- More themes
+- more mouse interactions (changing speed, play/pause, etc.)
+- first start screen
+- Add CMP to data flow chart. Maybe with a label "A >= 0 ?"

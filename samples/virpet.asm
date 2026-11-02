@@ -1,10 +1,63 @@
-; virpet.asm - Virtual pet, like the "Tamagotchi" children's toy The
-; virtual pet must constantly be fed.  As long as it has sufficient
-; food, it shows a happy face, and a full belly.  When it runs out, it
-; shows a sad face and a slim profile.  You can then pause the machine
-; to give it more food by loading a number, e.g. 512, into line 22.  It
-; will then return to a happy face until it runs out again. By Achut
-; Reddy, USA.
+; NAME
+;     Achut Reddy
+;     achut@sun.com
+;
+; COUNTRY
+;     USA
+;
+; DESCRIPTION
+;     Virtual pet, like the currently popular "Tamagotchi" children's toys.
+;     The virtual pet must constantly be fed.  As long as it has sufficient food,
+;     it shows a happy face, and a full belly.  When it runs out, it shows a
+;     sad face and a slim profile.  You can then pause the machine to give it
+;     more food.  It will then return to a happy face until it runs out again.
+;
+;
+; FEATURES
+;     It is a graphical, interactive program!
+;     Uses all 32 words of the store.
+;
+; DETAILS
+;     The last 4 lines (28-31) of store are used as the graphical display area.
+;     Two images are always shown there:  a full length image, and a facial
+;     close-up.  Both are indicators of the current "mood" of the virtual
+;     pet, which depends solely on the amount food it has available.
+;     The virtual pet has a voracious appetite; it consumes about 100 units
+;     of food every second.  The initial food supply is 1000, which will
+;     last about 10 seconds.  After the food runs out, the images change to
+;     sad/hungry, and it loops endlessly waiting for food.  The virtual pet can
+;     be fed by entering a number of food units into line 22, by temporarily
+;     putting the machine into Manual mode, and keying in a value. Then,
+;     when the program is continued, the images change to happy/full, and the
+;     virtual pet continues to thrive.
+;
+;     Happy image:
+;
+;     28	--*-*--
+;     29	-------
+;     30	-*---*-
+;     31	--***--
+;
+;     Sad image:
+;
+;     28	--*-*--
+;     29	-------
+;     30	--***--
+;     31	-*---*-
+;
+;     Full image:
+;
+;     28	--*---
+;     29	-***--
+;     30	-*-*--
+;     31	--*---
+;
+;     Empty stomach image:
+;
+;     28	--*---
+;     29	-***--
+;     30	--*---
+;     31	-*-*--
 ;
 ; Encoding notes:
 ; - Line 00 is never executed (CI is pre-incremented, so execution starts at
