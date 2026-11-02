@@ -11,7 +11,8 @@ use super::config::Config;
 use super::draw::{comment_column_start, drawn_comment_width, effective_heatmap};
 use super::layout::{
     CHROME_HEIGHT, CONTENT_HEIGHT, DATA_WIDTH, FlowMode, HeatmapMode, MIN_HEIGHT, MIN_WIDTH,
-    MNEMONIC_WIDTH, STORE_ROW_OFFSET, data_column, mnemonic_column, timeline_bar_geometry,
+    MNEMONIC_WIDTH, STORE_ROW_OFFSET, data_column, mnemonic_column, scrollbar_metrics,
+    scrollbar_scroll_for_thumb_start, scrollbar_thumb_start, timeline_bar_geometry,
 };
 use super::palette::{Palette, Theme};
 use super::popups::{
@@ -161,6 +162,11 @@ pub(super) struct App {
     /// Whether the user is currently dragging the timeline scrubber.
     pub(super) scrubbing: bool,
 
+    /// While dragging the main body's scrollbar, the offset between the
+    /// cursor's row and the thumb's top row at grab time, so the thumb
+    /// follows the cursor 1:1. None when not dragging.
+    pub(super) scrollbar_grab: Option<i32>,
+
     /// Screen area of the timeline bar, for mouse hit-testing.
     pub(super) timeline_area: Rect,
 
@@ -212,6 +218,7 @@ impl App {
             last_mode_key: None,
             mode_key_guard: MODE_KEY_REPEAT_GUARD,
             scrubbing: false,
+            scrollbar_grab: None,
             timeline_area: Rect::default(),
             should_quit: false,
         }
@@ -504,9 +511,11 @@ impl App {
     /// Handle a mouse event: scrub the timeline, double-click to edit,
     /// scroll wheel to scroll.
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent, sim: &mut Simulator) {
-        // Releasing the left button ends a scrub, wherever the cursor is
+        // Releasing the left button ends a scrub or a scrollbar drag,
+        // wherever the cursor is
         if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) {
             self.scrubbing = false;
+            self.scrollbar_grab = None;
             return;
         }
 
@@ -514,6 +523,17 @@ impl App {
         // (scrub_to_column clamps the column to the bar)
         if self.scrubbing && matches!(mouse.kind, MouseEventKind::Drag(MouseButton::Left)) {
             self.scrub_to_column(mouse.column + 1, sim);
+            return;
+        }
+
+        // While dragging the scrollbar, drags anywhere on screen move the
+        // thumb, even off the scrollbar column (scroll_thumb_to_row clamps
+        // the row to the track)
+        if let Some(offset) = self.scrollbar_grab
+            && matches!(mouse.kind, MouseEventKind::Drag(MouseButton::Left))
+        {
+            let target = (mouse.row as i32 - offset).max(0) as u16;
+            self.scroll_thumb_to_row(target);
             return;
         }
 
@@ -577,6 +597,21 @@ impl App {
                 }
                 _ => {}
             }
+            return;
+        }
+
+        // The scrollbar on the right edge of the main body (shown when the
+        // window is too short for the whole body): press to jump the thumb
+        // there and grab it. The drag itself is handled above, so it keeps
+        // working when the cursor leaves the column; the wheel keeps working
+        // on that column too (handled by the generic scroll below).
+        if self.scrollbar_hit(mouse.column, mouse.row)
+            && matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+        {
+            self.scroll_thumb_to_row(mouse.row);
+            let body_height = self.last_area.height.saturating_sub(CHROME_HEIGHT);
+            let thumb_top = 1 + scrollbar_thumb_start(body_height, self.store_scroll) as i32;
+            self.scrollbar_grab = Some(mouse.row as i32 - thumb_top);
             return;
         }
 
@@ -711,6 +746,38 @@ impl App {
             r if (STORE_ROW_OFFSET..CONTENT_HEIGHT).contains(&r) => Some(r - STORE_ROW_OFFSET),
             _ => None,
         }
+    }
+
+    /// Whether the given screen position is on the scrollbar drawn on the
+    /// right edge of the main body. The scrollbar exists only when the
+    /// window is too short for the whole body (all CONTENT_HEIGHT rows);
+    /// it spans the body rows (between the top bar and the timeline).
+    fn scrollbar_hit(&self, column: u16, row: u16) -> bool {
+        let area = self.last_area;
+        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+            return false;
+        }
+        let body_height = area.height.saturating_sub(CHROME_HEIGHT);
+        if (body_height as usize) >= CONTENT_HEIGHT {
+            return false;
+        }
+        column == area.right() - 1 && (1..area.height - 2).contains(&row)
+    }
+
+    /// Set the scroll so the scrollbar thumb's top lands on the given
+    /// screen row, clamped to the track: the top arrow row scrolls to the
+    /// top, the bottom one to the end.
+    fn scroll_thumb_to_row(&mut self, row: u16) {
+        let body_height = self.last_area.height.saturating_sub(CHROME_HEIGHT);
+        let (track, thumb, max_scroll) = scrollbar_metrics(body_height);
+        if track == 0 || max_scroll == 0 {
+            return;
+        }
+        // The thumb's first screen row is 1 + start (the body starts at
+        // row 1 and the scrollbar has no begin arrow), so the track offset
+        // is row - 1
+        let start = (row as i32 - 1).clamp(0, (track - thumb) as i32) as usize;
+        self.store_scroll = scrollbar_scroll_for_thumb_start(body_height, start);
     }
 
     /// Open the editor pop-up if the given screen row corresponds to CI, A, or a store word.

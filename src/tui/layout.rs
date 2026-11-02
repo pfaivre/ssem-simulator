@@ -85,6 +85,55 @@ const _: () = assert!(
     STORE_TEXT_WIDTH == POINTER_WIDTH + BITS_WIDTH + SUFFIX_WIDTH + MNEMONIC_WIDTH + DATA_WIDTH
 );
 
+/// Rounding integer division `(n + d/2) / d`, mirroring the scrollbar
+/// widget's thumb math so the app's hit-testing matches what is drawn.
+pub(super) const fn rounding_divide(numerator: usize, denominator: usize) -> usize {
+    (numerator + denominator / 2) / denominator
+}
+
+/// The scrollbar metrics of the main body for a body `body_height` rows
+/// tall: (track length, thumb length, max scroll). The scrollbar has no
+/// begin/end arrows, so the track spans the whole body. The thumb length
+/// is zero when the whole content fits (no scrollbar drawn).
+pub(super) fn scrollbar_metrics(body_height: u16) -> (usize, usize, usize) {
+    let body = body_height as usize;
+    let max_scroll = CONTENT_HEIGHT.saturating_sub(body);
+    let track = body;
+    if max_scroll == 0 || track == 0 {
+        return (track, 0, max_scroll);
+    }
+    // The scrollbar widget is given content_length = max_scroll + 1 and
+    // viewport_content_length = body_height, so its max viewport position
+    // is max_scroll + body_height (== CONTENT_HEIGHT here)
+    let max_viewport = max_scroll + body;
+    let thumb = rounding_divide(body * track, max_viewport).clamp(1, track);
+    (track, thumb, max_scroll)
+}
+
+/// The thumb's start offset within the scrollbar track for the given
+/// scroll, mirroring the widget's math (clamped so the thumb stays on the
+/// track). The thumb's first screen row is then `1 + start`: the main body
+/// starts at screen row 1 and the scrollbar has no begin arrow.
+pub(super) fn scrollbar_thumb_start(body_height: u16, scroll: u16) -> usize {
+    let (track, thumb, max_scroll) = scrollbar_metrics(body_height);
+    if track == 0 {
+        return 0;
+    }
+    let max_viewport = max_scroll + body_height as usize;
+    rounding_divide(scroll as usize * track, max_viewport).clamp(0, track - thumb)
+}
+
+/// The scroll that puts the thumb's start at the given track offset (the
+/// inverse of `scrollbar_thumb_start`), clamped to the scroll range.
+pub(super) fn scrollbar_scroll_for_thumb_start(body_height: u16, thumb_start: usize) -> u16 {
+    let (track, _, max_scroll) = scrollbar_metrics(body_height);
+    if track == 0 {
+        return 0;
+    }
+    let max_viewport = max_scroll + body_height as usize;
+    rounding_divide(thumb_start * max_viewport, track).min(max_scroll) as u16
+}
+
 /// Screen column where the mnemonic field of a store row starts: the pointer,
 /// then the heatmap bars (spliced in right after the pointer), then the bits
 /// and the suffix. Mirrors the span order in `draw_main_body`.

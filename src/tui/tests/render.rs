@@ -387,6 +387,126 @@ pub(super) fn help_popup_scrolls_when_the_window_is_too_small() {
 }
 
 #[test]
+pub(super) fn scrollbar_appears_on_the_right_edge_when_the_window_is_too_short() {
+    // 80x20: the main body is 17 rows, less than the 36 content rows, so a
+    // scrollbar is drawn on the right edge (column 79) of the body rows 1..=17
+    let snap = snapshot_with_history(0);
+    let mut app = App::new();
+    let buffer = render(&mut app, &snap, 80, 20);
+    let col = 79u16;
+
+    // A solid track over the whole body, no begin/end arrows
+    for row in 1..=17 {
+        assert_eq!("█", buffer[(col, row)].symbol(), "solid track on row {row}");
+    }
+    // At scroll 0 the thumb sits at the top of the track (rows 1..=8, the
+    // thumb is 8 cells: round(17*17/36)), in the chrome color over the dim track
+    assert_eq!(DARK.chrome, buffer[(col, 1)].fg, "thumb color");
+    assert_eq!(DARK.chrome, buffer[(col, 8)].fg, "thumb bottom edge");
+    assert_eq!(DARK.dim, buffer[(col, 9)].fg, "track color");
+    assert_eq!(DARK.dim, buffer[(col, 17)].fg, "track at the last body row");
+}
+
+#[test]
+pub(super) fn scrollbar_thumb_follows_the_store_scroll() {
+    let snap = snapshot_with_history(0);
+    let mut app = App::new();
+    // Maximum scroll at 80x20: 36 - 17 = 19
+    app.store_scroll = 19;
+    let buffer = render(&mut app, &snap, 80, 20);
+    let col = 79u16;
+
+    // The thumb reaches the bottom of the track (rows 10..=17)
+    assert_eq!(DARK.chrome, buffer[(col, 17)].fg, "thumb at the bottom");
+    assert_eq!(DARK.chrome, buffer[(col, 10)].fg, "thumb top edge");
+    assert_eq!(DARK.dim, buffer[(col, 9)].fg, "track above the thumb");
+    assert_eq!(DARK.dim, buffer[(col, 1)].fg, "track at the first body row");
+}
+
+#[test]
+pub(super) fn no_scrollbar_when_the_whole_body_fits() {
+    // 80x40: the main body is 37 rows, enough for the 36 content rows
+    let snap = snapshot_with_history(0);
+    let mut app = App::new();
+    let buffer = render(&mut app, &snap, 80, 40);
+
+    for row in 1..38 {
+        assert_eq!(
+            " ",
+            buffer[(79, row)].symbol(),
+            "no scrollbar on body row {row}"
+        );
+    }
+}
+
+#[test]
+pub(super) fn scrollbar_can_be_pressed_and_dragged_with_the_mouse() {
+    let snap = snapshot_with_history(0);
+    let mut app = App::new();
+    let mut sim = looping_sim(0);
+    let click = |kind, row| MouseEvent {
+        column: 79,
+        row,
+        kind,
+        modifiers: KeyModifiers::NONE,
+    };
+    let drag_at = |column, row| MouseEvent {
+        column,
+        row,
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        modifiers: KeyModifiers::NONE,
+    };
+
+    // Render once so the app knows the terminal area
+    let _ = render(&mut app, &snap, 80, 20);
+
+    // Press on the bottom arrow row jumps the thumb to the bottom (max
+    // scroll 19 at 80x20: track 15, thumb 7)
+    app.handle_mouse(click(MouseEventKind::Down(MouseButton::Left), 17), &mut sim);
+    assert_eq!(19, app.store_scroll);
+
+    // Dragging up to the top row scrolls back to 0: the thumb follows the
+    // cursor 1:1 (grabbed at its bottom, so the cursor stays on the thumb)
+    app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 1), &mut sim);
+    assert_eq!(0, app.store_scroll);
+
+    // After releasing, a drag no longer scrolls
+    app.handle_mouse(click(MouseEventKind::Up(MouseButton::Left), 1), &mut sim);
+    app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 10), &mut sim);
+    assert_eq!(0, app.store_scroll, "drag after release must not scroll");
+
+    // Press mid-track: row 6 puts the thumb's top on row 6 (scroll 11)
+    app.handle_mouse(click(MouseEventKind::Down(MouseButton::Left), 6), &mut sim);
+    assert_eq!(11, app.store_scroll);
+    // Moving the cursor two rows down moves the thumb two rows down
+    app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 8), &mut sim);
+    assert_eq!(15, app.store_scroll);
+    let buffer = render(&mut app, &snap, 80, 20);
+    assert_eq!(
+        DARK.chrome,
+        buffer[(79, 8)].fg,
+        "thumb top followed the cursor"
+    );
+    assert_eq!(DARK.dim, buffer[(79, 6)].fg, "track where the thumb was");
+
+    // While the button is held, drags off the scrollbar column (left or
+    // right of it) keep moving the thumb, like the timeline scrubber
+    app.handle_mouse(drag_at(40, 1), &mut sim);
+    assert_eq!(0, app.store_scroll, "drag left of the bar still scrolls");
+    app.handle_mouse(drag_at(10, 19), &mut sim);
+    assert_eq!(19, app.store_scroll, "drag off-column clamps to the bottom");
+
+    // The wheel over the scrollbar column still scrolls line by line
+    app.handle_mouse(click(MouseEventKind::ScrollUp, 5), &mut sim);
+    assert_eq!(18, app.store_scroll);
+
+    // Releasing ends the drag: a later drag anywhere does not scroll
+    app.handle_mouse(click(MouseEventKind::Up(MouseButton::Left), 19), &mut sim);
+    app.handle_mouse(drag_at(40, 8), &mut sim);
+    assert_eq!(18, app.store_scroll, "drag after release must not scroll");
+}
+
+#[test]
 pub(super) fn help_popup_scrolls_with_the_mouse_wheel_over_it() {
     let mut app = App::new();
     app.help_popup.open();

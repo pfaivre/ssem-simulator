@@ -5,8 +5,9 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::symbols;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, Paragraph};
+use ratatui::widgets::{Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
 use super::app::{App, KEYMAP};
 use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
@@ -732,6 +733,28 @@ impl App {
                     Style::default().bg(self.palette().zebra_bg),
                 );
             }
+        }
+
+        // Scrollbar on the right edge when the window is too short for the
+        // whole body: a solid dim track with the thumb in the chrome color
+        // showing where `store_scroll` sits. No begin/end arrows, so the
+        // track spans the whole body height. The state's content length is
+        // `max_scroll + 1` (not CONTENT_HEIGHT) so the thumb is sized
+        // proportionally to the visible rows and reaches the bottom of the
+        // track exactly at the maximum scroll.
+        let visible_height = area.height as usize;
+        let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
+        if max_scroll > 0 {
+            let mut state = ScrollbarState::new(max_scroll + 1)
+                .viewport_content_length(visible_height)
+                .position(self.store_scroll as usize);
+            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .track_symbol(Some(symbols::block::FULL))
+                .begin_symbol(None)
+                .end_symbol(None)
+                .style(Style::default().fg(self.palette().dim))
+                .thumb_style(Style::default().fg(self.palette().chrome));
+            f.render_stateful_widget(scrollbar, area, &mut state);
         }
     }
 
