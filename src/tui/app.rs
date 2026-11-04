@@ -600,18 +600,32 @@ impl App {
             return;
         }
 
-        // The scrollbar on the right edge of the main body (shown when the
-        // window is too short for the whole body): press to jump the thumb
-        // there and grab it. The drag itself is handled above, so it keeps
-        // working when the cursor leaves the column; the wheel keeps working
-        // on that column too (handled by the generic scroll below).
+        // The drag itself is handled above, so it keeps working when
+        // the cursor leaves the column; the wheel keeps working on
+        // that column too (handled by the generic scroll below).
         if self.scrollbar_hit(mouse.column, mouse.row)
             && matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
         {
-            self.scroll_thumb_to_row(mouse.row);
             let body_height = self.last_area.height.saturating_sub(CHROME_HEIGHT);
+            let (_, thumb, max_scroll) = scrollbar_metrics(body_height);
             let thumb_top = 1 + scrollbar_thumb_start(body_height, self.store_scroll) as i32;
-            self.scrollbar_grab = Some(mouse.row as i32 - thumb_top);
+            let row = mouse.row as i32;
+            if (thumb_top..thumb_top + thumb as i32).contains(&row) {
+                // On the thumb: grab it, it only moves when the mouse moves
+                self.scrollbar_grab = Some(row - thumb_top);
+            } else {
+                // On the track: move one paragraph (one visible body)
+                // toward the click, clamped to the scroll range; the
+                // thumb is not grabbed, so a later drag does not scroll
+                let page = body_height as usize;
+                self.store_scroll = if row < thumb_top {
+                    (self.store_scroll as usize)
+                        .saturating_sub(page)
+                        .min(max_scroll) as u16
+                } else {
+                    (self.store_scroll as usize + page).min(max_scroll) as u16
+                };
+            }
             return;
         }
 

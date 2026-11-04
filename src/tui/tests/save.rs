@@ -32,7 +32,7 @@ impl Drop for TempDir {
 /// so saves never touch the repo's samples/
 fn sim_from_temp_copy(sample: &str, dir_name: &str, file_name: &str) -> (TempDir, Simulator) {
     let dir = TempDir::new(dir_name);
-    std::fs::copy(format!("samples/ssem/{sample}"), dir.0.join(file_name)).unwrap();
+    std::fs::copy(format!("samples/{sample}"), dir.0.join(file_name)).unwrap();
     let sim = Simulator::from_file(&dir.0.join(file_name));
     (dir, sim)
 }

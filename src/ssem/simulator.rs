@@ -529,7 +529,7 @@ mod tests {
 
     #[test]
     fn from_file_asm() {
-        let sim = Simulator::from_file(Path::new("samples/ssem/factorct.asm"));
+        let sim = Simulator::from_file(Path::new("samples/factorct.asm"));
         assert_eq!(0, sim.a);
         assert_eq!(0, sim.ci);
         // 01 LDN 24
@@ -538,7 +538,7 @@ mod tests {
 
     #[test]
     fn from_file_snp() {
-        let sim = Simulator::from_file(Path::new("samples/ssem/nightmare.snp"));
+        let sim = Simulator::from_file(Path::new("samples/nightmare.snp"));
         assert_eq!(0, sim.a);
         assert_eq!(0, sim.ci);
         assert_eq!(
@@ -550,13 +550,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "Unkown file format 'txt'")]
     fn from_file_unknown_extension() {
-        let _ = Simulator::from_file(Path::new("samples/ssem/virpet.txt"));
+        let _ = Simulator::from_file(Path::new("samples/virpet.txt"));
     }
 
     #[test]
     #[should_panic(expected = "Unkown file format")]
     fn from_file_no_extension() {
-        let _ = Simulator::from_file(Path::new("samples/ssem"));
+        let _ = Simulator::from_file(Path::new("samples"));
     }
 
     #[test]
@@ -1451,7 +1451,7 @@ mod tests {
 
     #[test]
     fn save_writes_a_header_comment_and_the_store() {
-        let mut sim = Simulator::from_file(Path::new("samples/ssem/factorct.asm"));
+        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm"));
         sim.run(10);
         let file = TempFile::new("save.snp");
         sim.save(file.path()).unwrap();
@@ -1487,7 +1487,7 @@ mod tests {
 
     #[test]
     fn save_asm_round_trips_and_keeps_comments() {
-        let mut sim = Simulator::from_file(Path::new("samples/ssem/factorct.asm"));
+        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm"));
         sim.run(10);
         let file = TempFile::new("save.asm");
         sim.save(file.path()).unwrap();

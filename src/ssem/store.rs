@@ -1040,7 +1040,7 @@ mod tests {
 
     #[test]
     fn from_asm_file_factorct_keeps_inline_comments() {
-        let store = Store::from_asm_file(Path::new("samples/ssem/factorct.asm"));
+        let store = Store::from_asm_file(Path::new("samples/factorct.asm"));
         assert_eq!(None, store.comments[0], "line 00's comment is empty");
         assert_eq!(Some(" A = -a".to_string()), store.comments[1]);
         // Line 02's comment is indented further in the source: kept as-is
@@ -1088,7 +1088,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error while reading")]
     fn from_asm_file_missing_file() {
-        let _ = Store::from_asm_file(Path::new("samples/ssem/does_not_exist.asm"));
+        let _ = Store::from_asm_file(Path::new("samples/does_not_exist.asm"));
     }
 
     #[test]
@@ -1168,7 +1168,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Error while reading")]
     fn from_snp_file_missing_file() {
-        let _ = Store::from_snp_file(Path::new("samples/ssem/does_not_exist.snp"));
+        let _ = Store::from_snp_file(Path::new("samples/does_not_exist.snp"));
     }
 
     #[test]

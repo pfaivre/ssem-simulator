@@ -14,8 +14,8 @@ for Linux (`linux-x86_64`) and Windows (`windows-x86_64`). Download the zip for
 your platform, unzip it, and run:
 
 ```sh
-./ssem-simulator samples/ssem/factorct.asm     # Linux
-ssem-simulator.exe samples\ssem\factorct.asm   # Windows
+./ssem-simulator samples/factorct.asm     # Linux
+ssem-simulator.exe samples\factorct.asm   # Windows
 ```
 
 Add `--headless` to run without the interactive interface.

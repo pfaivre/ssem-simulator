@@ -1406,7 +1406,7 @@ impl PickerPopup {
 const MAX_PATH_INPUT: usize = 256;
 
 /// The proposed save name for a loaded file: `<stem>_edited.<ext>`
-/// (e.g. `samples/ssem/factorct.asm` → `factorct_edited.asm`). A stem that
+/// (e.g. `samples/factorct.asm` → `factorct_edited.asm`). A stem that
 /// already ends with `_edited` is kept as-is, so re-saving an edited file
 /// does not pile up suffixes (`factorct_edited.asm` stays `factorct_edited.asm`).
 fn default_save_name(path: &Path) -> String {
@@ -1701,7 +1701,7 @@ mod tests {
     fn default_save_name_appends_edited_only_once() {
         assert_eq!(
             "factorct_edited.asm",
-            default_save_name(Path::new("samples/ssem/factorct.asm"))
+            default_save_name(Path::new("samples/factorct.asm"))
         );
         assert_eq!(
             "nightmare_edited.snp",

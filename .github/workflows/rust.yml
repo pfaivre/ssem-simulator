@@ -24,4 +24,4 @@ jobs:
       run: cargo test --verbose
 
     - name: Run program release
-      run: cargo run --verbose --release ./samples/ssem/factorct.asm --headless
+      run: cargo run --verbose --release ./samples/factorct.asm --headless

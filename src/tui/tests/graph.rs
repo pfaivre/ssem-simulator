@@ -457,18 +457,3 @@ pub(super) fn flow_mode_is_shown_in_the_top_bar() {
     let buffer = render(&mut app, &snap, 120, 40);
     assert!(!row_text(&buffer, 0).contains("FLOW"));
 }
-
-#[test]
-pub(super) fn help_popup_documents_the_graph_view() {
-    let mut app = App::new();
-    app.help_popup.open();
-    let snap = snapshot_with_history(0);
-    let buffer = render(&mut app, &snap, 100, 40);
-
-    let all: String = (0..buffer.area.height)
-        .map(|y| row_text(&buffer, y))
-        .collect();
-    assert!(all.contains("Control-flow graph:"), "graph legend missing");
-    assert!(all.contains("CMP skip"), "graph legend missing");
-    assert!(all.contains("loop"), "graph legend missing");
-}

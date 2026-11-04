@@ -14,7 +14,7 @@ It is written in Rust (edition 2024) and uses `clap` for argument parsing.
 
 ```sh
 cargo build
-cargo run -r samples/ssem/factorct.asm
+cargo run -r samples/factorct.asm
 ```
 
 The CLI accepts an optional input file (`.asm` or `.snp`); without one it
@@ -22,7 +22,7 @@ starts with an empty (all-zero) store. It also takes an optional
 `--max-cycles` / `-m` limit (default 100,000,000):
 
 ```sh
-cargo run -r -- --max-cycles 1000 samples/ssem/nightmare.snp
+cargo run -r -- --max-cycles 1000 samples/nightmare.snp
 ```
 
 Pass `--save FILE` to write the final machine state to `FILE` when the run
@@ -71,7 +71,7 @@ every terminal (no kitty-protocol flags are pushed — they broke key delivery
 on some terminals). The history-scrub keys (← → Home End) still repeat for
 continuous time-travel.
 
-Sample programs live in `samples/ssem/`.
+Sample programs live in `samples/`.
 
 ## Test
 
@@ -106,10 +106,11 @@ cargo clippy
 
 ## Suggestions for later development
 
-- Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.
 - When rewinding back in the earliest state, we lose all changes we made. It would be would be more useful that the earliest state in history is the one where changes have been made.
 - Close pop-ups by clicking outside
 - More themes
 - more mouse interactions (changing speed, play/pause, etc.)
 - first start screen
 - Add CMP to data flow chart. Maybe with a label "A >= 0 ?"
+- i18n, with a French translation to start with
+- Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.

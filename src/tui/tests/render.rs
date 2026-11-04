@@ -460,50 +460,76 @@ pub(super) fn scrollbar_can_be_pressed_and_dragged_with_the_mouse() {
     // Render once so the app knows the terminal area
     let _ = render(&mut app, &snap, 80, 20);
 
-    // Press on the bottom arrow row jumps the thumb to the bottom (max
-    // scroll 19 at 80x20: track 15, thumb 7)
-    app.handle_mouse(click(MouseEventKind::Down(MouseButton::Left), 17), &mut sim);
-    assert_eq!(19, app.store_scroll);
+    // At 80x20 the body is 17 rows: track 17, thumb 8, max scroll 19; at
+    // scroll 0 the thumb spans rows 1..=8. Pressing on the thumb grabs it
+    // without moving it: the thumb only moves when the mouse moves
+    app.handle_mouse(click(MouseEventKind::Down(MouseButton::Left), 4), &mut sim);
+    assert_eq!(
+        0, app.store_scroll,
+        "pressing the bar must not jump the thumb"
+    );
 
-    // Dragging up to the top row scrolls back to 0: the thumb follows the
-    // cursor 1:1 (grabbed at its bottom, so the cursor stays on the thumb)
-    app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 1), &mut sim);
-    assert_eq!(0, app.store_scroll);
-
-    // After releasing, a drag no longer scrolls
-    app.handle_mouse(click(MouseEventKind::Up(MouseButton::Left), 1), &mut sim);
-    app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 10), &mut sim);
-    assert_eq!(0, app.store_scroll, "drag after release must not scroll");
-
-    // Press mid-track: row 6 puts the thumb's top on row 6 (scroll 11)
-    app.handle_mouse(click(MouseEventKind::Down(MouseButton::Left), 6), &mut sim);
-    assert_eq!(11, app.store_scroll);
-    // Moving the cursor two rows down moves the thumb two rows down
-    app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 8), &mut sim);
-    assert_eq!(15, app.store_scroll);
+    // Dragging two rows down moves the thumb two rows down: grabbed on row 4
+    // (thumb top on row 1, offset 3), a drag to row 6 puts the thumb top on
+    // row 3 (track start 2, scroll round(2*36/17) = 4)
+    app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 6), &mut sim);
+    assert_eq!(4, app.store_scroll);
     let buffer = render(&mut app, &snap, 80, 20);
     assert_eq!(
         DARK.chrome,
-        buffer[(79, 8)].fg,
+        buffer[(79, 3)].fg,
         "thumb top followed the cursor"
     );
-    assert_eq!(DARK.dim, buffer[(79, 6)].fg, "track where the thumb was");
+    assert_eq!(DARK.dim, buffer[(79, 2)].fg, "track where the thumb was");
 
-    // While the button is held, drags off the scrollbar column (left or
-    // right of it) keep moving the thumb, like the timeline scrubber
-    app.handle_mouse(drag_at(40, 1), &mut sim);
-    assert_eq!(0, app.store_scroll, "drag left of the bar still scrolls");
+    // Two more rows down: thumb top on row 5 (scroll 8)
+    app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 8), &mut sim);
+    assert_eq!(8, app.store_scroll);
+
+    // Pressing on the track below the thumb (row 17, the thumb is on rows
+    // 5..=12) moves the content one paragraph (one visible body, 17 rows)
+    // down, clamped to the max scroll 19, and does not grab the thumb
+    app.handle_mouse(click(MouseEventKind::Up(MouseButton::Left), 8), &mut sim);
+    app.handle_mouse(click(MouseEventKind::Down(MouseButton::Left), 17), &mut sim);
+    assert_eq!(
+        19, app.store_scroll,
+        "track click below the thumb pages down one body"
+    );
+    // A later drag does not scroll: the track click did not grab the thumb
+    app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 15), &mut sim);
+    assert_eq!(
+        19, app.store_scroll,
+        "drag after a track click must not scroll"
+    );
+
+    // At scroll 19 the thumb spans rows 10..=17; pressing the track above
+    // it (row 5) pages up one body: 19 - 17 = 2
+    app.handle_mouse(click(MouseEventKind::Down(MouseButton::Left), 5), &mut sim);
+    assert_eq!(2, app.store_scroll, "track click above the thumb pages up");
+
+    // At scroll 2 the thumb spans rows 2..=9; pressing on it (row 5) grabs
+    // without moving, and dragging off-column past the end of the track
+    // clamps the thumb at the bottom (max scroll 19)
+    app.handle_mouse(click(MouseEventKind::Down(MouseButton::Left), 5), &mut sim);
+    assert_eq!(2, app.store_scroll, "pressing the thumb must not jump it");
     app.handle_mouse(drag_at(10, 19), &mut sim);
     assert_eq!(19, app.store_scroll, "drag off-column clamps to the bottom");
 
+    // While the button is held, drags off the scrollbar column (left or
+    // right of it) keep moving the thumb, like the timeline scrubber:
+    // still grabbed from the row-5 press (offset 3), a drag at row 3
+    // puts the thumb top back on row 1 (scroll 0)
+    app.handle_mouse(drag_at(40, 3), &mut sim);
+    assert_eq!(0, app.store_scroll, "drag left of the bar still scrolls");
+
     // The wheel over the scrollbar column still scrolls line by line
-    app.handle_mouse(click(MouseEventKind::ScrollUp, 5), &mut sim);
-    assert_eq!(18, app.store_scroll);
+    app.handle_mouse(click(MouseEventKind::ScrollDown, 5), &mut sim);
+    assert_eq!(1, app.store_scroll);
 
     // Releasing ends the drag: a later drag anywhere does not scroll
     app.handle_mouse(click(MouseEventKind::Up(MouseButton::Left), 19), &mut sim);
     app.handle_mouse(drag_at(40, 8), &mut sim);
-    assert_eq!(18, app.store_scroll, "drag after release must not scroll");
+    assert_eq!(1, app.store_scroll, "drag after release must not scroll");
 }
 
 #[test]
