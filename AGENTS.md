@@ -7,7 +7,8 @@ Guidance for coding agents working in this repository.
 `ssem-simulator` is a command-line simulator for the SSEM ("Manchester Baby"),
 the first stored-program computer. It loads a program from an assembler (`.asm`)
 or binary snapshot (`.snp`) file, runs it, and prints the final machine state.
-It is written in Rust (edition 2024) and uses `clap` for argument parsing.
+It is written in Rust (edition 2024) and uses `clap` for argument parsing and
+`ratatui` for the interactive user interface.
 
 
 ## Build and run
@@ -61,7 +62,6 @@ cargo clippy
 ## Suggestions for later development
 
 - When rewinding back in the earliest state, we lose all changes we made. It would be would be more useful that the earliest state in history is the one where changes have been made.
-- Close pop-ups by clicking outside
 - More themes
 - more mouse interactions (changing speed, play/pause, etc.)
 - first start screen

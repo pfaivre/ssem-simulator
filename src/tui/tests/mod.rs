@@ -8,6 +8,7 @@ mod graph;
 mod heatmap;
 mod menu;
 mod picker;
+mod popups;
 mod render;
 mod save;
 mod timeline;

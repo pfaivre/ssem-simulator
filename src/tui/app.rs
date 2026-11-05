@@ -569,8 +569,9 @@ impl App {
         }
     }
 
-    /// Handle a mouse event: scrub the timeline, double-click to edit,
-    /// scroll wheel to scroll.
+    /// Handle a mouse event: while a pop-up is open, clicks close it when
+    /// they land outside (and apply the control they land on); otherwise
+    /// scrub the timeline, double-click to edit, scroll wheel to scroll.
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent, sim: &mut Simulator) {
         // Releasing the left button ends a scrub or a scrollbar drag,
         // wherever the cursor is
@@ -617,6 +618,17 @@ impl App {
             return;
         }
 
+        // A left click outside an open pop-up closes it — the behavior the
+        // settings pop-up always had, generalized to every pop-up. The
+        // settings and picker pop-ups are excluded here: they have their own
+        // click handling just below. When several pop-ups are open at once,
+        // every pop-up the click lies outside of closes. The click itself
+        // then continues to the main view, so a double-click made while a
+        // pop-up is open closes it and still opens what was double-clicked.
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            self.close_popups_outside(mouse.column, mouse.row);
+        }
+
         // While the settings pop-up is open, a click applies the control it
         // lands on, or closes the pop-up when it lands outside of it
         if self.settings_popup.is_open()
@@ -644,6 +656,17 @@ impl App {
                 // that opened the picker
                 self.last_click = None;
             }
+            return;
+        }
+
+        // While one of the other pop-ups is still open, the click landed
+        // inside it: the click is consumed by the pop-up layer and must not
+        // fall through to the main view, where it could open another pop-up
+        // on top of this one
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+            && self.any_simple_popup_open()
+        {
+            self.last_click = None;
             return;
         }
 
@@ -971,6 +994,39 @@ impl App {
         self.comment_editor.close();
         self.picker.close();
         self.settings_popup.close();
+    }
+
+    /// Whether any pop-up without clickable controls (or the inline comment
+    /// editor) is open. The settings and picker pop-ups are excluded: they
+    /// handle clicks themselves in `handle_mouse`.
+    fn any_simple_popup_open(&self) -> bool {
+        self.help_popup.is_open()
+            || self.breakpoint_popup.is_open()
+            || self.editor_popup.is_open()
+            || self.save_popup.is_open()
+            || self.comment_editor.is_open()
+    }
+
+    /// Close every open pop-up whose rectangle does not contain the given
+    /// screen cell: a click outside a pop-up closes it. The settings and
+    /// picker pop-ups are excluded — they have clickable controls and their
+    /// own click semantics in `handle_mouse`.
+    fn close_popups_outside(&mut self, column: u16, row: u16) {
+        if self.help_popup.is_open() && !self.help_popup.contains(column, row) {
+            self.help_popup.close();
+        }
+        if self.breakpoint_popup.is_open() && !self.breakpoint_popup.contains(column, row) {
+            self.breakpoint_popup.close();
+        }
+        if self.editor_popup.is_open() && !self.editor_popup.contains(column, row) {
+            self.editor_popup.close();
+        }
+        if self.save_popup.is_open() && !self.save_popup.contains(column, row) {
+            self.save_popup.close();
+        }
+        if self.comment_editor.is_open() && !self.comment_editor.contains(column, row) {
+            self.comment_editor.close();
+        }
     }
 
     /// Apply one settings control (a click on a settings pop-up button).

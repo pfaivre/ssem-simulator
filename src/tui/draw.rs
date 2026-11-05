@@ -383,7 +383,7 @@ impl App {
 
     /// Draw the main body: CI, accumulator, and store words.
     fn draw_main_body(
-        &self,
+        &mut self,
         f: &mut Frame,
         area: Rect,
         snap: &Snapshot,
@@ -659,6 +659,21 @@ impl App {
             // highlighted like the selected row of the breakpoint list.
             if comment_width > 0 {
                 if self.comment_editor.is_open_for(index) {
+                    // Record the text box's rect for mouse hit-testing (a
+                    // click outside it closes the editor). When the edited
+                    // row is scrolled out of view no box is drawn, so the
+                    // rect is emptied.
+                    let box_row = row.saturating_sub(self.store_scroll as usize);
+                    if row >= self.store_scroll as usize && box_row < area.height as usize {
+                        self.comment_editor.set_last_rect(Rect::new(
+                            area.x + comment_column_start(heatmap, self.flow) as u16,
+                            area.y + box_row as u16,
+                            comment_extra as u16,
+                            1,
+                        ));
+                    } else {
+                        self.comment_editor.set_last_rect(Rect::default());
+                    }
                     // The cursor is drawn at the actual editing position:
                     // right after the last character of the buffer (typing
                     // appends, Backspace pops, so the insertion point is
@@ -705,6 +720,9 @@ impl App {
                         None => spans.push(Span::raw(" ".repeat(comment_extra))),
                     }
                 }
+            } else if self.comment_editor.is_open_for(index) {
+                // No room for the comment column: no text box drawn
+                self.comment_editor.set_last_rect(Rect::default());
             }
             lines.push(Line::from(spans));
         }

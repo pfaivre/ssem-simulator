@@ -103,6 +103,7 @@ fn display_width(s: &str) -> usize {
 ///
 /// When the terminal is too small to show the whole text, the body scrolls
 /// with the arrow keys; the footer stays pinned to the bottom row.
+/// H or Esc closes it, as does a mouse click outside the pop-up.
 pub struct HelpPopup {
     open: bool,
     scroll: usize,
@@ -376,6 +377,8 @@ pub struct BreakpointPopup {
     address: usize,
     selected: usize,
     message: String,
+    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
+    last_rect: Rect,
 }
 
 impl BreakpointPopup {
@@ -388,6 +391,7 @@ impl BreakpointPopup {
             address: 0,
             selected: 0,
             message: String::new(),
+            last_rect: Rect::default(),
         }
     }
 
@@ -406,6 +410,11 @@ impl BreakpointPopup {
 
     pub fn close(&mut self) {
         self.open = false;
+    }
+
+    /// Whether the given screen cell lies inside the pop-up.
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        self.last_rect.contains(Position::new(column, row))
     }
 
     /// Handle a key press while the pop-up is open.
@@ -552,7 +561,13 @@ impl BreakpointPopup {
         }
     }
 
-    pub fn draw(&self, f: &mut Frame, area: Rect, breakpoints: &[Breakpoint], palette: &Palette) {
+    pub fn draw(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        breakpoints: &[Breakpoint],
+        palette: &Palette,
+    ) {
         let explanation = "Pause the machine when a condition is met";
         let footer = "ENTER add \u{b7} T type \u{b7} \u{2191}/\u{2193} select \u{b7} X delete \u{b7} ESC close";
 
@@ -577,6 +592,7 @@ impl BreakpointPopup {
         let height = (breakpoints.len() + 8) as u16;
 
         let rect = popup_rect(height, width, area);
+        self.last_rect = rect;
         f.render_widget(Clear, rect);
         // Clear resets the cells to the terminal default; restore the theme's
         // base colors under the pop-up
@@ -679,6 +695,8 @@ pub struct EditorPopup {
     buffer: String,
     address: usize,
     message: String,
+    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
+    last_rect: Rect,
 }
 
 impl EditorPopup {
@@ -690,6 +708,7 @@ impl EditorPopup {
             buffer: String::new(),
             address: 0,
             message: String::new(),
+            last_rect: Rect::default(),
         }
     }
 
@@ -736,6 +755,11 @@ impl EditorPopup {
 
     pub fn close(&mut self) {
         self.open = false;
+    }
+
+    /// Whether the given screen cell lies inside the pop-up.
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        self.last_rect.contains(Position::new(column, row))
     }
 
     /// Handle a key press while the pop-up is open.
@@ -907,7 +931,7 @@ impl EditorPopup {
     }
 
     pub fn draw(
-        &self,
+        &mut self,
         f: &mut Frame,
         area: Rect,
         ci: i32,
@@ -944,6 +968,7 @@ impl EditorPopup {
         let height = 11u16;
 
         let rect = popup_rect(height, width, area);
+        self.last_rect = rect;
         f.render_widget(Clear, rect);
         // Clear resets the cells to the terminal default; restore the theme's
         // base colors under the pop-up
@@ -996,7 +1021,8 @@ const MAX_COMMENT_INPUT: usize = MAX_COMMENT_WIDTH;
 /// pop-up). The buffer is prefilled with the word's current comment.
 /// Enter validates: the buffer is written to the store (`Store::set_comment`;
 /// a blank buffer clears the comment) and the editor closes. Esc cancels
-/// (routed by `App::handle_key`, which closes without applying).
+/// (routed by `App::handle_key`, which closes without applying), as does a
+/// mouse click outside the text box.
 /// Backspace deletes one character, Ctrl+Backspace a whole word.
 ///
 /// While open, all key events are routed here by the main event loop;
@@ -1005,6 +1031,9 @@ pub struct CommentEditor {
     open: bool,
     address: usize,
     buffer: String,
+    /// Rectangle of the inline text box from the last draw, for mouse
+    /// hit-testing.
+    last_rect: Rect,
 }
 
 impl CommentEditor {
@@ -1013,11 +1042,23 @@ impl CommentEditor {
             open: false,
             address: 0,
             buffer: String::new(),
+            last_rect: Rect::default(),
         }
     }
 
     pub fn is_open(&self) -> bool {
         self.open
+    }
+
+    /// Record the text box's screen rectangle (called by the draw code,
+    /// which knows where the box is drawn).
+    pub fn set_last_rect(&mut self, rect: Rect) {
+        self.last_rect = rect;
+    }
+
+    /// Whether the given screen cell lies inside the text box.
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        self.last_rect.contains(Position::new(column, row))
     }
 
     /// The text typed so far.
@@ -1435,16 +1476,18 @@ fn default_save_name(path: &Path) -> String {
 /// always a plain file name inside the target folder.
 ///
 /// While open, all key events are routed here by the main event loop. Only
-/// Esc closes the pop-up — every letter can appear in a file name, so no
-/// letter key closes it. Enter saves but keeps the pop-up open, so a failed
-/// write (bad extension, unwritable path) can be fixed and retried, or
-/// another file saved from the same state.
+/// Esc or a mouse click outside the pop-up closes it — every letter can
+/// appear in a file name, so no letter key closes it. Enter saves but keeps
+/// the pop-up open, so a failed write (bad extension, unwritable path) can
+/// be fixed and retried, or another file saved from the same state.
 pub struct SavePopup {
     open: bool,
     /// The folder names are resolved against (the open file's folder).
     dir: PathBuf,
     buffer: String,
     message: String,
+    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
+    last_rect: Rect,
 }
 
 impl SavePopup {
@@ -1454,6 +1497,7 @@ impl SavePopup {
             dir: PathBuf::from("."),
             buffer: String::new(),
             message: String::new(),
+            last_rect: Rect::default(),
         }
     }
 
@@ -1491,6 +1535,11 @@ impl SavePopup {
 
     pub fn close(&mut self) {
         self.open = false;
+    }
+
+    /// Whether the given screen cell lies inside the pop-up.
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        self.last_rect.contains(Position::new(column, row))
     }
 
     /// Handle a key press while the pop-up is open. Repeats are accepted so
@@ -1544,7 +1593,7 @@ impl SavePopup {
         }
     }
 
-    pub fn draw(&self, f: &mut Frame, area: Rect, palette: &Palette) {
+    pub fn draw(&mut self, f: &mut Frame, area: Rect, palette: &Palette) {
         let explanation = "Save the machine state to a .asm or .snp file";
         let dir_line = format!("DIR: {}", self.dir.display());
         let footer = "ENTER save \u{b7} ESC close";
@@ -1563,6 +1612,7 @@ impl SavePopup {
         let height = 8u16;
 
         let rect = popup_rect(height, width, area);
+        self.last_rect = rect;
         f.render_widget(Clear, rect);
         // Clear resets the cells to the terminal default; restore the theme's
         // base colors under the pop-up
