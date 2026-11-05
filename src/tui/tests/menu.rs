@@ -411,6 +411,91 @@ pub(super) fn click_outside_the_settings_popup_closes_it() {
 }
 
 #[test]
+pub(super) fn settings_controls_are_highlighted_only_under_the_mouse() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    let snap = Snapshot::from_sim(&sim);
+    app.settings_popup.open();
+    let buffer = render(&mut app, &snap, 100, 40);
+
+    let heatmap_cell = control_cell(&app, SettingControl::Heatmap);
+    let theme_cell = control_cell(&app, SettingControl::Theme);
+    // The mouse is not over the pop-up yet: no control is highlighted
+    assert_eq!(None, app.settings_popup.hover());
+    for cell in [heatmap_cell, theme_cell] {
+        assert!(
+            !buffer[cell].modifier.contains(Modifier::REVERSED),
+            "not highlighted before any hover"
+        );
+        assert_eq!(app.palette().bg, buffer[cell].bg);
+    }
+
+    // Hovering a control highlights only that one
+    move_to(&mut app, &mut sim, heatmap_cell.0, heatmap_cell.1);
+    assert_eq!(Some(SettingControl::Heatmap), app.settings_popup.hover());
+    let buffer = render(&mut app, &snap, 100, 40);
+    assert_eq!(app.palette().hover, buffer[heatmap_cell].bg);
+    assert_eq!(app.palette().bg, buffer[theme_cell].bg);
+    assert!(!buffer[theme_cell].modifier.contains(Modifier::REVERSED));
+
+    // Moving to another control moves the highlight with the cursor
+    move_to(&mut app, &mut sim, theme_cell.0, theme_cell.1);
+    assert_eq!(Some(SettingControl::Theme), app.settings_popup.hover());
+    let buffer = render(&mut app, &snap, 100, 40);
+    assert_eq!(app.palette().hover, buffer[theme_cell].bg);
+    assert_eq!(app.palette().bg, buffer[heatmap_cell].bg);
+
+    // Moving inside the pop-up but off every control clears the highlight
+    let off_control = (1..40u16)
+        .flat_map(|row| (0..100u16).map(move |col| (col, row)))
+        .find(|&(col, row)| {
+            app.settings_popup.contains(col, row)
+                && app.settings_popup.control_at(col, row).is_none()
+        })
+        .expect("a cell inside the pop-up but off the controls");
+    move_to(&mut app, &mut sim, off_control.0, off_control.1);
+    assert_eq!(None, app.settings_popup.hover());
+    let buffer = render(&mut app, &snap, 100, 40);
+    assert_eq!(app.palette().bg, buffer[heatmap_cell].bg);
+    assert_eq!(app.palette().bg, buffer[theme_cell].bg);
+
+    // Moving out of the pop-up clears it too
+    move_to(&mut app, &mut sim, heatmap_cell.0, heatmap_cell.1);
+    assert_eq!(Some(SettingControl::Heatmap), app.settings_popup.hover());
+    let outside = (1..40u16)
+        .flat_map(|row| (0..100u16).map(move |col| (col, row)))
+        .find(|&(col, row)| !app.settings_popup.contains(col, row))
+        .expect("a cell outside the pop-up");
+    move_to(&mut app, &mut sim, outside.0, outside.1);
+    assert_eq!(None, app.settings_popup.hover());
+    let buffer = render(&mut app, &snap, 100, 40);
+    assert_eq!(app.palette().bg, buffer[heatmap_cell].bg);
+}
+
+#[test]
+pub(super) fn settings_hover_is_cleared_when_the_popup_closes() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    let snap = Snapshot::from_sim(&sim);
+    app.settings_popup.open();
+    let _ = render(&mut app, &snap, 100, 40);
+
+    let (col, row) = control_cell(&app, SettingControl::Theme);
+    move_to(&mut app, &mut sim, col, row);
+    assert_eq!(Some(SettingControl::Theme), app.settings_popup.hover());
+
+    // Esc closes the pop-up and forgets the hover
+    press(&mut app, &mut sim, 'h'); // routed nowhere: settings only takes mode keys
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut sim);
+    assert!(!app.settings_popup.is_open());
+    assert_eq!(None, app.settings_popup.hover());
+
+    // Reopening starts with no highlight
+    app.settings_popup.open();
+    assert_eq!(None, app.settings_popup.hover());
+}
+
+#[test]
 pub(super) fn status_bar_shows_left_and_right_groups_on_the_bottom_row() {
     let mut store = [0; 32];
     store[2] = Store::parse_word("SUB 10").unwrap();

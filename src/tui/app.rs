@@ -599,11 +599,18 @@ impl App {
             return;
         }
 
-        // Moving the mouse updates the menu hover highlight — on any row,
-        // so the highlight is cleared as soon as the cursor leaves the
-        // menu bar (down the next line, or off an item's sides)
+        // Moving the mouse updates the hover highlights — on any row, so
+        // each highlight is cleared as soon as the cursor leaves its area
+        // (the menu bar: down the next line or off an item's sides; the
+        // settings pop-up: off a control or out of the pop-up)
         if matches!(mouse.kind, MouseEventKind::Moved) {
             self.menu_hover = self.menu_action_at(mouse.column, mouse.row);
+            let settings_hover = if self.settings_popup.is_open() {
+                self.settings_popup.control_at(mouse.column, mouse.row)
+            } else {
+                None
+            };
+            self.settings_popup.set_hover(settings_hover);
         }
 
         // The menu bar (the top row): clicking an item runs its action

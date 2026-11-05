@@ -1659,9 +1659,14 @@ pub struct SettingsView {
     pub theme: Theme,
 }
 
-/// One row of the settings pop-up: the label, then its spans — each either a
-/// clickable button (text + control) or plain value text.
-type SettingsRow = (&'static str, Vec<(String, Option<SettingControl>)>);
+/// One row of the settings pop-up: the label, the keyboard shortcut shown
+/// dimmed in its own column left of the controls, then its spans — each
+/// either a clickable button (text + control) or plain value text.
+type SettingsRow = (
+    &'static str,
+    &'static str,
+    Vec<(String, Option<SettingControl>)>,
+);
 
 /// A clickable control of the settings pop-up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1677,19 +1682,23 @@ pub enum SettingControl {
 
 /// The settings pop-up, opened from the menu bar.
 ///
-/// One row per setting, each with a clickable control: machine speed (`[-]` /
-/// `[+]` around the current value), and the current value of the heatmap
-/// mode, flow mode, comments toggle, store bits display, and theme — clicking
-/// a value cycles it, exactly like its keyboard key (M/F/C/D/T, I/K).
+/// One row per setting, each with its keyboard shortcut on the left of a
+/// clickable control: machine speed (`[-]` / `[+]` around the current
+/// value, `I/K` or `+/-`), and the current value of the heatmap mode,
+/// flow mode, comments toggle, store bits display, and theme (`M`/`F`/`C`/`D`/
+/// `T`) — clicking a value cycles it, exactly like its keyboard key.
 ///
 /// While open, `App` routes the matching keys here and clicks on the
 /// controls to `App::perform_setting`; Esc or a click outside closes it.
+/// A control is highlighted only while the mouse hovers over it.
 pub struct SettingsPopup {
     open: bool,
     /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
     last_rect: Rect,
     /// The control buttons' cells from the last draw: (rect, control).
     buttons: Vec<(Rect, SettingControl)>,
+    /// The control under the mouse cursor, for the hover highlight.
+    hover: Option<SettingControl>,
 }
 
 impl SettingsPopup {
@@ -1698,6 +1707,7 @@ impl SettingsPopup {
             open: false,
             last_rect: Rect::default(),
             buttons: Vec::new(),
+            hover: None,
         }
     }
 
@@ -1707,10 +1717,12 @@ impl SettingsPopup {
 
     pub fn open(&mut self) {
         self.open = true;
+        self.hover = None;
     }
 
     pub fn close(&mut self) {
         self.open = false;
+        self.hover = None;
     }
 
     /// Whether the given screen cell lies inside the pop-up.
@@ -1726,18 +1738,30 @@ impl SettingsPopup {
             .map(|(_, control)| *control)
     }
 
+    /// The control under the mouse cursor (tests only).
+    #[cfg(test)]
+    pub fn hover(&self) -> Option<SettingControl> {
+        self.hover
+    }
+
+    /// Record the control under the mouse cursor: the one drawn under it is
+    /// highlighted, the others are not.
+    pub fn set_hover(&mut self, hover: Option<SettingControl>) {
+        self.hover = hover;
+    }
+
     pub fn draw(&mut self, f: &mut Frame, area: Rect, view: &SettingsView, palette: &Palette) {
-        let footer =
-            "CLICK a control \u{b7} I/K or +/- speed \u{b7} M/F/C/D/T cycle \u{b7} ESC close";
+        let footer = "CLICK a control \u{b7} ESC close";
 
         let speed_text = format!("{}/{} ips", view.displayed_speed, view.target_speed);
         let (on, off) =
             BIT_REPRESENTATIONS[view.bit_representation.min(BIT_REPRESENTATIONS.len() - 1)];
-        // Each row: the label, then its spans — a button (text + control) or
-        // plain value text between the speed buttons
+        // Each row: the label, the shortcut, then its spans — a button (text
+        // + control) or plain value text between the speed buttons
         let rows: [SettingsRow; 6] = [
             (
                 "Machine speed",
+                "I/K",
                 vec![
                     ("[-]".to_string(), Some(SettingControl::SpeedDown)),
                     (format!(" {speed_text} "), None),
@@ -1746,6 +1770,7 @@ impl SettingsPopup {
             ),
             (
                 "Heatmap mode",
+                "M",
                 vec![(
                     format!("[{}]", view.heatmap.label().unwrap_or("OFF")),
                     Some(SettingControl::Heatmap),
@@ -1753,6 +1778,7 @@ impl SettingsPopup {
             ),
             (
                 "Flow mode",
+                "F",
                 vec![(
                     format!("[{}]", view.flow.label().unwrap_or("OFF")),
                     Some(SettingControl::Flow),
@@ -1760,6 +1786,7 @@ impl SettingsPopup {
             ),
             (
                 "Comments",
+                "C",
                 vec![(
                     format!("[{}]", if view.comments { "ON" } else { "OFF" }),
                     Some(SettingControl::Comments),
@@ -1767,10 +1794,12 @@ impl SettingsPopup {
             ),
             (
                 "Store bits",
+                "D",
                 vec![(format!("[{on}{off}]"), Some(SettingControl::Bits))],
             ),
             (
                 "Theme",
+                "T",
                 vec![(
                     format!("[{}]", view.theme.label()),
                     Some(SettingControl::Theme),
@@ -1780,20 +1809,26 @@ impl SettingsPopup {
 
         let label_width = rows
             .iter()
-            .map(|(label, _)| display_width(label))
+            .map(|(label, _, _)| display_width(label))
             .max()
             .unwrap_or(0);
-        let row_width = rows
+        let hint_width = rows
             .iter()
-            .map(|(_, segs)| {
+            .map(|(_, hint, _)| display_width(hint))
+            .max()
+            .unwrap_or(0);
+        let control_width = rows
+            .iter()
+            .map(|(_, _, segs)| {
                 segs.iter()
                     .map(|(text, _)| display_width(text))
                     .sum::<usize>()
             })
             .max()
             .unwrap_or(0);
-        // Leading margin (2) + label + gap (1) + the widest row's spans
-        let content_width = 2 + label_width + 1 + row_width;
+        // Leading margin (2) + label + gap (2) + shortcut column + gap (2)
+        // + the widest row's controls, so every column is vertically aligned
+        let content_width = 2 + label_width + 2 + hint_width + 2 + control_width;
         // 2 border columns, 1 left margin, 1 right margin
         let width = (content_width.max(display_width(footer)) + 4) as u16;
         // The rows + a blank line + the footer, plus the 2 border rows
@@ -1814,25 +1849,35 @@ impl SettingsPopup {
         let content = content_area(&block, rect);
         f.render_widget(block, rect);
 
-        let button_style = Style::default()
-            .fg(palette.key_hint)
-            .add_modifier(Modifier::REVERSED);
+        // A control is highlighted (same hover style as the menu bar) only
+        // while the mouse is over it; otherwise it is plain key-hint text
+        let button_style = Style::default().fg(palette.key_hint);
+        let hover_style = Style::default().fg(palette.hover_fg).bg(palette.hover);
         let value_style = Style::default()
             .fg(palette.value)
             .add_modifier(Modifier::BOLD);
 
         self.buttons.clear();
         let mut lines: Vec<Line<'static>> = Vec::with_capacity(rows.len() + 2);
-        for (i, (label, segs)) in rows.iter().enumerate() {
-            let mut spans = vec![Span::raw(format!("  {label:<label_width$} "))];
-            let mut x = content.x + 2 + label_width as u16 + 1;
+        for (i, (label, hint, segs)) in rows.iter().enumerate() {
+            // Label, then the dimmed shortcut right-aligned in its own
+            // column, then the controls — each column starts at a fixed x
+            let mut spans = vec![
+                Span::raw(format!("  {label:<label_width$}  ")),
+                Span::styled(
+                    format!("{hint:>hint_width$}"),
+                    Style::default().add_modifier(Modifier::DIM),
+                ),
+                Span::raw("  "),
+            ];
+            let mut x = content.x + 2 + label_width as u16 + 2 + hint_width as u16 + 2;
             let y = content.y + i as u16;
             for (text, control) in segs {
                 let w = display_width(text) as u16;
-                let style = if control.is_some() {
-                    button_style
-                } else {
-                    value_style
+                let style = match control {
+                    Some(c) if self.hover == Some(*c) => hover_style,
+                    Some(_) => button_style,
+                    None => value_style,
                 };
                 spans.push(Span::styled(text.clone(), style));
                 if let Some(control) = control {

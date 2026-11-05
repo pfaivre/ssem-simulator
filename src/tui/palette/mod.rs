@@ -63,8 +63,9 @@ pub struct Palette {
     /// The status bar's text color (the labels around the status word);
     /// independent from the bar's background so the two can be tuned apart.
     pub status_fg: Color,
-    /// The mouse-hover highlight (currently the menu bar buttons): the
-    /// hovered button's background, and the text color on top of it.
+    /// The mouse-hover highlight (the menu bar buttons and the hovered
+    /// settings control): the hovered button's background, and the text
+    /// color on top of it.
     pub hover: Color,
     pub hover_fg: Color,
     /// The menu bar (top row): a solid background contrasting with `bg`,

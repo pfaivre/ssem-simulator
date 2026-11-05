@@ -40,7 +40,7 @@ fn type_str(app: &mut App, sim: &mut Simulator, s: &str) {
 /// The first screen cell (row-major, the menu bar row skipped) for which
 /// `pred` holds. The app must have been drawn once, so the pop-ups' rects
 /// are known to the hit-testing.
-fn cell_where(app: &App, pred: impl Fn(u16, u16) -> bool) -> (u16, u16) {
+fn cell_where(pred: impl Fn(u16, u16) -> bool) -> (u16, u16) {
     for row in 1..40u16 {
         for col in 0..100u16 {
             if pred(col, row) {
@@ -75,7 +75,7 @@ pub(super) fn click_outside_the_help_popup_closes_it() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| !app.help_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| !app.help_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(!app.help_popup.is_open());
 }
@@ -88,7 +88,7 @@ pub(super) fn click_inside_the_help_popup_keeps_it_open() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| app.help_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| app.help_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(app.help_popup.is_open(), "a click inside is consumed");
 }
@@ -101,7 +101,7 @@ pub(super) fn click_outside_the_breakpoint_popup_closes_it() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| !app.breakpoint_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| !app.breakpoint_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(!app.breakpoint_popup.is_open());
 }
@@ -114,7 +114,7 @@ pub(super) fn click_inside_the_breakpoint_popup_keeps_it_open() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| app.breakpoint_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| app.breakpoint_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(app.breakpoint_popup.is_open());
 }
@@ -128,7 +128,7 @@ pub(super) fn click_outside_the_editor_popup_cancels_without_applying() {
     let _ = render(&mut app, &snap, 100, 40);
     type_str(&mut app, &mut sim, "7");
 
-    let (col, row) = cell_where(&app, |c, r| !app.editor_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| !app.editor_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(!app.editor_popup.is_open());
     assert_eq!(0, sim.ci, "the click outside cancels; only Enter applies");
@@ -142,7 +142,7 @@ pub(super) fn click_inside_the_editor_popup_keeps_it_open() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| app.editor_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| app.editor_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(app.editor_popup.is_open());
 }
@@ -155,7 +155,7 @@ pub(super) fn click_outside_the_save_popup_closes_it() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| !app.save_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| !app.save_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(!app.save_popup.is_open());
 }
@@ -168,7 +168,7 @@ pub(super) fn click_inside_the_save_popup_keeps_it_open() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| app.save_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| app.save_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(app.save_popup.is_open());
 }
@@ -187,7 +187,7 @@ pub(super) fn click_outside_the_comment_editor_cancels_without_applying() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| !app.comment_editor.contains(c, r));
+    let (col, row) = cell_where(|c, r| !app.comment_editor.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(!app.comment_editor.is_open());
     assert_eq!(
@@ -208,7 +208,7 @@ pub(super) fn click_inside_the_comment_box_keeps_the_editor_open() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| app.comment_editor.contains(c, r));
+    let (col, row) = cell_where(|c, r| app.comment_editor.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(
         app.comment_editor.is_open(),
@@ -224,7 +224,7 @@ pub(super) fn a_click_inside_the_settings_popup_but_not_on_a_control_keeps_it_op
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| {
+    let (col, row) = cell_where(|c, r| {
         app.settings_popup.contains(c, r) && app.settings_popup.control_at(c, r).is_none()
     });
     click(&mut app, &mut sim, col, row);
@@ -245,9 +245,8 @@ pub(super) fn with_several_popups_open_a_click_closes_only_the_ones_it_lies_outs
 
     // Inside the help pop-up but outside the (smaller, centered) save one:
     // only the save pop-up closes
-    let (col, row) = cell_where(&app, |c, r| {
-        app.help_popup.contains(c, r) && !app.save_popup.contains(c, r)
-    });
+    let (col, row) =
+        cell_where(|c, r| app.help_popup.contains(c, r) && !app.save_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(
         !app.save_popup.is_open(),
@@ -259,7 +258,7 @@ pub(super) fn with_several_popups_open_a_click_closes_only_the_ones_it_lies_outs
     );
 
     // A click outside the remaining pop-up closes it too
-    let (col, row) = cell_where(&app, |c, r| !app.help_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| !app.help_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(!app.help_popup.is_open());
 }
@@ -274,7 +273,7 @@ pub(super) fn with_several_popups_open_a_click_outside_all_of_them_closes_all_of
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| {
+    let (col, row) = cell_where(|c, r| {
         !app.help_popup.contains(c, r)
             && !app.editor_popup.contains(c, r)
             && !app.breakpoint_popup.contains(c, r)
@@ -294,9 +293,8 @@ pub(super) fn a_click_inside_every_open_popup_closes_none_of_them() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    let (col, row) = cell_where(&app, |c, r| {
-        app.help_popup.contains(c, r) && app.save_popup.contains(c, r)
-    });
+    let (col, row) =
+        cell_where(|c, r| app.help_popup.contains(c, r) && app.save_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(app.help_popup.is_open());
     assert!(app.save_popup.is_open());
@@ -313,9 +311,8 @@ pub(super) fn a_double_click_while_a_popup_is_open_closes_it_and_still_opens_the
     // Double-click on a store row, outside the help pop-up (in the bits
     // column, so the word editor is the double-click target): the first
     // click closes the pop-up, the second completes the double-click
-    let (col, row) = cell_where(&app, |c, r| {
-        (5..36).contains(&r) && c < 50 && !app.help_popup.contains(c, r)
-    });
+    let (col, row) =
+        cell_where(|c, r| (5..36).contains(&r) && c < 50 && !app.help_popup.contains(c, r));
     double_click(&mut app, &mut sim, col, row);
     assert!(
         !app.help_popup.is_open(),
@@ -339,7 +336,7 @@ pub(super) fn a_click_inside_a_popup_does_not_open_another_popup_on_top_of_it() 
 
     // Double-click inside the help pop-up: the clicks are consumed by it,
     // so no editor opens and the pop-up stays open
-    let (col, row) = cell_where(&app, |c, r| app.help_popup.contains(c, r));
+    let (col, row) = cell_where(|c, r| app.help_popup.contains(c, r));
     double_click(&mut app, &mut sim, col, row);
     assert!(app.help_popup.is_open());
     assert!(!app.editor_popup.is_open());
@@ -359,9 +356,7 @@ pub(super) fn a_click_on_the_timeline_while_a_popup_is_open_closes_it_and_scrubs
 
     // The click closes the pop-up (it lands outside of it) and then falls
     // through to the timeline, starting a scrub
-    let (col, row) = cell_where(&app, |c, r| {
-        r == timeline_row && !app.help_popup.contains(c, r)
-    });
+    let (col, row) = cell_where(|c, r| r == timeline_row && !app.help_popup.contains(c, r));
     click(&mut app, &mut sim, col, row);
     assert!(!app.help_popup.is_open());
     assert!(app.scrubbing, "the click fell through to the timeline");
