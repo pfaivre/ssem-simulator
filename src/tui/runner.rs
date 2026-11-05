@@ -160,7 +160,7 @@ fn run_app(
     let sim = Arc::new(Mutex::new(simulator));
     let quit = Arc::new(AtomicBool::new(false));
 
-    // Start in the stopped state; the user presses P to run
+    // Start in the stopped state; the user presses Space to run
     sim.lock().unwrap().stop_flag = true;
 
     // Spawn the machine thread

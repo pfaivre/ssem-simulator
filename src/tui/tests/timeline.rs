@@ -110,8 +110,55 @@ pub(super) fn scrub_without_history_is_noop() {
 }
 
 #[test]
+pub(super) fn timeline_bar_is_centered_on_wide_terminals() {
+    // 200 columns: the bar is capped at 100 cells, so the whole
+    // " HISTORY [bar] 0..99" group (10 + 100 + 7 = 117 cells) is centered
+    // with ratatui's rounding: offset 200/2 - 117/2 = 100 - 58 = 42,
+    // bar at 42 + 10
+    let timeline = Rect::new(0, 18, 200, 1);
+    let (bar_x, bar_width) = timeline_bar_geometry(timeline, 0, 99);
+    assert_eq!(100, bar_width);
+    assert_eq!(42 + 10, bar_x);
+
+    // The drawn line matches: "HISTORY" starts one cell after the group's
+    // left edge (the prefix's leading space), and the right margin holds
+    // the remaining cells
+    let mut app = App::new();
+    let snap = snapshot_with_history(42);
+    let buffer = render(&mut app, &snap, 200, 20);
+    let row = row_text(&buffer, 18); // the timeline row on a 20-row terminal
+    assert_eq!(
+        43,
+        row.find("HISTORY").expect("history bar drawn"),
+        "{row:?}"
+    );
+    // (chars, not bytes: the bar glyphs are multi-byte)
+    assert_eq!(
+        159,
+        row.trim_end().chars().count(),
+        "group ends at 42 + 117: {row:?}"
+    );
+
+    // Mouse hit-testing follows the centered bar: its right edge is the head
+    let mut sim = looping_sim(100);
+    let (start, head) = {
+        let h = sim.history.as_ref().unwrap();
+        (h.start(), h.head())
+    };
+    // (the bar geometry depends on the start..head text, so recompute it
+    // with the sim's actual range)
+    let (bar_x, bar_width) = timeline_bar_geometry(Rect::new(0, 18, 200, 1), start, head);
+    app.timeline_area = Rect::new(0, 18, 200, 1);
+    app.scrub_to_column(bar_x + bar_width - 1, &mut sim);
+    assert_eq!(head, sim.cycle_count, "bar's right edge is the head");
+    app.scrub_to_column(bar_x, &mut sim);
+    assert_eq!(start, sim.cycle_count, "bar's left edge is the start");
+}
+
+#[test]
 pub(super) fn scrub_popup_centers_on_the_bar_marker() {
-    // On an 80-column terminal the bar spans x=10, width 63
+    // On an 80-column terminal the bar fills the width (63 cells), so the
+    // centering offset is zero and the bar spans x=10, width 63
     let timeline = Rect::new(0, 18, 80, 1);
     let (bar_x, bar_width) = timeline_bar_geometry(timeline, 0, 99);
     assert_eq!(10, bar_x);

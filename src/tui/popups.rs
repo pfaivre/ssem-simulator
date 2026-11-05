@@ -13,9 +13,9 @@ use crate::ssem::Opcode;
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, Simulator};
 
-use super::app::KEYMAP;
-use super::layout::MAX_COMMENT_WIDTH;
-use super::palette::Palette;
+use super::app::{BIT_REPRESENTATIONS, KEYMAP};
+use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH};
+use super::palette::{Palette, Theme};
 
 /// Compute a centered, clamped pop-up rectangle within the given area.
 fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
@@ -1590,6 +1590,213 @@ impl SavePopup {
                 Style::default().add_modifier(Modifier::DIM),
             )),
         ];
+
+        f.render_widget(Paragraph::new(lines), content);
+    }
+}
+
+/// The values the settings pop-up shows, copied from the app and the
+/// snapshot. Kept separate from `App` so `App::draw` can build it from
+/// disjoint fields while the pop-up is mutably borrowed for drawing.
+pub struct SettingsView {
+    /// The smoothed speed shown by the UI thread, and the target speed.
+    pub displayed_speed: u32,
+    pub target_speed: u32,
+    pub heatmap: HeatmapMode,
+    pub flow: FlowMode,
+    pub comments: bool,
+    pub bit_representation: usize,
+    pub theme: Theme,
+}
+
+/// One row of the settings pop-up: the label, then its spans — each either a
+/// clickable button (text + control) or plain value text.
+type SettingsRow = (&'static str, Vec<(String, Option<SettingControl>)>);
+
+/// A clickable control of the settings pop-up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingControl {
+    SpeedDown,
+    SpeedUp,
+    Heatmap,
+    Flow,
+    Comments,
+    Bits,
+    Theme,
+}
+
+/// The settings pop-up, opened from the menu bar.
+///
+/// One row per setting, each with a clickable control: machine speed (`[-]` /
+/// `[+]` around the current value), and the current value of the heatmap
+/// mode, flow mode, comments toggle, store bits display, and theme — clicking
+/// a value cycles it, exactly like its keyboard key (M/F/C/D/T, I/K).
+///
+/// While open, `App` routes the matching keys here and clicks on the
+/// controls to `App::perform_setting`; Esc or a click outside closes it.
+pub struct SettingsPopup {
+    open: bool,
+    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
+    last_rect: Rect,
+    /// The control buttons' cells from the last draw: (rect, control).
+    buttons: Vec<(Rect, SettingControl)>,
+}
+
+impl SettingsPopup {
+    pub fn new() -> Self {
+        SettingsPopup {
+            open: false,
+            last_rect: Rect::default(),
+            buttons: Vec::new(),
+        }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    pub fn open(&mut self) {
+        self.open = true;
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+
+    /// Whether the given screen cell lies inside the pop-up.
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        self.last_rect.contains(Position::new(column, row))
+    }
+
+    /// The control drawn under the given screen cell, if any.
+    pub fn control_at(&self, column: u16, row: u16) -> Option<SettingControl> {
+        self.buttons
+            .iter()
+            .find(|(rect, _)| rect.contains(Position::new(column, row)))
+            .map(|(_, control)| *control)
+    }
+
+    pub fn draw(&mut self, f: &mut Frame, area: Rect, view: &SettingsView, palette: &Palette) {
+        let footer =
+            "CLICK a control \u{b7} I/K or +/- speed \u{b7} M/F/C/D/T cycle \u{b7} ESC close";
+
+        let speed_text = format!("{}/{} ips", view.displayed_speed, view.target_speed);
+        let (on, off) =
+            BIT_REPRESENTATIONS[view.bit_representation.min(BIT_REPRESENTATIONS.len() - 1)];
+        // Each row: the label, then its spans — a button (text + control) or
+        // plain value text between the speed buttons
+        let rows: [SettingsRow; 6] = [
+            (
+                "Machine speed",
+                vec![
+                    ("[-]".to_string(), Some(SettingControl::SpeedDown)),
+                    (format!(" {speed_text} "), None),
+                    ("[+]".to_string(), Some(SettingControl::SpeedUp)),
+                ],
+            ),
+            (
+                "Heatmap mode",
+                vec![(
+                    format!("[{}]", view.heatmap.label().unwrap_or("OFF")),
+                    Some(SettingControl::Heatmap),
+                )],
+            ),
+            (
+                "Flow mode",
+                vec![(
+                    format!("[{}]", view.flow.label().unwrap_or("OFF")),
+                    Some(SettingControl::Flow),
+                )],
+            ),
+            (
+                "Comments",
+                vec![(
+                    format!("[{}]", if view.comments { "ON" } else { "OFF" }),
+                    Some(SettingControl::Comments),
+                )],
+            ),
+            (
+                "Store bits",
+                vec![(format!("[{on}{off}]"), Some(SettingControl::Bits))],
+            ),
+            (
+                "Theme",
+                vec![(
+                    format!("[{}]", view.theme.label()),
+                    Some(SettingControl::Theme),
+                )],
+            ),
+        ];
+
+        let label_width = rows
+            .iter()
+            .map(|(label, _)| display_width(label))
+            .max()
+            .unwrap_or(0);
+        let row_width = rows
+            .iter()
+            .map(|(_, segs)| {
+                segs.iter()
+                    .map(|(text, _)| display_width(text))
+                    .sum::<usize>()
+            })
+            .max()
+            .unwrap_or(0);
+        // Leading margin (2) + label + gap (1) + the widest row's spans
+        let content_width = 2 + label_width + 1 + row_width;
+        // 2 border columns, 1 left margin, 1 right margin
+        let width = (content_width.max(display_width(footer)) + 4) as u16;
+        // The rows + a blank line + the footer, plus the 2 border rows
+        let height = (rows.len() + 4) as u16;
+
+        let rect = popup_rect(height, width, area);
+        self.last_rect = rect;
+        f.render_widget(Clear, rect);
+        // Clear resets the cells to the terminal default; restore the theme's
+        // base colors under the pop-up
+        f.buffer_mut()
+            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
+
+        let block = Block::bordered()
+            .title(" SETTINGS ")
+            .border_type(BorderType::Rounded)
+            .border_style(Style::new().fg(palette.editor_border));
+        let content = content_area(&block, rect);
+        f.render_widget(block, rect);
+
+        let button_style = Style::default()
+            .fg(palette.key_hint)
+            .add_modifier(Modifier::REVERSED);
+        let value_style = Style::default()
+            .fg(palette.value)
+            .add_modifier(Modifier::BOLD);
+
+        self.buttons.clear();
+        let mut lines: Vec<Line<'static>> = Vec::with_capacity(rows.len() + 2);
+        for (i, (label, segs)) in rows.iter().enumerate() {
+            let mut spans = vec![Span::raw(format!("  {label:<label_width$} "))];
+            let mut x = content.x + 2 + label_width as u16 + 1;
+            let y = content.y + i as u16;
+            for (text, control) in segs {
+                let w = display_width(text) as u16;
+                let style = if control.is_some() {
+                    button_style
+                } else {
+                    value_style
+                };
+                spans.push(Span::styled(text.clone(), style));
+                if let Some(control) = control {
+                    self.buttons.push((Rect::new(x, y, w, 1), *control));
+                }
+                x += w;
+            }
+            lines.push(Line::from(spans));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            footer.to_string(),
+            Style::default().add_modifier(Modifier::DIM),
+        )));
 
         f.render_widget(Paragraph::new(lines), content);
     }

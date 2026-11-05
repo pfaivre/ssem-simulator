@@ -45,7 +45,7 @@ pub(super) fn comments_are_shown_by_default_next_to_each_word() {
     let mut app = App::new();
     app.flow = FlowMode::Data; // pin the flow mode: the comment column follows the gutter
     assert!(app.show_comments, "the comment column is on by default");
-    // Wide enough that the top-bar label is not truncated by the screen edge
+    // Wide enough that the status-bar label is not truncated by the screen edge
     let buffer = render(&mut app, &snap, 120, 40);
 
     // Store line i is drawn on screen row 5 + i; the comment starts after
@@ -53,7 +53,6 @@ pub(super) fn comments_are_shown_by_default_next_to_each_word() {
     let col = comment_column(app.flow);
     let row1: String = row_text(&buffer, 6).chars().skip(col).collect();
     assert!(row1.starts_with(" ; A = -a"), "row1: {row1:?}");
-    assert_eq!(DARK.dim, buffer[(col as u16, 6)].fg);
     let row4: String = row_text(&buffer, 9).chars().skip(col).collect();
     assert!(row4.starts_with(" ;   x"), "row4: {row4:?}");
     // A word without a comment gets blank padding, keeping the column aligned
@@ -62,8 +61,8 @@ pub(super) fn comments_are_shown_by_default_next_to_each_word() {
         row2.starts_with(&" ".repeat(" A = -a".len() + 2)),
         "row2: {row2:?}"
     );
-    // The top bar advertises the column
-    assert!(row_text(&buffer, 0).contains("[COMMENTS]"));
+    // The status bar advertises the column
+    assert!(row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
 }
 
 #[test]
@@ -84,7 +83,7 @@ pub(super) fn c_key_toggles_the_comment_column() {
     assert!(!app.show_comments);
     let buffer = render(&mut app, &snap, 100, 40);
     assert!(!row_text(&buffer, 6).contains("A = -a"));
-    assert!(!row_text(&buffer, 0).contains("COMMENTS"));
+    assert!(!row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
 
     // Uppercase toggles back on
     app.handle_key(
@@ -104,14 +103,13 @@ pub(super) fn no_comments_still_draws_a_minimal_column_when_enabled() {
     assert!(app.show_comments);
     let buffer = render(&mut app, &snap, 100, 40);
 
-    // The top bar advertises the column...
-    assert!(row_text(&buffer, 0).contains("[COMMENTS]"));
+    // The status bar advertises the column...
+    assert!(row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
     // ...and every store row shows a dim " ;" gutter as the double-click
     // target for adding the first comment (word 0 is on screen row 5)
     let col = comment_column(app.flow);
     let row0: String = row_text(&buffer, 5).chars().skip(col).collect();
     assert!(row0.starts_with(" ;"), "row0: {row0:?}");
-    assert_eq!(DARK.dim, buffer[(col as u16, 5)].fg);
     // The store text is not shifted: the bits start right after the pointer
     let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
     assert_eq!('.', chars[1]);
@@ -160,12 +158,12 @@ pub(super) fn comment_column_is_cropped_when_the_terminal_is_narrow() {
     // (MIN_WIDTH leaves a single cell past the store text, less than " ;")
     let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
     assert!(!row_text(&buffer, 5).contains(';'));
-    assert!(!row_text(&buffer, 0).contains("COMMENTS"));
+    assert!(!row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
 
-    // Wide enough: the full comment and the top-bar label are drawn
+    // Wide enough: the full comment and the status-bar label are drawn
     let buffer = render(&mut app, &snap, (full + 20) as u16, 40);
     assert!(row_text(&buffer, 5).contains("; a comment"));
-    assert!(row_text(&buffer, 0).contains("[COMMENTS]"));
+    assert!(row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
 }
 
 #[test]

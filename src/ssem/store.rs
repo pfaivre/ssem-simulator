@@ -87,6 +87,12 @@ impl Store {
         store
     }
 
+    /// Zero every word and clear every source comment.
+    pub fn clear(&mut self) {
+        self.words = [0_i32; SSEM_STORE_WORDS];
+        *Arc::make_mut(&mut self.comments) = std::array::from_fn(|_| None);
+    }
+
     /// Initializes the store with the given assembly file
     ///
     /// An assembly file has the following form:

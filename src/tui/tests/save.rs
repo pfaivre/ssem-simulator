@@ -94,10 +94,10 @@ pub(super) fn s_key_opens_the_save_popup_and_esc_closes_it() {
     let mut sim = Simulator::new();
     let snap = snapshot_with_history(0);
 
-    // The S key is advertised in the bottom bar
+    // The Save action is advertised in the menu bar (the top row)
     let buffer = render(&mut app, &snap, 200, 40);
-    let bottom = row_text(&buffer, 39);
-    assert!(bottom.contains("SAVE"), "bottom bar: {bottom:?}");
+    let menu = row_text(&buffer, 0);
+    assert!(menu.contains("Save"), "menu bar: {menu:?}");
 
     assert!(!app.save_popup.is_open());
     open_save_popup(&mut app, &mut sim);

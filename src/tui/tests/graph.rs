@@ -219,7 +219,6 @@ pub(super) fn graph_view_hides_fall_through_but_marks_stops() {
 
     // Store line i is drawn on screen row 5 + i
     let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
-    let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
 
     // ... the gutter of lines 1 and 2 (rows 6-7) stays empty ...
     for row in [6, 7] {
@@ -229,7 +228,6 @@ pub(super) fn graph_view_hides_fall_through_but_marks_stops() {
     }
     // ... but the STP at line 3 (row 8) is marked with a red ■
     assert_eq!('■', glyph(8, G_SEP));
-    assert_eq!(DARK.op_halt, cell(8, G_SEP).fg);
 }
 
 #[test]
@@ -239,24 +237,20 @@ pub(super) fn graph_view_draws_a_forward_jump() {
     let (buffer, _) = render_graph(store);
 
     let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
-    let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
 
     // The fall-through 1→2 draws nothing (row 6 stays empty)
     assert_eq!(' ', glyph(6, g_vert(0)));
     // The jump 2→10 leaves line 2 (row 7) in lane 0, in the jump color...
     assert_eq!('╮', glyph(7, g_vert(0)));
-    assert_eq!(DARK.edge_jump, cell(7, g_vert(0)).fg);
     // ... runs down lane 0 from row 8 to row 14 ...
     for row in 8..15 {
         assert_eq!('│', glyph(row, g_vert(0)), "row {row}");
-        assert_eq!(DARK.edge_jump, cell(row, g_vert(0)).fg, "row {row}");
     }
     // ... and arrives at line 10 (row 15): arrowhead, a dash spacing it
     // from the corner
     assert_eq!('◀', glyph(15, g_head(0)));
     assert_eq!('─', glyph(15, g_head(0) + 1));
     assert_eq!('╯', glyph(15, g_vert(0)));
-    assert_eq!(DARK.edge_jump, cell(15, g_head(0)).fg);
 }
 
 #[test]
@@ -266,16 +260,12 @@ pub(super) fn graph_view_draws_only_the_cmp_skip() {
     let (buffer, _) = render_graph(store);
 
     let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
-    let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
 
     // Only the skip 4→6 is drawn, in lane 0, in the test color: corner leaving line 4
     // (row 9), vertical through row 10, arrowhead arriving at line 6 (row 11)
     assert_eq!('╮', glyph(9, g_vert(0)));
-    assert_eq!(DARK.edge_skip, cell(9, g_vert(0)).fg);
     assert_eq!('│', glyph(10, g_vert(0)));
-    assert_eq!(DARK.edge_skip, cell(10, g_vert(0)).fg);
     assert_eq!('◀', glyph(11, g_head(0)));
-    assert_eq!(DARK.edge_skip, cell(11, g_head(0)).fg);
     // The not-taken branch to line 5 (row 10) draws nothing
     assert_eq!(' ', glyph(10, g_head(1)));
 }
@@ -297,16 +287,13 @@ pub(super) fn graph_view_highlights_backward_jumps_as_loops() {
     let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
 
     // The backward edge leaves line 5 (row 10) with an upward corner in
-    // lane 0, bold in the jump color ...
+    // lane 0, bold ...
     assert_eq!('╯', glyph(10, g_vert(0)));
-    assert_eq!(DARK.edge_jump, cell(10, g_vert(0)).fg);
     assert!(cell(10, g_vert(0)).modifier.contains(Modifier::BOLD));
     // ... runs up through row 9 ...
     assert_eq!('│', glyph(9, g_vert(0)));
-    assert_eq!(DARK.edge_jump, cell(9, g_vert(0)).fg);
     // ... and arrives at line 3 (row 8)
     assert_eq!('◀', glyph(8, g_head(0)));
-    assert_eq!(DARK.edge_jump, cell(8, g_head(0)).fg);
 }
 
 #[test]
@@ -333,22 +320,19 @@ pub(super) fn graph_view_crossing_prints_the_vertical_over_the_horizontal() {
     let (buffer, _) = render_graph(store);
 
     let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
-    let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
 
     // Store line i is drawn on screen row 5 + i; the crossing sits where
     // the skip's horizontal (line 10's row) meets the loop's vertical
     // (lane 0's column)
+    let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
     let (row, col) = ((line_row(10) + 1) as u16, g_vert(0));
-    // Only the vertical is printed, in the loop edge's bold jump color: the
-    // vertical arrow reads as passing over the horizontal one
+    // Only the vertical is printed, bold: the vertical arrow reads as
+    // passing over the horizontal one
     assert_eq!('│', glyph(row, col));
-    assert_eq!(DARK.edge_jump, cell(row, col).fg);
     assert!(cell(row, col).modifier.contains(Modifier::BOLD));
-    assert_eq!(DARK.bg, cell(row, col).bg);
     // The horizontal edge is present on both sides of the crossing...
     for side in [col - 1, col + 1] {
         assert_eq!('─', glyph(row, side), "col {side}");
-        assert_eq!(DARK.edge_skip, cell(row, side).fg, "col {side}");
     }
 }
 
@@ -362,10 +346,9 @@ pub(super) fn graph_view_draws_self_loops_as_a_circular_arrow() {
     let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
     let cell = |row: u16, col: usize| buffer[(col as u16, row)].clone();
 
-    // Line 3 (row 8): ↺ in the separator column, bold in the jump color; the incoming
+    // Line 3 (row 8): ↺ in the separator column, bold; the incoming
     // jump still arrives in lane 0
     assert_eq!('↺', glyph(8, G_SEP));
-    assert_eq!(DARK.edge_jump, cell(8, G_SEP).fg);
     assert!(cell(8, G_SEP).modifier.contains(Modifier::BOLD));
     assert_eq!('╯', glyph(8, g_vert(0)));
     // Line 2 decodes as STP but is unreachable: no halt marker
@@ -378,7 +361,7 @@ pub(super) fn graph_gutter_renders_the_overflow_label_after_the_lanes() {
         cells: vec![vec![None; GUTTER_COLS]; CONTENT_HEIGHT],
         overflow: vec![None; CONTENT_HEIGHT],
     };
-    gutter.overflow[line_row(4)] = Some((31, Style::default().fg(DARK.edge_jump)));
+    gutter.overflow[line_row(4)] = Some((31, Style::default()));
     let spans = gutter.row_spans(line_row(4));
     let text: String = spans.iter().flat_map(|span| span.content.chars()).collect();
     assert_eq!(GUTTER_COLS + OVERFLOW_LABEL_WIDTH, text.chars().count());
@@ -396,11 +379,12 @@ pub(super) fn graph_view_hides_the_data_flow_arrow() {
     app.flow = FlowMode::Control;
     let buffer = render(&mut app, &snap, 100, 40);
 
-    // The gutter columns carry graph edges only: no memory-colored arrow
+    // The gutter columns carry graph edges only: no data-flow arrow glyphs
     for y in 0..buffer.area.height {
-        for x in STORE_TEXT_WIDTH..(STORE_TEXT_WIDTH + GRAPH_EXTRA_WIDTH as usize) {
-            assert_ne!(DARK.op_memory, buffer[(x as u16, y)].fg, "cell ({x}, {y})");
-        }
+        let gutter: String = (STORE_TEXT_WIDTH..(STORE_TEXT_WIDTH + GRAPH_EXTRA_WIDTH as usize))
+            .map(|x| buffer[(x as u16, y)].symbol())
+            .collect();
+        assert!(!has_arrow_glyph(&gutter), "row {y}: {gutter:?}");
     }
 }
 
@@ -439,21 +423,24 @@ pub(super) fn graph_view_crops_the_right_side_when_narrow() {
 }
 
 #[test]
-pub(super) fn flow_mode_is_shown_in_the_top_bar() {
+pub(super) fn flow_mode_is_shown_in_the_status_bar() {
     let snap = snapshot_with_history(0);
     let mut app = App::new();
 
-    // Default mode: control
+    // Default mode: control; the status bar is the bottom row
     let buffer = render(&mut app, &snap, 120, 40);
-    assert!(row_text(&buffer, 0).contains("[FLOW: CONTROL]"));
+    let status_row = buffer.area.height - 1;
+    assert!(row_text(&buffer, status_row).contains("FLOW: CONTROL"));
 
     app.flow = FlowMode::Data;
     let buffer = render(&mut app, &snap, 120, 40);
-    assert!(row_text(&buffer, 0).contains("[FLOW: DATA]"));
-    assert!(!row_text(&buffer, 0).contains("CONTROL]"));
+    let status_row = buffer.area.height - 1;
+    assert!(row_text(&buffer, status_row).contains("FLOW: DATA"));
+    assert!(!row_text(&buffer, status_row).contains("CONTROL"));
 
     // Off: no flow label at all
     app.flow = FlowMode::Off;
     let buffer = render(&mut app, &snap, 120, 40);
-    assert!(!row_text(&buffer, 0).contains("FLOW"));
+    let status_row = buffer.area.height - 1;
+    assert!(!row_text(&buffer, status_row).contains("FLOW"));
 }

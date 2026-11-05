@@ -113,6 +113,13 @@ impl History {
         }
         self.head = cycle;
     }
+
+    /// Drop every retained snapshot, keeping the allocated capacity, so
+    /// the next `record` starts a fresh history at the cycle it is given.
+    pub fn clear(&mut self) {
+        self.head = 0;
+        self.count = 0;
+    }
 }
 
 #[cfg(test)]
@@ -173,6 +180,28 @@ mod tests {
         assert_eq!(Some(&snap(0)), h.get(0));
         assert_eq!(Some(&snap(2)), h.get(2));
         assert_eq!(None, h.get(3));
+    }
+
+    #[test]
+    fn clear_drops_everything_and_keeps_capacity() {
+        let mut h = History::new(4);
+        for c in 0..=6 {
+            h.record(c, snap(c as i32));
+        }
+        assert_eq!(4, h.len());
+
+        h.clear();
+        assert!(h.is_empty());
+        assert_eq!(4, h.capacity(), "capacity is kept");
+        assert_eq!(None, h.get(3));
+        assert_eq!(None, h.get(6));
+
+        // The next record starts a fresh history at the given cycle
+        h.record(42, snap(42));
+        assert_eq!(1, h.len());
+        assert_eq!(42, h.start());
+        assert_eq!(42, h.head());
+        assert_eq!(Some(&snap(42)), h.get(42));
     }
 
     #[test]

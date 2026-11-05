@@ -6,22 +6,22 @@ mod comments;
 mod config;
 mod graph;
 mod heatmap;
+mod menu;
 mod picker;
 mod render;
 mod save;
 mod timeline;
 
-use super::app::App;
+use super::app::{App, BIT_REPRESENTATIONS, MenuAction};
 use super::draw::{ARROW_EXTRA_WIDTH, flow_gutter_width};
 use super::graph::{
     CfgEdge, EdgeKind, GRAPH_EXTRA_WIDTH, GUTTER_COLS, GraphGutter, MAX_EDGE_LANES,
     OVERFLOW_LABEL_WIDTH, assign_lanes, control_flow_edges, line_row, reachable_edges,
 };
 use super::layout::{
-    CI_ROW, CONTENT_HEIGHT, FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, MIN_WIDTH, STORE_TEXT_WIDTH,
+    CONTENT_HEIGHT, FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, MIN_WIDTH, STORE_TEXT_WIDTH,
     comment_column_width, timeline_bar_geometry, timeline_marker_offset,
 };
-use super::palette::DARK;
 use super::snapshot::Snapshot;
 use crate::ssem::Store;
 use crate::ssem::simulator::{LastInstruction, Simulator};

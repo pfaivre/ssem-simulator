@@ -25,52 +25,6 @@ starts with an empty (all-zero) store. It also takes an optional
 cargo run -r -- --max-cycles 1000 samples/nightmare.snp
 ```
 
-Pass `--save FILE` to write the final machine state to `FILE` when the run
-ends, in both headless and interactive mode. In the TUI, press `S` to save
-the current state at any time: the save pop-up has a single `FILE:` field,
-opened on the input file's folder (canonicalized to an absolute path, shown
-as the `DIR:` line) with `<name>_edited.<ext>` prefilled; Enter saves to
-`<dir>/<name>`. The field accepts only alphanumerics, `-`, `_` and `.`, so
-the saved file always lands in that folder.
-The format follows the file extension: `.asm` writes assembly (instructions
-as mnemonics, other words as `NUM`, source comments after `;`), `.snp`
-writes a raw binary snapshot; CI, the accumulator and the cycle count go in
-a leading comment line, and the saved file loads back as a regular input.
-
-The interactive TUI records an execution history for time-travel (scrub the
-timeline bar with the mouse, or use `←` `→` `Home` `End`), capped by
-`--history-size` past states (default 100,000, 0 to disable). Headless mode
-never records.
-
-The source comments shown next to each store word (C toggles the column) are
-editable: double-click the comment column of a store row to get an inline
-text box on that row, prefilled with the current comment; Enter validates
-(the new text becomes the word's comment, a blank text clears it) and Esc
-cancels. The edit writes through `Store::set_comment` (the comments live
-behind an `Arc`, swapped with `Arc::make_mut` so in-flight snapshots keep the
-old text), and is included when the state is saved with `S`/`--save`.
-
-All interface colors live in `src/tui/palette/` — a `Palette` struct plus
-one file per theme (`dark.rs`, `light.rs`, `monokai.rs`, `macchiato.rs`,
-`terminal.rs`; all but `terminal.rs` use exact RGB hex values, `terminal.rs`
-the terminal's own default/ANSI colors). Pick a theme with `--theme
-dark|light|monokai|macchiato|terminal` or cycle at runtime
-with the `T` key. To add a theme: new file in `src/tui/palette/`, a `Theme`
-variant, an entry in `Theme::ALL`.
-
-The interactive view modes (theme, flow, heatmap, comments toggle, bit
-representation) are
-persisted in TOML to `ssem-simulator/config.toml` in the platform's config
-directory — `$XDG_CONFIG_HOME` (default `$HOME/.config`) on Linux/macOS,
-`%APPDATA%` (default `%USERPROFILE%\AppData\Roaming`) on Windows — written
-when the TUI exits and read at startup (`src/tui/config.rs`); `--theme` overrides the saved theme
-for one session without saving it. Holding a view-mode key (T/F/M/C/D) does
-not repeat it: `App::mode_key_accepted` in `app.rs` ignores a press within
-50 ms of the previous press of the same key, which swallows OS key-repeat on
-every terminal (no kitty-protocol flags are pushed — they broke key delivery
-on some terminals). The history-scrub keys (← → Home End) still repeat for
-continuous time-travel.
-
 Sample programs live in `samples/`.
 
 ## Test
@@ -102,7 +56,7 @@ cargo clippy
 
 - Keep the codebase warning-free: run `cargo clippy` before committing.
 - Match the existing style (snake_case, module-per-concern under `src/ssem/`).
-- Don't commit changes to `Cargo.lock` dependency version bumps unless asked.
+- Don't over comment. Keep inline code comment and docstrings concise. Don't comment when the subject is obvious by reading the code.
 
 ## Suggestions for later development
 

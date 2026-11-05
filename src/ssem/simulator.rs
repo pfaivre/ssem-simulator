@@ -304,6 +304,32 @@ impl Simulator {
         self.write_counts = [0; 32];
     }
 
+    /// Reset the machine to the state it has when opened without a
+    /// program
+    pub fn clear(&mut self) {
+        self.stop_flag = true;
+        self.ci = 0;
+        self.a = 0;
+        self.cycle_count = 0;
+        self.store.clear();
+        self.last_instruction = None;
+        self.breakpoints.clear();
+        self.reset_heatmap();
+        self.heatmap_reset_pending = false;
+        if let Some(history) = &mut self.history {
+            history.clear();
+            history.record(
+                self.cycle_count,
+                Snapshot {
+                    a: self.a,
+                    ci: self.ci,
+                    store: self.store.words,
+                    last_instruction: self.last_instruction,
+                },
+            );
+        }
+    }
+
     /// Run the machine until STP is encountered or the given amount of cycles is reached.
     ///
     /// Returns the number of cycles executed.
@@ -498,7 +524,7 @@ impl fmt::Display for Simulator {
 mod tests {
     use std::path::Path;
 
-    use super::{Opcode, Simulator};
+    use super::{Breakpoint, Opcode, Simulator};
 
     /// Encode an instruction word the same way `Store::from_asm_file` does:
     /// opcode bits at position 13, operand in the low 5 bits.
@@ -1318,6 +1344,86 @@ mod tests {
         assert_eq!(1, sim.read_counts[6]);
         assert_eq!(1, sim.read_counts[7]);
         assert_eq!(1, sim.write_counts[8]);
+    }
+
+    #[test]
+    fn clear_wipes_store_heatmap_and_history() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(3); // LDN 6, SUB 7, STO 8
+        std::sync::Arc::make_mut(&mut sim.store.comments)[6] = Some("operand".into());
+        sim.breakpoints.push(Breakpoint::CiValue {
+            address: 2,
+            was_met: false,
+        });
+        assert!(sim.exec_counts.iter().any(|&c| c > 0));
+        assert!(sim.read_counts.iter().any(|&c| c > 0));
+        assert!(sim.write_counts.iter().any(|&c| c > 0));
+        assert!(sim.history.as_ref().unwrap().len() > 1);
+        assert_eq!(3, sim.cycle_count);
+
+        sim.clear();
+
+        // The machine looks like when opened without a program
+        assert_eq!(0, sim.cycle_count, "cycle count reset");
+        assert_eq!(0, sim.a);
+        assert_eq!(0, sim.ci);
+        assert!(sim.last_instruction.is_none());
+        assert!(sim.breakpoints.is_empty(), "breakpoints dropped");
+        assert!(sim.store.words.iter().all(|&w| w == 0), "store wiped");
+        assert!(
+            sim.store.comments.iter().all(Option::is_none),
+            "comments wiped"
+        );
+        assert!(
+            sim.exec_counts.iter().all(|&c| c == 0),
+            "exec heatmap reset"
+        );
+        assert!(
+            sim.read_counts.iter().all(|&c| c == 0),
+            "read heatmap reset"
+        );
+        assert!(
+            sim.write_counts.iter().all(|&c| c == 0),
+            "write heatmap reset"
+        );
+        assert!(!sim.heatmap_reset_pending);
+
+        // The history restarts at cycle 0, holding only the cleared
+        // state; the pre-clear cycles are gone
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(1, h.len());
+        assert_eq!(0, h.start());
+        assert_eq!(0, h.head());
+        assert!(
+            h.get(0).unwrap().store.iter().all(|&w| w == 0),
+            "history holds the cleared state at cycle 0"
+        );
+        assert_eq!(None, h.get(3), "the pre-clear history is gone");
+
+        // The machine keeps recording from cycle 0
+        sim.instruction_cycle();
+        assert_eq!(1, sim.cycle_count);
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(2, h.len());
+        assert_eq!(sim.cycle_count, h.start() + 1);
+        assert_eq!(sim.cycle_count, h.head());
+    }
+
+    #[test]
+    fn clear_without_history_keeps_history_disabled() {
+        let mut sim = history_test_program();
+        sim.run(2);
+        assert!(sim.history.is_none());
+
+        sim.clear();
+
+        assert!(sim.history.is_none(), "history stays disabled");
+        assert_eq!(0, sim.cycle_count, "cycle count reset");
+        assert!(sim.store.words.iter().all(|&w| w == 0));
+        assert!(sim.exec_counts.iter().all(|&c| c == 0));
+        assert!(sim.read_counts.iter().all(|&c| c == 0));
+        assert!(sim.write_counts.iter().all(|&c| c == 0));
     }
 
     #[test]

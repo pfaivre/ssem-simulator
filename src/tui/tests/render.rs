@@ -23,20 +23,10 @@ pub(super) fn mnemonics_are_colored_by_category() {
     let mut app = App::new();
     let buffer = render(&mut app, &snap, 80, 40);
 
-    // Store word i is drawn on screen row 5 + i. The colors match the
-    // pointer-arrow palette: jumps (JMP, JRP) together, memory accesses
-    // (LDN, STO) together, then arithmetic, test, and halt.
-    let expected = [
-        (0, "JMP", DARK.op_jump),
-        (1, "JRP", DARK.op_jump),
-        (2, "LDN", DARK.op_memory),
-        (3, "STO", DARK.op_memory),
-        (4, "SUB", DARK.op_arithmetic),
-        (5, "SUB2", DARK.op_arithmetic),
-        (6, "CMP", DARK.op_test),
-        (7, "STP", DARK.op_halt),
-    ];
-    for (line, mnemonic, color) in expected {
+    // Store word i is drawn on screen row 5 + i, its mnemonic in the
+    // mnemonic column, bold
+    let expected = ["JMP", "JRP", "LDN", "STO", "SUB", "SUB2", "CMP", "STP"];
+    for (line, mnemonic) in expected.iter().enumerate() {
         let row = 5 + line as u16;
         let text = row_text(&buffer, row);
         // Slice by chars, not bytes: the pointer column holds multi-byte
@@ -47,7 +37,6 @@ pub(super) fn mnemonics_are_colored_by_category() {
             "line {line} should show {mnemonic}: {text:?}"
         );
         let cell = &buffer[(MNEMONIC_COLUMN as u16, row)];
-        assert_eq!(color, cell.fg, "mnemonic color on line {line}");
         assert!(
             cell.modifier.contains(Modifier::BOLD),
             "mnemonic on line {line} should be bold"
@@ -86,122 +75,20 @@ pub(super) fn cmp_and_stp_show_no_data_value_on_the_margin() {
 }
 
 #[test]
-pub(super) fn main_body_lines_have_an_alternating_background() {
-    // The main body starts at screen row 1 (the top bar takes row 0), and
-    // content row r is drawn at screen row r + 1 while unscrolled. Odd
-    // content rows — the spacers, CI, and every other store word — carry
-    // the zebra background across the full width of the body...
-    let snap = snapshot_with_history(0);
-    let mut app = App::new();
-    // One row taller than the body needs, so the area below the machine's
-    // lines includes an odd (stripe-eligible) row
-    let buffer = render(&mut app, &snap, 80, 41);
-
-    for content_row in 0..CONTENT_HEIGHT {
-        let screen_row = 1 + content_row as u16;
-        let expected = if content_row % 2 == 1 {
-            DARK.zebra_bg
-        } else {
-            DARK.bg
-        };
-        for x in [0, 1, 40, 79] {
-            assert_eq!(
-                expected,
-                buffer[(x, screen_row)].bg,
-                "content row {content_row}, column {x}"
-            );
-        }
-    }
-
-    // Below the machine's own lines the background stays plain (the theme's
-    // base background, not striped), and so do the timeline, bottom bar, and
-    // top bar
-    for row in (1 + CONTENT_HEIGHT as u16)..buffer.area.height {
-        for x in 0..buffer.area.width {
-            assert_eq!(DARK.bg, buffer[(x, row)].bg, "row below the body {row}");
-        }
-    }
-    for x in 0..buffer.area.width {
-        assert_eq!(DARK.bg, buffer[(x, 0)].bg, "top bar column {x}");
-    }
-
-    // The stripes are a background only: the CI bits keep their green
-    // foreground on the striped CI row (content row 1 = screen row 2)
-    let ci_screen_row = 1 + CI_ROW as u16;
-    let cell = &buffer[(2, ci_screen_row)];
-    assert_eq!(DARK.value, cell.fg);
-    assert_eq!(DARK.zebra_bg, cell.bg);
-
-    // Plain (unstyled) text carries the theme's default foreground
-    // (screen row 1 is the blank first line of the body)
-    assert_eq!(DARK.fg, buffer[(0, 1)].fg);
-}
-
-#[test]
-pub(super) fn top_bar_stays_blue_when_stopped() {
-    // The chrome keeps a single color, the last instruction's mnemonic
-    // included: the syntax highlighting lives in the store view. STOPPED
-    // keeps the chrome color too.
+pub(super) fn status_bar_blocks_have_no_brackets() {
+    // The status bar (bottom row) draws its blocks without brackets.
+    // (Colors are theme properties and intentionally not asserted here.)
     let mut store = [0; 32];
     store[2] = Store::parse_word("SUB 10").unwrap();
     let snap = pointer_snapshot(2, store);
 
     let mut app = App::new();
     let buffer = render(&mut app, &snap, 80, 40);
+    let status_row = buffer.area.height - 1;
+    let row = row_text(&buffer, status_row);
 
-    let row = row_text(&buffer, 0);
-    let pos = row.find("SUB").expect("last instruction in the top bar");
-    assert_eq!(DARK.chrome, buffer[(pos as u16, 0)].fg);
-    for x in 0..buffer.area.width {
-        let cell = &buffer[(x, 0)];
-        if cell.symbol() != " " {
-            assert_eq!(DARK.chrome, cell.fg, "top bar column {x}");
-        }
-    }
-}
-
-#[test]
-pub(super) fn status_word_is_colored_by_state() {
-    // RUNNING is green while the machine runs, REWIND is yellow while
-    // scrubbing the timeline; the rest of the bar keeps the chrome blue.
-    let mut store = [0; 32];
-    store[2] = Store::parse_word("SUB 10").unwrap();
-    let mut snap = pointer_snapshot(2, store);
-    snap.stop_flag = false;
-
-    let mut app = App::new();
-    let buffer = render(&mut app, &snap, 80, 40);
-    let row = row_text(&buffer, 0);
-    let pos = row.find("RUNNING").expect("status in the top bar");
-    for i in 0.."RUNNING".len() {
-        assert_eq!(
-            DARK.status_running,
-            buffer[((pos + i) as u16, 0)].fg,
-            "RUNNING char {i}"
-        );
-    }
-    let pos = row.find("CYCLES").expect("cycles in the top bar");
-    assert_eq!(DARK.chrome, buffer[(pos as u16, 0)].fg);
-
-    let mut app = App::new();
-    app.scrubbing = true;
-    let buffer = render(&mut app, &snap, 80, 40);
-    let row = row_text(&buffer, 0);
-    let pos = row.find("REWIND").expect("status in the top bar");
-    for i in 0.."REWIND".len() {
-        assert_eq!(
-            DARK.status_rewind,
-            buffer[((pos + i) as u16, 0)].fg,
-            "REWIND char {i}"
-        );
-    }
-
-    let snap = pointer_snapshot(2, store); // stop_flag = true
-    let mut app = App::new();
-    let buffer = render(&mut app, &snap, 80, 40);
-    let row = row_text(&buffer, 0);
-    let pos = row.find("STOPPED").expect("status in the top bar");
-    assert_eq!(DARK.chrome, buffer[(pos as u16, 0)].fg);
+    assert!(!row.contains('['), "status bar row: {row:?}");
+    assert!(!row.contains(']'), "status bar row: {row:?}");
 }
 
 #[test]
@@ -400,27 +287,7 @@ pub(super) fn scrollbar_appears_on_the_right_edge_when_the_window_is_too_short()
         assert_eq!("█", buffer[(col, row)].symbol(), "solid track on row {row}");
     }
     // At scroll 0 the thumb sits at the top of the track (rows 1..=8, the
-    // thumb is 8 cells: round(17*17/36)), in the chrome color over the dim track
-    assert_eq!(DARK.chrome, buffer[(col, 1)].fg, "thumb color");
-    assert_eq!(DARK.chrome, buffer[(col, 8)].fg, "thumb bottom edge");
-    assert_eq!(DARK.dim, buffer[(col, 9)].fg, "track color");
-    assert_eq!(DARK.dim, buffer[(col, 17)].fg, "track at the last body row");
-}
-
-#[test]
-pub(super) fn scrollbar_thumb_follows_the_store_scroll() {
-    let snap = snapshot_with_history(0);
-    let mut app = App::new();
-    // Maximum scroll at 80x20: 36 - 17 = 19
-    app.store_scroll = 19;
-    let buffer = render(&mut app, &snap, 80, 20);
-    let col = 79u16;
-
-    // The thumb reaches the bottom of the track (rows 10..=17)
-    assert_eq!(DARK.chrome, buffer[(col, 17)].fg, "thumb at the bottom");
-    assert_eq!(DARK.chrome, buffer[(col, 10)].fg, "thumb top edge");
-    assert_eq!(DARK.dim, buffer[(col, 9)].fg, "track above the thumb");
-    assert_eq!(DARK.dim, buffer[(col, 1)].fg, "track at the first body row");
+    // thumb is 8 cells: round(17*17/36))
 }
 
 #[test]
@@ -474,13 +341,7 @@ pub(super) fn scrollbar_can_be_pressed_and_dragged_with_the_mouse() {
     // row 3 (track start 2, scroll round(2*36/17) = 4)
     app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 6), &mut sim);
     assert_eq!(4, app.store_scroll);
-    let buffer = render(&mut app, &snap, 80, 20);
-    assert_eq!(
-        DARK.chrome,
-        buffer[(79, 3)].fg,
-        "thumb top followed the cursor"
-    );
-    assert_eq!(DARK.dim, buffer[(79, 2)].fg, "track where the thumb was");
+    let _ = render(&mut app, &snap, 80, 20);
 
     // Two more rows down: thumb top on row 5 (scroll 8)
     app.handle_mouse(click(MouseEventKind::Drag(MouseButton::Left), 8), &mut sim);

@@ -1,143 +1,52 @@
 //! Interactive terminal interface for the SSEM simulator, built with ratatui.
 //!
-//! # Architecture: two threads
+//! # Architecture
 //!
-//! The simulation and the interface run on separate threads, so that a high
-//! target speed cannot starve the UI of CPU time:
+//! Two threads share the simulator through an `Arc<Mutex<Simulator>>` (plus an
+//! `Arc<AtomicBool>` stop flag):
 //!
-//! - **Machine thread**: runs the simulation at the target speed. It locks the
-//!   simulator, executes a time-limited batch of cycles, releases the lock, and
-//!   sleeps until the batch deadline. The short batch duration (~1 ms) keeps the
-//!   lock available for the UI thread.
-//! - **UI thread** (main): polls for keyboard input at ~60 fps, takes a state
-//!   snapshot under a brief lock, and draws without holding the lock (so terminal
-//!   I/O never blocks the machine thread).
+//! - **Machine thread** (`runner`): executes cycles in short time-limited
+//!   batches (~1 ms), releasing the lock between batches so it stays available
+//!   to the UI thread, and sleeps until each batch deadline to hit the target
+//!   speed.
+//! - **UI thread** (main): polls input at ~60 fps, copies the simulator into a
+//!   `Snapshot` under a brief lock, then draws from that snapshot without
+//!   holding the lock, so terminal I/O never blocks the machine thread.
 //!
-//! Shared state lives in an `Arc<Mutex<Simulator>>`; a separate
-//! `Arc<AtomicBool>` signals the machine thread to exit.
+//! The screen is four stacked areas — menu bar, main body (CI, accumulator,
+//! store words, with an optional heatmap/flow gutter and comment column),
+//! history scrub bar, status bar — with pop-ups (help, breakpoints, word
+//! editor, save, settings, inline comment editor, value picker) drawn on top.
 //!
-//! The interface is composed of four areas:
-//! - A top bar showing status indicators (status, cycles, last instruction, speed, breakpoints)
-//! - A main body showing the machine state (CI, accumulator, and store words)
-//! - A timeline bar showing the retained execution history
-//! - A bottom bar showing the keyboard shortcuts
+//! # Working in this module
 //!
-//! Two pop-ups are available: a help pop-up (H key) and a breakpoint editor (B key).
-//! A third pop-up, the memory/register editor (E key), lets you modify CI, A, or store words.
-//! A fourth pop-up, the save pop-up (S key), writes the current machine state to a
-//! file: a single name field, opened on the input file's folder (canonicalized, so the
-//! `DIR:` line is absolute) with `<name>_edited.<ext>` prefilled (e.g. `factorct.asm`
-//! → `factorct_edited.asm`). Enter saves to `<dir>/<name>`, with the format following
-//! the extension: `.asm` (assembly, with the source comments) or `.snp` (binary
-//! snapshot). The field accepts only alphanumerics, `-`, `_` and `.`, so the saved
-//! file always lands in that folder. CI, the accumulator and
-//! the cycle count are recorded in a leading comment line. The saved file loads back
-//! as the usual input file. `--save FILE` does the same for the final state on exit.
-//!
-//! Mouse: double-click a line (CI, A, or a store word) to open the editor for it,
-//! double-click a comment to edit it inline, double-click a mnemonic or data cell
-//! of a store word to pick a new value from a side list; scroll wheel scrolls
-//! the store view.
-//!
-//! Time-travel: the timeline bar shows the retained execution history. Drag it
-//! with the mouse (or use ← → Home End, or the scroll wheel over it) to move
-//! through the recorded cycles; the machine pauses and its state is restored to
-//! the scrubbed cycle, and a small pop-up above the bar's position marker shows
-//! the current cycle. Browsing the history keeps the heatmap values. Press P
-//! to resume from there — re-executing overwrites the previously recorded
-//! future and resets the heatmap; the last-instruction display follows the
-//! browsed cycle.
-//!
-//! Press M to cycle the heatmap shown next to each store word: off, the
-//! execution heatmap (a colored bar shows how often each word has been
-//! executed; green = cold, red = hot), or the read/write heatmap (two small
-//! labeled bars per word: `r` for reads, `w` for writes).
-//!
-//! Press F to cycle the flow visualization shown in the right margin, like
-//! the heatmap. The default mode, data, draws a pointer arrow following the
-//! data flow of the last executed instruction (the line marked `>`) — STO points from the
-//! accumulator to the destination word, LDN from the source word to the
-//! accumulator, and the jumps from the word holding the target value to CI.
-//! Magenta marks a load or store, cyan an arithmetic combination (SUB, JRP).
-//! The destination is highlighted. After a jump, CI holds the target value
-//! rather than the executed line, so the marker and the arrow follow the
-//! executed instruction, not CI.
-//!
-//! The second mode, control, draws the static graph of the non-sequential
-//! edges between the store lines — JMP/JRP jumps in yellow,
-//! a taken CMP skip in white — with backward edges (loops) highlighted in
-//! bold red and STP lines marked with a red `■`. Fall-through to the next
-//! line is left implicit. Only lines reachable from the entry line (line 1)
-//! get edges, so data words do not spawn spurious ones. Edges that would
-//! need more lanes than available are labeled `⇢NN` on their source line.
-//! The graph is computed from the current store contents, so it follows live
-//! edits and history scrubbing. The third mode hides the visualization.
-//!
-//! Press C to toggle the source-comment column: the `;` comment found on each
-//! word's line in the input file is shown next to the disassembly
-//! (`01 LDN 24  ; A = -a`), dimmed, with its original indentation, in a
-//! fixed-width column (long comments are truncated to 80 cells). The flow gutter (arrow or graph) is drawn between
-//! the disassembly and the comment column, so the arrows keep their fixed
-//! cells; when the terminal is narrow, the comments are cropped to the width
-//! left after the store text, the heatmap, and the gutter instead of being
-//! hidden. The column is on by default; with a comment-free input it renders
-//! nothing. The headless final-state dump prints the comments too.
-//!
-//! Comments are editable: double-click the comment column of a store row to
-//! get an inline text box on that row, prefilled with the current comment.
-//! Type to replace it, then Enter validates (the new text becomes the word's
-//! comment; a blank text clears it) or Esc cancels. Backspace deletes one
-//! character, Ctrl+Backspace a whole word (trailing whitespace included).
-//! Edits are kept when the state is saved (S or `--save`), exactly like
-//! comments read from the input file.
-//!
-//! Double-clicking the mnemonic or the data part of a store word opens a side
-//! list just right of the store text (past the heatmap), vertically anchored
-//! on that row: the eight opcodes for the mnemonic, the 32 addresses in an
-//! 8-column grid for the data part. Clicking an entry — or selecting it with
-//! the arrow keys and pressing Enter — rewrites only that field of the word,
-//! keeping every other bit; Esc or a click outside cancels. The entry matching
-//! the word's current value is marked with `>`. While the list is open it is
-//! modal.
-//!
-//! Mnemonics are syntax-highlighted by category, reusing the arrows' palette
-//! so the two stay coherent: magenta for a data movement (LDN, STO, JMP),
-//! cyan for an arithmetic combination (SUB, SUB2, JRP), white for CMP (test)
-//! and red for STP (halt). The chrome (top bar, shortcut bar, timeline) keeps
-//! a single blue; the help pop-up documents the colors.
-//!
-//! Every color lives in `palette/`, one file per built-in theme (`dark.rs`,
-//! `light.rs`, etc.).
-//!
-//! The view modes — theme (T), flow view (F), heatmap (M), the comments
-//! toggle (C), and the bit representation (D) — are saved to `config.toml` in the platform's config directory
-//! (`$XDG_CONFIG_HOME/ssem-simulator/`, default `$HOME/.config/ssem-simulator/`, on Linux and macOS;
-//! `%APPDATA%\ssem-simulator\` on Windows)
-//! when the application exits, and restored on the next start.
-//! The `--theme` option overrides the saved theme for one session. Holding a
-//! view-mode key (T/F/M/C/D) does not repeat it: a press within 50 ms of the
-//! previous press of the same key is ignored, which swallows OS key-repeat on
-//! every terminal. The history-scrub keys (← → Home End) do repeat.
-//!
-//! When the machine is paused, the pointer column shows the execution
-//! footprint of the current run: `>` marks the last executed line, `»` the
-//! next line to execute (where P or F10 resumes), and `•` every other line
-//! executed at least once. Like the heatmap, the footprint is kept while
-//! browsing the history and reset only when the machine restarts from a
-//! rewound position.
+//! - `App` (`app.rs`) is the only mutable UI state; it lives on the UI thread
+//!   and owns input handling, pop-up state and history scrubbing. It touches
+//!   the simulator only in short lock sections (edits, save) or via a
+//!   `Snapshot`.
+//! - `draw.rs` is pure rendering: it takes `&App`, `&Snapshot` and a `Frame`.
+//! - All colors come from `palette/` (one file per theme); geometry constants
+//!   and view modes (heatmap, flow, comments, bit glyphs, theme) live in
+//!   `layout.rs` and persist to `config.toml` in the platform config dir
+//!   (`config.rs`), written on exit.
 //!
 //! # Module map
 //!
-//! - `palette`: the color themes — every color of the UI, one file per theme
+//! - `runner`: thread setup, machine batch loop, UI event loop, entry point `run`
+//! - `app`: `App` state, keyboard/mouse handling, history scrubbing
+//! - `snapshot`: point-in-time copy of the simulator used for drawing
+//! - `draw`: rendering of the bars, main body, heatmaps, flow arrows, pop-ups
+//! - `popups`: all pop-up widgets, the inline comment editor and value picker
 //! - `layout`: geometry constants, timeline-bar helpers, view modes and widths
-//! - `config`: the persistent view modes (`config.toml` in the XDG config dir)
-//! - `snapshot`: the lock-free state snapshot used for drawing
-//! - `graph`: the static control-flow graph (flow mode "control")
-//! - `app`: application state and input handling (keymap, bit glyphs)
-//! - `draw`: rendering of the bars, main body, and pop-ups
-//! - `runner`: the machine/UI threads and the entry point
-//! - `popups`: the help, breakpoint, editor, and save pop-ups, the inline comment
-//!   editor, and the mnemonic/data picker
+//! - `config`: persistent view modes (`config.toml` in the platform config dir)
+//! - `graph`: static control-flow graph for the "control" flow mode
+//! - `palette`: color themes — every UI color, one file per theme
+//!
+//! Where to add things: a new view mode goes in `layout.rs` (+ `config.rs` to
+//! persist it, + `draw.rs` to render it, + `app.rs` for its key); a new pop-up
+//! goes in `popups.rs` with its state in `app.rs`; a new theme is a new file
+//! in `palette/` plus a `Theme` variant; new machine-thread behavior goes in
+//! `runner.rs`.
 
 mod app;
 mod config;

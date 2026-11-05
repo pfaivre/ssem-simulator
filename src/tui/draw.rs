@@ -1,15 +1,15 @@
-//! Rendering of the whole interface: top bar, main body (CI, accumulator,
-//! store words, heatmaps, flow arrows/graph), timeline, bottom bar, and the
-//! scrub pop-up.
+//! Rendering of the whole interface: menu bar, main body (CI, accumulator,
+//! store words, heatmaps, flow arrows/graph), timeline (history scrub bar),
+//! status bar, and the pop-ups (including the scrub pop-up).
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
-use super::app::{App, KEYMAP};
+use super::app::{App, MENU_ITEMS, MenuAction};
 use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
 use super::layout::{
     A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, FlowMode, HEATMAP_BAR_WIDTH, HeatmapMode,
@@ -18,6 +18,7 @@ use super::layout::{
     timeline_marker_offset,
 };
 use super::palette::Palette;
+use super::popups::SettingsView;
 use super::snapshot::Snapshot;
 use crate::ssem::{Opcode, Store};
 
@@ -227,6 +228,9 @@ impl App {
     pub(super) fn draw(&mut self, f: &mut Frame, snap: &Snapshot) {
         let area = f.area();
         self.last_area = area;
+        // The menu bar items are re-recorded on every draw (empty when the
+        // terminal is too small, so clicks find nothing)
+        self.menu_items.clear();
 
         // Paint the theme's base colors over the whole frame. Only fg/bg are
         // patched, so this touches no text; the widgets drawn below keep
@@ -275,7 +279,8 @@ impl App {
             return;
         }
 
-        // Layout: top bar (1 line), main body (flexible), timeline (1 line), bottom bar (1 line)
+        // Layout: menu bar (1 line), main body (flexible), history scrub bar
+        // (1 line), status bar (1 line)
         let chunks = Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(0),
@@ -285,10 +290,10 @@ impl App {
         .split(area);
 
         self.timeline_area = chunks[2];
-        self.draw_top_bar(f, chunks[0], snap, heatmap, comment_width);
+        self.draw_menu_bar(f, chunks[0], snap);
         self.draw_main_body(f, chunks[1], snap, heatmap, comment_width);
         self.draw_timeline(f, chunks[2], snap);
-        self.draw_bottom_bar(f, chunks[3]);
+        self.draw_status_bar(f, chunks[3], snap, heatmap, comment_width);
 
         // Draw pop-ups on top
         if self.help_popup.is_open() {
@@ -305,6 +310,19 @@ impl App {
         if self.save_popup.is_open() {
             self.save_popup.draw(f, area, self.palette());
         }
+        if self.settings_popup.is_open() {
+            let palette = self.palette();
+            let view = SettingsView {
+                displayed_speed: self.displayed_speed,
+                target_speed: snap.speed,
+                heatmap: self.heatmap,
+                flow: self.flow,
+                comments: self.show_comments,
+                bit_representation: self.bit_representation,
+                theme: self.theme,
+            };
+            self.settings_popup.draw(f, area, &view, palette);
+        }
         if self.picker.is_open() {
             // Anchor the list just right of the store text (past the
             // heatmap bars), next to the mnemonic/data fields being edited
@@ -319,63 +337,48 @@ impl App {
         }
     }
 
-    /// Draw the top bar with status indicators.
-    fn draw_top_bar(
-        &self,
-        f: &mut Frame,
-        area: Rect,
-        snap: &Snapshot,
-        heatmap: HeatmapMode,
-        comment_width: usize,
-    ) {
-        let (status, status_color) = if self.scrubbing {
-            ("REWIND", self.palette().status_rewind)
-        } else if snap.stop_flag {
-            ("STOPPED", self.palette().status_stopped)
-        } else {
-            ("RUNNING", self.palette().status_running)
-        };
+    /// Draw the menu bar (the top row): the clickable actions on the same
+    /// solid bar as the status bar. Each button is a padded segment in the
+    /// block color, without brackets; the button under the mouse — or whose
+    /// pop-up is open — is highlighted (the hover colors). Each
+    /// button's rect is recorded in `self.menu_items` for mouse hit-testing.
+    fn draw_menu_bar(&mut self, f: &mut Frame, area: Rect, snap: &Snapshot) {
+        let palette = self.palette();
+        let bar = Style::default().fg(palette.fg).bg(palette.menu_bg);
+        let block = Style::default().fg(palette.fg).bg(palette.menu_block_bg);
+        let hovered = Style::default().fg(palette.hover_fg).bg(palette.hover);
+        // The bar itself: a solid background over the whole row
+        f.buffer_mut().set_style(area, bar);
 
-        // The chrome keeps a single color, the last instruction included:
-        // the syntax highlighting lives in the store view
-        let chrome = Style::default().fg(self.palette().chrome);
-        let last_instr = snap
-            .last_instruction
-            .map(|li| li.to_string())
-            .unwrap_or_else(|| "-- -- --".to_string());
-
-        let mut spans = vec![
-            Span::styled("[STATUS: ", chrome),
-            Span::styled(status, Style::default().fg(status_color)),
-            Span::styled("]", chrome),
-        ];
-
-        let mut text = format!(
-            " [CYCLES: {}] [{last_instr}] [SPEED: {:2}/{} ips]",
-            snap.cycle_count, self.displayed_speed, snap.speed
-        );
-
-        if !snap.breakpoints.is_empty() {
-            text.push_str(&format!(" [BREAKPOINTS: {}]", snap.breakpoints.len()));
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut x = area.x;
+        for (label, action) in MENU_ITEMS.iter() {
+            // The run/stop item's label reflects the machine state
+            let label = if *action == MenuAction::RunStop {
+                if snap.stop_flag { "Run " } else { "Stop" }
+            } else {
+                *label
+            };
+            // No brackets: the button is the label padded with one cell
+            // on each side in the block color
+            let text = format!(" {label} ");
+            let is_active = matches!(action, MenuAction::Settings if self.settings_popup.is_open())
+                || matches!(action, MenuAction::Help if self.help_popup.is_open());
+            let style = if self.menu_hover == Some(*action) || is_active {
+                hovered
+            } else {
+                block
+            };
+            let width = text.chars().count() as u16;
+            spans.push(Span::styled(text, style));
+            self.menu_items
+                .push((Rect::new(x, area.y, width, 1), *action));
+            x += width;
+            // (a separator span can be pushed here between buttons, if wanted:
+            //  spans.push(Span::styled(" ", bar)); x += 1;)
         }
 
-        if let Some(label) = heatmap.label() {
-            text.push_str(&format!(" [HEATMAP: {label}]"));
-        }
-
-        if let Some(label) = self.flow.label() {
-            text.push_str(&format!(" [FLOW: {label}]"));
-        }
-
-        text.push_str(&format!(" [THEME: {}]", self.theme.label()));
-
-        if comment_width > 0 {
-            text.push_str(" [COMMENTS]");
-        }
-
-        spans.push(Span::styled(text, chrome));
-        let line = Line::from(spans);
-        f.render_widget(Paragraph::new(line), area);
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 
     /// Draw the main body: CI, accumulator, and store words.
@@ -761,12 +764,14 @@ impl App {
     /// Draw the timeline bar: how much history is retained (filled bar) and
     /// where the machine currently is (marker). Dragging it scrubs the history.
     fn draw_timeline(&self, f: &mut Frame, area: Rect, snap: &Snapshot) {
+        // The line is centered in the area, matching the offset computed
+        // by `timeline_bar_geometry` (used for mouse hit-testing)
         if snap.history_capacity == 0 {
             let line = Line::from(Span::styled(
                 " HISTORY [disabled]",
                 Style::default().fg(self.palette().dim),
             ));
-            f.render_widget(Paragraph::new(line), area);
+            f.render_widget(Paragraph::new(line).alignment(Alignment::Center), area);
             return;
         }
 
@@ -809,7 +814,10 @@ impl App {
             chrome,
         ));
 
-        f.render_widget(Paragraph::new(Line::from(spans)), area);
+        f.render_widget(
+            Paragraph::new(Line::from(spans)).alignment(Alignment::Center),
+            area,
+        );
     }
 
     /// Draw a small pop-up above the timeline cursor, showing the current cycle.
@@ -856,28 +864,103 @@ impl App {
         );
     }
 
-    /// Draw the bottom bar with keyboard shortcuts.
-    fn draw_bottom_bar(&self, f: &mut Frame, area: Rect) {
-        let key_style = Style::default()
-            .fg(self.palette().key_hint)
-            .add_modifier(Modifier::REVERSED);
-        let normal_style = Style::default();
+    /// Draw the status bar (the bottom row): a solid background contrasting
+    /// with the interface, with the blocks (STATUS, CYCLES, last instruction
+    /// on the left; heatmap mode, flow mode, comments, breakpoints flush to
+    /// the right edge) in a slightly different value of that color and
+    /// without brackets, so they detach from the bar.
+    fn draw_status_bar(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        snap: &Snapshot,
+        heatmap: HeatmapMode,
+        comment_width: usize,
+    ) {
+        let palette = self.palette();
+        // The bar itself: a solid background over the whole row, the text
+        // in the status bar's own foreground color
+        let bar = Style::default().fg(palette.status_fg).bg(palette.status_bg);
+        // A block: the same color family, one value off, padded with one
+        // cell on each side
+        let block = Style::default()
+            .fg(palette.status_fg)
+            .bg(palette.status_block_bg);
+        f.buffer_mut().set_style(area, bar);
 
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        for (key, legend, _) in KEYMAP {
-            if legend.is_empty() {
-                continue;
-            }
-            let key_text = if key.chars().count() == 1 {
-                format!(" {key} ")
-            } else {
-                (*key).to_string()
-            };
-            spans.push(Span::styled(key_text, key_style));
-            spans.push(Span::styled(format!(" {legend}  "), normal_style));
+        let (status, status_color) = if self.scrubbing {
+            ("REWIND", palette.status_rewind)
+        } else if snap.stop_flag {
+            ("STOPPED", palette.status_stopped)
+        } else {
+            ("RUNNING", palette.status_running)
+        };
+        let last_instr = snap
+            .last_instruction
+            .map(|li| li.to_string())
+            .unwrap_or_else(|| "-- -- --".to_string());
+
+        // The left group: status (the word keeps its state color), cycles,
+        // last instruction, and the speed (smoothed display over the target)
+        let left_blocks: Vec<Vec<Span<'static>>> = vec![
+            vec![
+                Span::styled("STATUS: ", block),
+                Span::styled(status, block.fg(status_color)),
+            ],
+            vec![Span::styled(format!("CYCLES: {}", snap.cycle_count), block)],
+            vec![Span::styled(last_instr, block)],
+            vec![Span::styled(
+                format!("SPEED: {:>2}/{} ips", self.displayed_speed, snap.speed),
+                block,
+            )],
+        ];
+
+        // The right group: the view modes and the breakpoints
+        let mut right_blocks: Vec<Vec<Span<'static>>> = Vec::new();
+        if let Some(label) = heatmap.label() {
+            right_blocks.push(vec![Span::styled(format!("HEATMAP: {label}"), block)]);
+        }
+        if let Some(label) = self.flow.label() {
+            right_blocks.push(vec![Span::styled(format!("FLOW: {label}"), block)]);
+        }
+        if comment_width > 0 {
+            right_blocks.push(vec![Span::styled("COMMENTS".to_string(), block)]);
+        }
+        if !snap.breakpoints.is_empty() {
+            right_blocks.push(vec![Span::styled(
+                format!("BREAKPOINTS: {}", snap.breakpoints.len()),
+                block,
+            )]);
         }
 
-        let line = Line::from(spans);
-        f.render_widget(Paragraph::new(line), area);
+        let left = Self::status_line(left_blocks, bar, block);
+        let right = Self::status_line(right_blocks, bar, block);
+        let right_width = right.width() as u16;
+        if right_width < area.width {
+            let chunks = Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)])
+                .split(area);
+            f.render_widget(Paragraph::new(left), chunks[0]);
+            f.render_widget(Paragraph::new(right), chunks[1]);
+        } else {
+            // No room for the right group: the left group alone
+            f.render_widget(Paragraph::new(left), area);
+        }
+    }
+
+    /// Assemble one status-bar line from its blocks: each block is padded
+    /// with one cell in the block color on each side, and blocks are
+    /// separated by one cell in the bar color, so the blocks read as
+    /// detached segments (no brackets).
+    fn status_line(blocks: Vec<Vec<Span<'static>>>, bar: Style, block: Style) -> Line<'static> {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        for (i, inner) in blocks.into_iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled(" ", bar));
+            }
+            spans.push(Span::styled(" ", block));
+            spans.extend(inner);
+            spans.push(Span::styled(" ", block));
+        }
+        Line::from(spans)
     }
 }

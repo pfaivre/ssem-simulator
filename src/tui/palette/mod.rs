@@ -54,12 +54,30 @@ pub struct Palette {
     /// default background). The zebra stripes of the main body are drawn on
     /// top of it.
     pub bg: Color,
-    /// Chrome text: top bar, timeline bar, bottom-bar legends.
+    /// Chrome text: menu bar, timeline bar, status-bar labels.
     pub chrome: Color,
-    /// The status word in the top bar, by machine state.
+    /// The status word in the status bar, by machine state.
     pub status_running: Color,
     pub status_stopped: Color,
     pub status_rewind: Color,
+    /// The status bar's text color (the labels around the status word);
+    /// independent from the bar's background so the two can be tuned apart.
+    pub status_fg: Color,
+    /// The mouse-hover highlight (currently the menu bar buttons): the
+    /// hovered button's background, and the text color on top of it.
+    pub hover: Color,
+    pub hover_fg: Color,
+    /// The menu bar (top row): a solid background contrasting with `bg`,
+    /// and the slightly different value of that color used by the buttons
+    /// inside it, so they detach from the bar.
+    pub menu_bg: Color,
+    pub menu_block_bg: Color,
+    /// The status bar (bottom row): a solid background contrasting with
+    /// `bg`, and the slightly different value of that color used by the
+    /// blocks inside it (STATUS, CYCLES, …), so they detach from the bar.
+    /// Independent from the menu bar's colors.
+    pub status_bg: Color,
+    pub status_block_bg: Color,
     /// Key caps in the bottom bar and the help pop-up (drawn reversed).
     pub key_hint: Color,
     /// Reversed highlight of the selected row in the breakpoint list.

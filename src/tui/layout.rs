@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 /// Minimum terminal width to display the store in full.
 pub(super) const MIN_WIDTH: u16 = 59;
 
-/// Minimum terminal height (top bar + content + timeline + bottom bar).
+/// Minimum terminal height (menu bar + content + history bar + status bar).
 pub(super) const MIN_HEIGHT: u16 = 13;
 
-/// Total height of the fixed bars: top bar + timeline + bottom bar.
+/// Total height of the fixed bars: menu bar + history scrub bar + status bar.
 pub(super) const CHROME_HEIGHT: u16 = 3;
 
 /// Maximum width of the timeline bar (in cells).
@@ -21,10 +21,16 @@ const MAX_TIMELINE_BAR_WIDTH: usize = 100;
 pub(super) fn timeline_bar_geometry(area: Rect, start: u64, head: u64) -> (u16, u16) {
     const PREFIX: &str = " HISTORY [";
     let suffix_len = format!("] {start}..{head}").len();
-    let width = (area.width as usize)
+    let bar_width = (area.width as usize)
         .saturating_sub(PREFIX.len() + suffix_len)
         .min(MAX_TIMELINE_BAR_WIDTH);
-    (area.x + PREFIX.len() as u16, width as u16)
+    let total = PREFIX.len() + bar_width + suffix_len;
+    // Mirror ratatui's Alignment::Center: (area / 2) - (line / 2)
+    let offset = (area.width as usize / 2).saturating_sub(total / 2);
+    (
+        area.x + offset as u16 + PREFIX.len() as u16,
+        bar_width as u16,
+    )
 }
 
 /// Offset (in cells) of the current-position marker within the timeline bar:

@@ -7,9 +7,16 @@ pub const LIGHT: Palette = Palette {
     fg: rgb(0x1F2328),
     bg: rgb(0xF4F4F4),
     chrome: rgb(0x3B6FD4),
-    status_running: rgb(0x2E7D32),
-    status_stopped: rgb(0x3B6FD4),
+    status_running: rgb(0x8edc8a),
+    status_stopped: rgb(0xF4F4F4),
     status_rewind: rgb(0xB45309),
+    status_fg: rgb(0xF4F4F4),
+    hover: rgb(0xA9C2F2),
+    hover_fg: rgb(0x1F3A6E),
+    menu_bg: rgb(0xF4F4F4),
+    menu_block_bg: rgb(0xF4F4F4),
+    status_bg: rgb(0x3B6FD4),
+    status_block_bg: rgb(0x3B6FD4),
     key_hint: rgb(0x3B6FD4),
     selection: rgb(0x3B6FD4),
 
@@ -46,7 +53,7 @@ pub const LIGHT: Palette = Palette {
     edge_skip: rgb(0x1F2328),
 
     // Timeline and scrub pop-up
-    timeline_marker: rgb(0xB45309),
+    timeline_marker: rgb(0xF2C94C),
     scrub_popup_fg: rgb(0x1F2328),
     scrub_popup_bg: rgb(0xF2C94C),
 

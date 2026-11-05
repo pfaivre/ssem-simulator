@@ -4,8 +4,10 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
-use ratatui::layout::Rect;
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::layout::{Position, Rect};
 
 use super::config::Config;
 use super::draw::{comment_column_start, drawn_comment_width, effective_heatmap};
@@ -16,7 +18,8 @@ use super::layout::{
 };
 use super::palette::{Palette, Theme};
 use super::popups::{
-    BreakpointPopup, CommentEditor, EditorPopup, HelpPopup, PickerPopup, SavePopup,
+    BreakpointPopup, CommentEditor, EditorPopup, HelpPopup, PickerPopup, SavePopup, SettingControl,
+    SettingsPopup,
 };
 use crate::ssem::history::History;
 use crate::ssem::simulator::Simulator;
@@ -33,9 +36,9 @@ pub(super) const BIT_REPRESENTATIONS: [(char, char); 5] = [
 /// The keymap: (key, legend, help description).
 /// An empty legend means the key does not appear in the bottom bar (e.g. arrow keys).
 pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
-    ("Q", "QUIT", "Quit the simulator"),
+    ("Ctrl+Q", "QUIT", "Quit the simulator"),
     ("H", "HELP", "Toggle this help pop-up"),
-    ("P", "RUN/STOP", "Run the program or pause it"),
+    ("Space", "RUN/STOP", "Run the program or pause it"),
     ("F10", "STEP", "Execute one instruction"),
     (
         "\u{2190}/\u{2192}",
@@ -80,6 +83,29 @@ pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// An action of the menu bar (the top row), run by clicking its item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MenuAction {
+    Clear,
+    Save,
+    Quit,
+    RunStop,
+    Step,
+    Settings,
+    Help,
+}
+
+/// The menu bar items (the top row)
+pub(super) const MENU_ITEMS: &[(&str, MenuAction)] = &[
+    ("Quit", MenuAction::Quit),
+    ("Clear", MenuAction::Clear),
+    ("Save", MenuAction::Save),
+    ("Run/Stop", MenuAction::RunStop),
+    ("Step", MenuAction::Step),
+    ("Settings", MenuAction::Settings),
+    ("Help", MenuAction::Help),
+];
+
 /// How often the displayed speed is refreshed.
 const SPEED_DISPLAY_PERIOD: Duration = Duration::from_millis(500);
 
@@ -119,6 +145,14 @@ pub(super) struct App {
     pub(super) breakpoint_popup: BreakpointPopup,
     pub(super) editor_popup: EditorPopup,
     pub(super) save_popup: SavePopup,
+    /// The settings pop-up, opened from the menu bar (machine speed, heatmap
+    /// mode, flow mode, comments, store bits display, theme).
+    pub(super) settings_popup: SettingsPopup,
+    /// The menu bar items' screen rects from the last draw, for mouse
+    /// hit-testing: (rect, action).
+    pub(super) menu_items: Vec<(Rect, MenuAction)>,
+    /// The menu item under the mouse cursor, for the hover highlight.
+    pub(super) menu_hover: Option<MenuAction>,
     /// The inline comment editor, opened by double-clicking the comment
     /// column of a store row.
     pub(super) comment_editor: CommentEditor,
@@ -206,6 +240,9 @@ impl App {
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
             save_popup: SavePopup::new(),
+            settings_popup: SettingsPopup::new(),
+            menu_items: Vec::new(),
+            menu_hover: None,
             comment_editor: CommentEditor::new(),
             picker: PickerPopup::new(),
             last_click: None,
@@ -288,6 +325,11 @@ impl App {
                 self.comment_editor.handle_key(key, sim);
             } else if self.picker.is_open() {
                 self.picker_key(key, sim);
+            } else if self.settings_popup.is_open() {
+                // The view-mode keys must not repeat, like everywhere else
+                if !is_mode_key(key.code) {
+                    self.handle_settings_key(key, sim);
+                }
             } else if !self.breakpoint_popup.is_open() && !self.editor_popup.is_open() {
                 self.handle_scrub_key(key.code, sim);
             }
@@ -303,6 +345,20 @@ impl App {
         // selection, Enter applies it (inside handle_key), Esc cancels
         if self.picker.is_open() {
             self.picker_key(key, sim);
+            return;
+        }
+
+        // While the settings pop-up is open, keys go to it; the view-mode
+        // keys (T/F/M/C/D) keep their no-repeat guard
+        if self.settings_popup.is_open() {
+            if key.code == KeyCode::Esc {
+                self.settings_popup.close();
+            } else {
+                if is_mode_key(key.code) && !self.mode_key_accepted(key.code) {
+                    return;
+                }
+                self.handle_settings_key(key, sim);
+            }
             return;
         }
 
@@ -377,30 +433,36 @@ impl App {
         }
 
         match key.code {
-            KeyCode::Char(c) => match c.to_ascii_lowercase() {
-                'q' => self.should_quit = true,
-                'p' => sim.stop_flag = !sim.stop_flag,
-                'i' => Self::speed_up(sim),
-                'k' => Self::speed_down(sim),
-                'd' => {
-                    self.bit_representation =
-                        (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
+            KeyCode::Char(c) => {
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    if c.eq_ignore_ascii_case(&'q') {
+                        self.should_quit = true;
+                    }
+                } else {
+                    match c.to_ascii_lowercase() {
+                        ' ' => sim.stop_flag = !sim.stop_flag,
+                        'i' => Self::speed_up(sim),
+                        'k' => Self::speed_down(sim),
+                        'd' => {
+                            self.bit_representation =
+                                (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
+                        }
+                        'b' => self.breakpoint_popup.open(),
+                        'e' => {
+                            self.comment_editor.close();
+                            self.editor_popup.open();
+                        }
+                        's' => self.save_popup.open(sim.source_path.as_deref()),
+                        'm' => self.heatmap = self.heatmap.cycle(),
+                        'f' => self.flow = self.flow.cycle(),
+                        'c' => self.show_comments = !self.show_comments,
+                        't' => self.theme = self.theme.cycle(),
+                        'h' => self.help_popup.open(),
+                        _ => {}
+                    }
                 }
-                'b' => self.breakpoint_popup.open(),
-                'e' => {
-                    self.comment_editor.close();
-                    self.editor_popup.open();
-                }
-                's' => self.save_popup.open(sim.source_path.as_deref()),
-                'm' => self.heatmap = self.heatmap.cycle(),
-                'f' => self.flow = self.flow.cycle(),
-                'c' => self.show_comments = !self.show_comments,
-                't' => self.theme = self.theme.cycle(),
-                'h' => self.help_popup.open(),
-                _ => {}
-            },
+            }
             KeyCode::F(10) => {
-                // Step: stop the machine and execute one instruction
                 sim.stop_flag = true;
                 sim.instruction_cycle();
                 sim.check_breakpoints();
@@ -416,7 +478,6 @@ impl App {
                 let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
                 self.store_scroll = (self.store_scroll as usize + 1).min(max_scroll) as u16;
             }
-            KeyCode::Esc => self.should_quit = true,
             _ => {}
         }
     }
@@ -534,6 +595,39 @@ impl App {
         {
             let target = (mouse.row as i32 - offset).max(0) as u16;
             self.scroll_thumb_to_row(target);
+            return;
+        }
+
+        // Moving the mouse updates the menu hover highlight — on any row,
+        // so the highlight is cleared as soon as the cursor leaves the
+        // menu bar (down the next line, or off an item's sides)
+        if matches!(mouse.kind, MouseEventKind::Moved) {
+            self.menu_hover = self.menu_action_at(mouse.column, mouse.row);
+        }
+
+        // The menu bar (the top row): clicking an item runs its action
+        if mouse.row == 0
+            && matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+            && let Some(action) = self.menu_action_at(mouse.column, mouse.row)
+        {
+            self.run_menu_action(action, sim);
+            // The click that ran the action must not chain into
+            // a double-click with the next one
+            self.last_click = None;
+            return;
+        }
+
+        // While the settings pop-up is open, a click applies the control it
+        // lands on, or closes the pop-up when it lands outside of it
+        if self.settings_popup.is_open()
+            && matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+        {
+            if let Some(control) = self.settings_popup.control_at(mouse.column, mouse.row) {
+                self.perform_setting(control, sim);
+            } else if !self.settings_popup.contains(mouse.column, mouse.row) {
+                self.settings_popup.close();
+            }
+            self.last_click = None;
             return;
         }
 
@@ -822,6 +916,96 @@ impl App {
                 self.editor_popup.open_for_word(row - 4);
             }
             _ => {}
+        }
+    }
+
+    /// The menu action whose item contains the given screen cell, if any
+    /// (the rects are recorded by the last `draw_menu_bar`).
+    fn menu_action_at(&self, column: u16, row: u16) -> Option<MenuAction> {
+        self.menu_items
+            .iter()
+            .find(|(rect, _)| rect.contains(Position::new(column, row)))
+            .map(|(_, action)| *action)
+    }
+
+    /// Run a menu bar action. Pop-ups are mutually exclusive with the menu:
+    /// opening one closes every other pop-up first (Settings and Help toggle,
+    /// so clicking them again closes them).
+    fn run_menu_action(&mut self, action: MenuAction, sim: &mut Simulator) {
+        let was_open = match action {
+            MenuAction::Settings => self.settings_popup.is_open(),
+            MenuAction::Help => self.help_popup.is_open(),
+            _ => false,
+        };
+        self.close_all_popups();
+        match action {
+            MenuAction::Clear => sim.clear(),
+            MenuAction::Save => self.save_popup.open(sim.source_path.as_deref()),
+            MenuAction::Quit => self.should_quit = true,
+            MenuAction::RunStop => sim.stop_flag = !sim.stop_flag,
+            MenuAction::Step => {
+                // Same as the F10 key: pause, then execute one instruction
+                sim.stop_flag = true;
+                sim.instruction_cycle();
+                sim.check_breakpoints();
+            }
+            MenuAction::Settings => {
+                if !was_open {
+                    self.settings_popup.open();
+                }
+            }
+            MenuAction::Help => {
+                if !was_open {
+                    self.help_popup.open();
+                }
+            }
+        }
+    }
+
+    /// Close every pop-up (used when a menu bar action opens one).
+    fn close_all_popups(&mut self) {
+        self.help_popup.close();
+        self.breakpoint_popup.close();
+        self.editor_popup.close();
+        self.save_popup.close();
+        self.comment_editor.close();
+        self.picker.close();
+        self.settings_popup.close();
+    }
+
+    /// Apply one settings control (a click on a settings pop-up button).
+    fn perform_setting(&mut self, control: SettingControl, sim: &mut Simulator) {
+        match control {
+            SettingControl::SpeedDown => Self::speed_down(sim),
+            SettingControl::SpeedUp => Self::speed_up(sim),
+            SettingControl::Heatmap => self.heatmap = self.heatmap.cycle(),
+            SettingControl::Flow => self.flow = self.flow.cycle(),
+            SettingControl::Comments => self.show_comments = !self.show_comments,
+            SettingControl::Bits => {
+                self.bit_representation = (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
+            }
+            SettingControl::Theme => self.theme = self.theme.cycle(),
+        }
+    }
+
+    /// Handle a key press while the settings pop-up is open: the same keys as
+    /// the main keymap for the modes it controls (I/K speed, M/F/C/D/T modes),
+    /// plus +/- for the speed.
+    fn handle_settings_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        if let KeyCode::Char(c) = key.code {
+            match c.to_ascii_lowercase() {
+                'i' | '+' | '=' => Self::speed_up(sim),
+                'k' | '-' => Self::speed_down(sim),
+                'm' => self.heatmap = self.heatmap.cycle(),
+                'f' => self.flow = self.flow.cycle(),
+                'c' => self.show_comments = !self.show_comments,
+                'd' => {
+                    self.bit_representation =
+                        (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
+                }
+                't' => self.theme = self.theme.cycle(),
+                _ => {}
+            }
         }
     }
 
