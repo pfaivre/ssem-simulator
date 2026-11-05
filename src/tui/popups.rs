@@ -842,6 +842,8 @@ impl EditorPopup {
                     }
                 };
                 sim.ci = value;
+                // The recorded future no longer matches the edited machine
+                sim.restart_history();
                 self.message = format!("CI = {value}");
             }
             EditTarget::A => {
@@ -853,6 +855,7 @@ impl EditorPopup {
                     }
                 };
                 sim.a = value;
+                sim.restart_history();
                 self.message = format!("A = {value}");
             }
             EditTarget::Word => {
@@ -876,6 +879,7 @@ impl EditorPopup {
                 match Store::parse_word(&buffer) {
                     Ok(word) => {
                         sim.store.words[self.address] = word;
+                        sim.restart_history();
                         let (opcode, data) = Store::decode_word(word);
                         self.message =
                             format!("WORD {:02} = {word}  ({opcode} {data:02})", self.address);
@@ -1346,6 +1350,7 @@ impl PickerPopup {
             PickerKind::Mnemonic => Store::with_opcode(word, Opcode::ALL[self.selected]),
             PickerKind::Data => Store::with_data(word, self.selected as i32),
         };
+        sim.restart_history();
         self.close();
     }
 

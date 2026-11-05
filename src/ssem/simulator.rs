@@ -297,6 +297,28 @@ impl Simulator {
         true
     }
 
+    /// Drop the recorded history and restart it at the current state.
+    ///
+    /// Called when the user edits the machine state (a register or a store
+    /// word): the recorded future no longer matches what the machine will
+    /// execute, so it is discarded and the earliest browsable state becomes
+    /// the one where the change was made. Does nothing when history is
+    /// disabled.
+    pub fn restart_history(&mut self) {
+        if let Some(history) = &mut self.history {
+            history.clear();
+            history.record(
+                self.cycle_count,
+                Snapshot {
+                    a: self.a,
+                    ci: self.ci,
+                    store: self.store.words,
+                    last_instruction: self.last_instruction,
+                },
+            );
+        }
+    }
+
     /// Zero the heatmap counters (execution and read/write).
     fn reset_heatmap(&mut self) {
         self.exec_counts = [0; 32];
@@ -1532,6 +1554,63 @@ mod tests {
         assert_eq!(None, h.get(3), "stale future must be truncated");
         assert_ne!(old_cycle2_a, h.get(2).unwrap().a);
         assert_eq!(-105, h.get(2).unwrap().a); // -5 - 100
+    }
+
+    #[test]
+    fn restart_history_makes_the_edited_state_the_earliest() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(3); // head = 3
+
+        // Rewind, then edit a word: the history restarts at the edited state
+        assert!(sim.rewind_to(1));
+        sim.store.words[7] = 100;
+        sim.restart_history();
+
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(1, h.len());
+        assert_eq!(1, h.start(), "the edited state is the earliest");
+        assert_eq!(1, h.head());
+        assert_eq!(100, h.get(1).unwrap().store[7]);
+        assert_eq!(None, h.get(0), "the pre-edit history is gone");
+        assert_eq!(None, h.get(3));
+
+        // The machine keeps recording from there
+        sim.instruction_cycle(); // executes line 2 (SUB 7) with the edited word
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(2, h.len());
+        assert_eq!(1, h.start());
+        assert_eq!(2, h.head());
+        assert_eq!(-105, h.get(2).unwrap().a); // -5 - 100
+    }
+
+    #[test]
+    fn restart_history_at_the_tip_drops_only_the_past() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(3); // head = 3, no rewind
+
+        sim.store.words[7] = 100;
+        sim.restart_history();
+
+        let h = sim.history.as_ref().unwrap();
+        assert_eq!(1, h.len());
+        assert_eq!(3, h.start());
+        assert_eq!(3, h.head());
+        assert_eq!(100, h.get(3).unwrap().store[7]);
+        assert_eq!(None, h.get(2), "earlier cycles are no longer browsable");
+    }
+
+    #[test]
+    fn restart_history_without_history_is_noop() {
+        let mut sim = history_test_program();
+        sim.run(2);
+        assert!(sim.history.is_none());
+
+        sim.restart_history();
+
+        assert!(sim.history.is_none(), "history stays disabled");
+        assert_eq!(2, sim.cycle_count, "the machine state is untouched");
     }
 
     /// A temporary file removed when dropped, even if the test panics

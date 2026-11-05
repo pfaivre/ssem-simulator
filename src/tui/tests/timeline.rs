@@ -99,6 +99,47 @@ pub(super) fn scrubbing_keeps_the_heatmap_until_the_machine_restarts() {
 }
 
 #[test]
+pub(super) fn editing_a_word_clears_the_history_to_the_edited_state() {
+    let mut sim = looping_sim(10); // history 0..=10
+    let mut app = App::new();
+
+    // Open the word editor (E) and set word 7 to 42
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+        &mut sim,
+    );
+    assert!(app.editor_popup.is_open());
+    for code in [
+        KeyCode::Char('7'),
+        KeyCode::Enter,
+        KeyCode::Char('4'),
+        KeyCode::Char('2'),
+        KeyCode::Enter,
+    ] {
+        app.handle_key(KeyEvent::new(code, KeyModifiers::NONE), &mut sim);
+    }
+
+    assert_eq!(42, sim.store.words[7]);
+    let h = sim.history.as_ref().unwrap();
+    assert_eq!(1, h.len());
+    assert_eq!(10, h.start(), "the earliest state is the edited one");
+    assert_eq!(10, h.head());
+    assert_eq!(42, h.get(10).unwrap().store[7]);
+    assert_eq!(None, h.get(9), "the pre-edit history is gone");
+
+    // Scrubbing back cannot go before the edit anymore
+    app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE), &mut sim);
+    assert_eq!(10, sim.cycle_count);
+
+    // The machine keeps recording from the edited state
+    sim.instruction_cycle();
+    let h = sim.history.as_ref().unwrap();
+    assert_eq!(2, h.len());
+    assert_eq!(10, h.start());
+    assert_eq!(11, h.head());
+}
+
+#[test]
 pub(super) fn scrub_without_history_is_noop() {
     let mut sim = Simulator::new();
     sim.run(10);

@@ -57,11 +57,10 @@ cargo clippy
 
 - Keep the codebase warning-free: run `cargo clippy` before committing.
 - Match the existing style (snake_case, module-per-concern under `src/ssem/`).
-- Don't over comment. Keep inline code comment and docstrings concise. Don't comment when the subject is obvious by reading the code.
+- Don't over comment. Keep inline code comment and docstrings short and concise. Don't comment when the subject is obvious by reading the code.
 
 ## Suggestions for later development
 
-- When rewinding back in the earliest state, we lose all changes we made. It would be would be more useful that the earliest state in history is the one where changes have been made.
 - More themes
 - more mouse interactions (changing speed, play/pause, etc.)
 - first start screen

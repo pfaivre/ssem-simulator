@@ -249,6 +249,31 @@ pub(super) fn arrow_keys_and_enter_apply_the_selection() {
 }
 
 #[test]
+pub(super) fn applying_a_picker_entry_clears_the_history_to_the_edited_state() {
+    let mut sim = sim_with_word(); // word 3 = LDN 24
+    sim.enable_history(100);
+    sim.run(10); // history 0..=10
+    let mut app = picker_app();
+    open_mnemonic_picker(&mut app, &mut sim);
+
+    // The selection starts on the current opcode (LDN); Down moves to STO
+    press(&mut app, &mut sim, KeyCode::Down);
+    press(&mut app, &mut sim, KeyCode::Enter);
+
+    assert!(!app.picker.is_open());
+    assert_eq!(Store::parse_word("STO 24").unwrap(), sim.store.words[3]);
+    let h = sim.history.as_ref().unwrap();
+    assert_eq!(1, h.len());
+    assert_eq!(10, h.start(), "the earliest state is the edited one");
+    assert_eq!(10, h.head());
+    assert_eq!(
+        Store::parse_word("STO 24").unwrap(),
+        h.get(10).unwrap().store[3]
+    );
+    assert_eq!(None, h.get(9), "the pre-edit history is gone");
+}
+
+#[test]
 pub(super) fn grid_arrows_move_over_the_data_entries() {
     let mut sim = sim_with_word(); // word 3 = LDN 24, selection starts on 24
     let mut app = picker_app();
