@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crossterm::cursor::Show;
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -109,6 +110,56 @@ fn machine_thread(sim: Arc<Mutex<Simulator>>, quit: Arc<AtomicBool>, max_cycles:
     }
 }
 
+/// Best-effort terminal restore: disable raw mode, leave the alternate
+/// screen, release mouse capture, and show the cursor.
+fn restore_terminal() -> io::Result<()> {
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(io::stdout(), Show)?;
+    Ok(())
+}
+
+/// Restores the terminal on drop unless disarmed with [`TerminalGuard::restore`],
+/// so a panic or an early `?` cannot leave the terminal in raw mode on the
+/// alternate screen with the cursor hidden.
+struct TerminalGuard {
+    active: bool,
+    restore: fn() -> io::Result<()>,
+}
+
+impl TerminalGuard {
+    fn new() -> Self {
+        Self {
+            active: true,
+            restore: restore_terminal,
+        }
+    }
+
+    /// Test-only constructor with an injectable restore, so the drop/disarm
+    /// behavior can be exercised without a real TTY.
+    #[cfg(test)]
+    fn with_restore(restore: fn() -> io::Result<()>) -> Self {
+        Self {
+            active: true,
+            restore,
+        }
+    }
+
+    /// Restore the terminal now and disarm the guard (Drop becomes a no-op).
+    fn restore(mut self) -> io::Result<()> {
+        self.active = false;
+        (self.restore)()
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = (self.restore)();
+        }
+    }
+}
+
 /// Run the interactive TUI.
 ///
 /// Takes ownership of the simulator and returns it when the user quits,
@@ -132,6 +183,12 @@ pub fn run(
     }
 
     // Setup terminal
+    //
+    // The guard restores the terminal (raw mode, alternate screen, mouse
+    // capture, cursor) on drop, so a panic in `run_app` or a partway setup
+    // failure cannot leave the user's terminal broken. It is disarmed by the
+    // explicit `restore()` on the normal path.
+    let guard = TerminalGuard::new();
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -141,17 +198,10 @@ pub fn run(
 
     let result = run_app(&mut terminal, simulator, max_cycles, theme, store, language);
 
-    // Always restore the terminal, even on error
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    // Always restore the terminal, even on error, before printing anything
+    // (a config-save failure cannot be reported while the TUI owns the terminal)
+    guard.restore()?;
 
-    // A config-save failure cannot be printed while the TUI owns the
-    // terminal, so report it now
     if let Ok((_, Some(error))) = &result {
         eprintln!("{}", t!("main.warning", message = error.as_str()));
     }
@@ -241,4 +291,55 @@ fn run_app(
         .into_inner()
         .unwrap_or_else(|e| e.into_inner());
     Ok((sim, app.config_error))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn guard_restores_terminal_on_panic() {
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        fn mock() -> io::Result<()> {
+            CALLS.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+        let result = panic::catch_unwind(|| {
+            let _guard = TerminalGuard::with_restore(mock);
+            panic!("simulated app panic");
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            1,
+            CALLS.load(Ordering::Relaxed),
+            "Drop must run the terminal restore exactly once when unwinding"
+        );
+    }
+
+    #[test]
+    fn guard_restore_disarms_drop() {
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        fn mock() -> io::Result<()> {
+            CALLS.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+        let guard = TerminalGuard::with_restore(mock);
+        guard.restore().unwrap();
+        assert_eq!(
+            1,
+            CALLS.load(Ordering::Relaxed),
+            "explicit restore runs once and disarms Drop (no second call)"
+        );
+    }
+
+    #[test]
+    fn guard_drop_is_safe_when_restore_fails() {
+        fn failing() -> io::Result<()> {
+            Err(io::Error::other("no tty"))
+        }
+        // Without a TTY the real restore errors; Drop must swallow it, not panic
+        drop(TerminalGuard::with_restore(failing));
+    }
 }
