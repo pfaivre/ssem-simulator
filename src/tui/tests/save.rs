@@ -33,7 +33,7 @@ impl Drop for TempDir {
 fn sim_from_temp_copy(sample: &str, dir_name: &str, file_name: &str) -> (TempDir, Simulator) {
     let dir = TempDir::new(dir_name);
     std::fs::copy(format!("samples/{sample}"), dir.0.join(file_name)).unwrap();
-    let sim = Simulator::from_file(&dir.0.join(file_name));
+    let sim = Simulator::from_file(&dir.0.join(file_name)).unwrap();
     (dir, sim)
 }
 
@@ -153,7 +153,7 @@ pub(super) fn enter_with_prefilled_name_saves_asm_into_the_open_file_folder() {
     // Instructions as mnemonics, data words as NUM, source comments after ';'
     assert!(content.contains("01 LDN 24; A = -a"), "content: {content}");
     assert!(content.contains("20 NUM -3;"), "content: {content}");
-    let reloaded = Simulator::from_file(&saved);
+    let reloaded = Simulator::from_file(&saved).unwrap();
     assert_eq!(sim.store, reloaded.store);
     assert_eq!(sim.store.comments, reloaded.store.comments);
 }
@@ -177,7 +177,7 @@ pub(super) fn enter_with_prefilled_name_saves_snp_and_keeps_extension() {
     let saved = dir.canonical().join("nightmare_edited.snp");
     let content = std::fs::read_to_string(&saved).unwrap();
     assert!(content.contains("0000: "), "not a snapshot body: {content}");
-    let reloaded = Simulator::from_file(&saved);
+    let reloaded = Simulator::from_file(&saved).unwrap();
     assert_eq!(sim.store, reloaded.store);
     assert_eq!(sim.store.comments, reloaded.store.comments);
 }

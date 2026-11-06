@@ -45,6 +45,27 @@ impl FileFormat {
     }
 }
 
+/// An `InvalidData` io::Error carrying a localized parse message, so the
+/// load path reports bad input as `Err` (like the save path) instead of
+/// panicking.
+fn parse_error(message: String) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
+}
+
+/// Wrap a file-read failure with the localized `error.read_file` message,
+/// preserving the original error kind.
+fn read_error(path: &Path, e: std::io::Error) -> std::io::Error {
+    let kind = e.kind();
+    std::io::Error::new(
+        kind,
+        ts!(
+            "error.read_file",
+            path = path.display().to_string(),
+            error = e
+        ),
+    )
+}
+
 /// Main memory of a SSEM-like machine
 ///
 /// Note: SSEM writes integers with its least significant to most significant bits from left to right.
@@ -109,21 +130,13 @@ impl Store {
     /// # Arguments
     ///
     /// * `filename` - Path to the file to read
-    pub fn from_asm_file(filename: &Path) -> Store {
-        let file = File::open(filename);
-        let file = match file {
-            Ok(f) => f,
-            Err(e) => {
-                panic!(
-                    "{}",
-                    ts!(
-                        "error.read_file",
-                        path = filename.to_str().unwrap_or(""),
-                        error = e
-                    )
-                );
-            }
-        };
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Error` with a localized message when the file cannot be
+    /// read or a line cannot be parsed, instead of panicking.
+    pub fn from_asm_file(filename: &Path) -> std::io::Result<Store> {
+        let file = File::open(filename).map_err(|e| read_error(filename, e))?;
         let reader = BufReader::new(file);
 
         let mut words = [0_i32; SSEM_STORE_WORDS];
@@ -132,16 +145,7 @@ impl Store {
         let mut last_index: i32 = 0;
 
         for line in reader.lines() {
-            let line = line.unwrap_or_else(|e| {
-                panic!(
-                    "{}",
-                    ts!(
-                        "error.read_file",
-                        path = filename.to_str().unwrap_or(""),
-                        error = e
-                    )
-                );
-            });
+            let line = line.map_err(|e| read_error(filename, e))?;
 
             // Split the instruction from its comment; the comment is kept
             // for display (a comment-only line has no instruction and is skipped)
@@ -164,87 +168,76 @@ impl Store {
             // Extracting tokens "<index> <opcode> <operand>"
             let i: Vec<&str> = instruction.split_ascii_whitespace().collect();
             if i.len() < 2 {
-                panic!(
-                    "{}",
-                    ts!("error.invalid_instruction", instruction = instruction)
-                );
+                return Err(parse_error(ts!(
+                    "error.invalid_instruction",
+                    instruction = instruction
+                )));
             }
 
             let index: i32 = i[0]
                 .parse()
-                .unwrap_or_else(|_| panic!("{}", ts!("error.read_number")));
+                .map_err(|_| parse_error(ts!("error.read_number")))?;
             let opcode: &str = i[1];
 
             let operand: i32 = if i.len() >= 3 {
                 i[2].parse()
-                    .unwrap_or_else(|_| panic!("{}", ts!("error.read_number")))
+                    .map_err(|_| parse_error(ts!("error.read_number")))?
             } else {
                 0
             };
 
             // Ensure lines are contiguous and without duplicates
             if index > 0 && index != last_index + 1 {
-                panic!(
-                    "{}",
-                    ts!(
-                        "error.expected_index",
-                        line = line,
-                        expected = last_index + 1
-                    )
-                )
+                return Err(parse_error(ts!(
+                    "error.expected_index",
+                    line = line,
+                    expected = last_index + 1
+                )));
             }
             last_index = index;
 
-            // Ensure we don't write outside of the store
-            if index >= words.len() as i32 {
-                panic!(
-                    "{}",
-                    ts!(
-                        "error.index_too_big",
-                        line = instruction,
-                        index = index,
-                        size = words.len()
-                    )
-                );
+            // Ensure the index is within the store (this also rejects negatives,
+            // which the contiguity check above lets through)
+            if !(0..words.len() as i32).contains(&index) {
+                return Err(parse_error(ts!(
+                    "error.index_too_big",
+                    line = instruction,
+                    index = index,
+                    size = words.len()
+                )));
             }
+            let addr = index as usize;
 
-            comments[usize::try_from(index).unwrap()] = comment;
+            comments[addr] = comment;
 
-            let opcode = Opcode::from_str(opcode).unwrap_or_else(|_| {
-                panic!(
-                    "{}",
-                    ts!(
-                        "error.opcode_not_valid",
-                        line = instruction,
-                        opcode = opcode
-                    )
-                );
-            });
+            let opcode = Opcode::from_str(opcode).map_err(|_| {
+                parse_error(ts!(
+                    "error.opcode_not_valid",
+                    line = instruction,
+                    opcode = opcode
+                ))
+            })?;
 
             match opcode {
                 Opcode::NUM => {
-                    // TODO: make this safe
-                    words[usize::try_from(index).unwrap()] = operand;
+                    words[addr] = operand;
                 }
                 opcode => {
                     // Ensure the operand fits in the instruction's data bits
                     if !(0..=SSEM_DATA_MASK).contains(&operand) {
-                        panic!(
-                            "{}",
-                            ts!(
-                                "error.operand_not_valid",
-                                line = instruction,
-                                operand = operand,
-                                max = SSEM_DATA_MASK
-                            )
-                        );
+                        return Err(parse_error(ts!(
+                            "error.operand_not_valid",
+                            line = instruction,
+                            operand = operand,
+                            max = SSEM_DATA_MASK
+                        )));
                     }
 
                     // Print the opcode
                     let w: i32 = (opcode as i32) << SSEM_OPCODE_BIT_SHIFT;
 
                     // Print the operand
-                    words[usize::try_from(index).unwrap()] = w | operand;
+                    words[addr] = w | operand;
                 }
             }
         }
@@ -255,7 +248,7 @@ impl Store {
         };
         store._check();
 
-        store
+        Ok(store)
     }
 
     /// Initializes the store with the given snp file
@@ -274,22 +267,13 @@ impl Store {
     /// # Arguments
     ///
     /// * `filename` - Path to the file to read
-    pub fn from_snp_file(filename: &Path) -> Store {
-        // Todo return a Result for a richer explaination on the possible issues
-        let file = File::open(filename);
-        let file = match file {
-            Ok(f) => f,
-            Err(e) => {
-                panic!(
-                    "{}",
-                    ts!(
-                        "error.read_file",
-                        path = filename.to_str().unwrap_or(""),
-                        error = e
-                    )
-                );
-            }
-        };
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Error` with a localized message when the file cannot be
+    /// read or a line cannot be parsed, instead of panicking.
+    pub fn from_snp_file(filename: &Path) -> std::io::Result<Store> {
+        let file = File::open(filename).map_err(|e| read_error(filename, e))?;
         let reader = BufReader::new(file);
 
         let mut words = [0_i32; SSEM_STORE_WORDS];
@@ -298,16 +282,7 @@ impl Store {
         let mut last_index: i32 = 0;
 
         for line in reader.lines() {
-            let line = line.unwrap_or_else(|e| {
-                panic!(
-                    "{}",
-                    ts!(
-                        "error.read_file",
-                        path = filename.to_str().unwrap_or(""),
-                        error = e
-                    )
-                );
-            });
+            let line = line.map_err(|e| read_error(filename, e))?;
 
             // Split the word from its comment; the comment is kept for
             // display (a comment-only line has no word and is skipped)
@@ -330,59 +305,61 @@ impl Store {
             // Extracting tokens "<index>: <binary_word>"
             let i: Vec<&str> = instruction.splitn(2, ':').collect();
             if i.len() != 2 {
-                panic!("{}", ts!("error.invalid_syntax", line = instruction));
+                return Err(parse_error(ts!("error.invalid_syntax", line = instruction)));
             }
 
             let index: i32 = i[0]
                 .parse()
-                .unwrap_or_else(|_| panic!("{}", ts!("error.read_number")));
+                .map_err(|_| parse_error(ts!("error.read_number")))?;
 
             // Ensure lines are contiguous and without duplicates
             if index > 0 && index != last_index + 1 {
-                panic!(
-                    "Error near line '{}': expected index '{}'",
-                    instruction,
-                    last_index + 1
-                )
+                return Err(parse_error(ts!(
+                    "error.expected_index",
+                    line = line,
+                    expected = last_index + 1
+                )));
             }
             last_index = index;
 
-            // Ensure we don't write outside of the store
-            if index >= words.len() as i32 {
-                panic!(
-                    "{}",
-                    ts!(
-                        "error.index_too_big",
-                        line = instruction,
-                        index = index,
-                        size = words.len()
-                    )
-                );
+            // Ensure the index is within the store (this also rejects negatives,
+            // which the contiguity check above lets through)
+            if !(0..words.len() as i32).contains(&index) {
+                return Err(parse_error(ts!(
+                    "error.index_too_big",
+                    line = instruction,
+                    index = index,
+                    size = words.len()
+                )));
             }
+            let addr = index as usize;
 
-            comments[usize::try_from(index).unwrap()] = comment;
+            comments[addr] = comment;
 
             // Reverse the bit order: SSEM is least significant bit first
             let word = i[1].trim().chars().rev().collect::<String>();
             if word.len() != 32 {
-                panic!("{}", ts!("error.word_size", line = line, got = word.len()));
+                return Err(parse_error(ts!(
+                    "error.word_size",
+                    line = line,
+                    got = word.len()
+                )));
             }
             // Use a 64-bit temporarily before casting down later below, to avoid parsing errors on some cases
             let word: i64 = match i64::from_str_radix(&word, 2) {
                 Ok(value) => value,
-                Err(e) => panic!(
-                    "{}",
-                    ts!(
+                Err(e) => {
+                    return Err(parse_error(ts!(
                         "error.word_parse",
                         line = instruction,
                         word = word,
                         error = e
-                    )
-                ),
+                    )));
+                }
             };
 
             // The cast to i32 is safe because we ensured before there is only 32 bits of data in the word
-            words[usize::try_from(index).unwrap()] = word as i32;
+            words[addr] = word as i32;
         }
 
         let store = Store {
@@ -391,7 +368,7 @@ impl Store {
         };
         store._check();
 
-        store
+        Ok(store)
     }
 
     /// Set the source comment of the word at `index` (`None` clears it).
@@ -1040,7 +1017,7 @@ mod tests {
             "valid.asm",
             "; a leading comment\n\n00 JMP 5 ; jump somewhere\n01 CMP\n02 NUM -3\n03 STO 27\n",
         );
-        let store = Store::from_asm_file(file.path());
+        let store = Store::from_asm_file(file.path()).unwrap();
 
         assert_eq!(instr(Opcode::JMP, 5), store.words[0]);
         assert_eq!(instr(Opcode::CMP, 0), store.words[1]); // missing operand defaults to 0
@@ -1055,7 +1032,7 @@ mod tests {
             "comments.asm",
             "; a leading comment\n\n00 JMP 5 ; jump somewhere\n01 CMP\n02 NUM -3 ; negative three\n03 STO 27 ;\n04 STO 27 ;   padded   \n",
         );
-        let store = Store::from_asm_file(file.path());
+        let store = Store::from_asm_file(file.path()).unwrap();
 
         // The text after ';' is kept verbatim, leading indentation included
         assert_eq!(Some(" jump somewhere".to_string()), store.comments[0]);
@@ -1082,7 +1059,7 @@ mod tests {
 
     #[test]
     fn from_asm_file_factorct_keeps_inline_comments() {
-        let store = Store::from_asm_file(Path::new("samples/factorct.asm"));
+        let store = Store::from_asm_file(Path::new("samples/factorct.asm")).unwrap();
         assert_eq!(None, store.comments[0], "line 00's comment is empty");
         assert_eq!(Some(" A = -a".to_string()), store.comments[1]);
         // Line 02's comment is indented further in the source: kept as-is
@@ -1102,7 +1079,7 @@ mod tests {
             "comments.snp",
             "; a leading comment\n0000: 10000000000000000000000000000000 ; first word\n0001: 00000000000000000000000000000000\n",
         );
-        let store = Store::from_snp_file(file.path());
+        let store = Store::from_snp_file(file.path()).unwrap();
 
         assert_eq!(Some(" first word".to_string()), store.comments[0]);
         assert_eq!(None, store.comments[1]);
@@ -1114,7 +1091,7 @@ mod tests {
             "display_comments.asm",
             "00 JMP 5 ; jump somewhere\n01 STP ;   halt now\n",
         );
-        let store = Store::from_asm_file(file.path());
+        let store = Store::from_asm_file(file.path()).unwrap();
         let text = store.to_string();
         let mut lines = text.lines();
         assert!(
@@ -1128,55 +1105,72 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error while reading")]
     fn from_asm_file_missing_file() {
-        let _ = Store::from_asm_file(Path::new("samples/does_not_exist.asm"));
+        let err = Store::from_asm_file(Path::new("samples/does_not_exist.asm")).unwrap_err();
+        assert!(
+            err.to_string().contains("Error while reading"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "invalid instruction '00'")]
     fn from_asm_file_invalid_instruction() {
         let file = temp_file("invalid_instruction.asm", "00\n");
-        let _ = Store::from_asm_file(file.path());
+        let err = Store::from_asm_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid instruction '00'"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Unable to read the number")]
     fn from_asm_file_invalid_index() {
         let file = temp_file("invalid_index.asm", "not_a_number JMP 0\n");
-        let _ = Store::from_asm_file(file.path());
+        let err = Store::from_asm_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("Unable to read the number"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Unable to read the number")]
     fn from_asm_file_invalid_operand() {
         let file = temp_file("invalid_operand.asm", "00 JMP not_a_number\n");
-        let _ = Store::from_asm_file(file.path());
+        let err = Store::from_asm_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("Unable to read the number"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "operand '32' non valid")]
     fn from_asm_file_operand_too_big() {
         let file = temp_file("operand_too_big.asm", "00 JMP 32\n");
-        let _ = Store::from_asm_file(file.path());
+        let err = Store::from_asm_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("operand '32' non valid"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "operand '-1' non valid")]
     fn from_asm_file_operand_negative() {
         let file = temp_file("operand_negative.asm", "00 LDN -1\n");
-        let _ = Store::from_asm_file(file.path());
+        let err = Store::from_asm_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("operand '-1' non valid"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "expected index '2'")]
     fn from_asm_file_non_contiguous_lines() {
         let file = temp_file("non_contiguous.asm", "00 JMP 0\n01 LDN 24\n03 STO 26\n");
-        let _ = Store::from_asm_file(file.path());
+        let err = Store::from_asm_file(file.path()).unwrap_err();
+        assert!(err.to_string().contains("expected index '2'"), "err: {err}");
     }
 
     #[test]
-    #[should_panic(expected = "Index '32' is bigger than the machine size (32)")]
     fn from_asm_file_index_out_of_store() {
         let mut content = String::new();
         for i in 0..32 {
@@ -1184,14 +1178,22 @@ mod tests {
         }
         content.push_str("32 NUM 32\n");
         let file = temp_file("out_of_store.asm", &content);
-        let _ = Store::from_asm_file(file.path());
+        let err = Store::from_asm_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Index '32' is bigger than the machine size (32)"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "opcode 'FOO' non valid")]
     fn from_asm_file_invalid_opcode() {
         let file = temp_file("invalid_opcode.asm", "00 FOO 1\n");
-        let _ = Store::from_asm_file(file.path());
+        let err = Store::from_asm_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("opcode 'FOO' non valid"),
+            "err: {err}"
+        );
     }
 
     #[test]
@@ -1200,7 +1202,7 @@ mod tests {
             "valid.snp",
             "; a leading comment\n\n0000: 10000000000000000000000000000000 ; some comment\n0001: 11111111111111111111111111111111\n",
         );
-        let store = Store::from_snp_file(file.path());
+        let store = Store::from_snp_file(file.path()).unwrap();
 
         assert_eq!(1, store.words[0]);
         assert_eq!(-1, store.words[1]);
@@ -1208,43 +1210,48 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error while reading")]
     fn from_snp_file_missing_file() {
-        let _ = Store::from_snp_file(Path::new("samples/does_not_exist.snp"));
+        let err = Store::from_snp_file(Path::new("samples/does_not_exist.snp")).unwrap_err();
+        assert!(
+            err.to_string().contains("Error while reading"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "invalid syntax")]
     fn from_snp_file_invalid_syntax() {
         let file = temp_file(
             "invalid_syntax.snp",
             "0000 00000000000000000000000000000000\n",
         );
-        let _ = Store::from_snp_file(file.path());
+        let err = Store::from_snp_file(file.path()).unwrap_err();
+        assert!(err.to_string().contains("invalid syntax"), "err: {err}");
     }
 
     #[test]
-    #[should_panic(expected = "Unable to read the number")]
     fn from_snp_file_invalid_index() {
         let file = temp_file(
             "invalid_index.snp",
             "zero: 00000000000000000000000000000000\n",
         );
-        let _ = Store::from_snp_file(file.path());
+        let err = Store::from_snp_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("Unable to read the number"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "expected index '1'")]
     fn from_snp_file_non_contiguous_lines() {
         let file = temp_file(
             "non_contiguous.snp",
             "0000: 00000000000000000000000000000000\n0002: 00000000000000000000000000000000\n",
         );
-        let _ = Store::from_snp_file(file.path());
+        let err = Store::from_snp_file(file.path()).unwrap_err();
+        assert!(err.to_string().contains("expected index '1'"), "err: {err}");
     }
 
     #[test]
-    #[should_panic(expected = "Index '32' is bigger than the machine size (32)")]
     fn from_snp_file_index_out_of_store() {
         let mut content = String::new();
         for i in 0..32 {
@@ -1252,24 +1259,36 @@ mod tests {
         }
         content.push_str("0032: 00000000000000000000000000000000\n");
         let file = temp_file("out_of_store.snp", &content);
-        let _ = Store::from_snp_file(file.path());
+        let err = Store::from_snp_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Index '32' is bigger than the machine size (32)"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Invalid word size, expected 32, got 8")]
     fn from_snp_file_invalid_word_size() {
         let file = temp_file("invalid_word_size.snp", "0000: 10101010\n");
-        let _ = Store::from_snp_file(file.path());
+        let err = Store::from_snp_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Invalid word size, expected 32, got 8"),
+            "err: {err}"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Unable to parse the word")]
     fn from_snp_file_invalid_word() {
         let file = temp_file(
             "invalid_word.snp",
             "0000: 0000000000000000000000000000000X\n",
         );
-        let _ = Store::from_snp_file(file.path());
+        let err = Store::from_snp_file(file.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("Unable to parse the word"),
+            "err: {err}"
+        );
     }
 
     #[test]
@@ -1414,7 +1433,7 @@ mod tests {
     fn to_asm_string_round_trips_through_from_asm_file() {
         let store = mixed_store();
         let file = temp_file("round_trip.asm", &store.to_asm_string());
-        let reloaded = Store::from_asm_file(file.path());
+        let reloaded = Store::from_asm_file(file.path()).unwrap();
         assert_eq!(store.words, reloaded.words);
         assert_eq!(store.comments, reloaded.comments);
     }
@@ -1443,7 +1462,7 @@ mod tests {
     fn to_snp_string_round_trips_through_from_snp_file() {
         let store = mixed_store();
         let file = temp_file("round_trip.snp", &store.to_snp_string());
-        let reloaded = Store::from_snp_file(file.path());
+        let reloaded = Store::from_snp_file(file.path()).unwrap();
         assert_eq!(store.words, reloaded.words);
         assert_eq!(store.comments, reloaded.comments);
     }

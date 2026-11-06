@@ -180,26 +180,21 @@ impl Simulator {
     }
 
     /// Initializes an SSEM simulator with memory state described in the given file.
-    /// Supported file types are .snp and .asm
-    pub fn from_file(filename: &Path) -> Simulator {
-        let store = match filename.extension() {
-            Some(ext) => {
-                // Case-insensitive, so a file saved as e.g. "STATE.SNP" reloads
-                if ext.eq_ignore_ascii_case("asm") {
-                    Store::from_asm_file(filename)
-                } else if ext.eq_ignore_ascii_case("snp") {
-                    Store::from_snp_file(filename)
-                } else {
-                    panic!(
-                        "{}",
-                        ts!("error.unknown_format_ext", ext = ext.to_str().unwrap_or(""))
-                    );
-                }
-            }
-            None => panic!("{}", ts!("error.unknown_format")),
+    /// Supported file types are .snp and .asm, chosen by the file extension via
+    /// [`FileFormat::from_path`] (the same dispatcher the save path uses).
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Error` with a localized message when the extension is
+    /// missing/unknown, the file cannot be read, or a line cannot be parsed —
+    /// the same error type as the save path, instead of panicking.
+    pub fn from_file(filename: &Path) -> std::io::Result<Simulator> {
+        let store = match FileFormat::from_path(filename)? {
+            FileFormat::Asm => Store::from_asm_file(filename)?,
+            FileFormat::Snp => Store::from_snp_file(filename)?,
         };
 
-        Simulator {
+        Ok(Simulator {
             a: 0,
             ci: 0,
             store,
@@ -214,7 +209,7 @@ impl Simulator {
             history: None,
             heatmap_reset_pending: false,
             source_path: Some(filename.to_path_buf()),
-        }
+        })
     }
 
     /// Whether the machine is currently running (not stopped).
@@ -580,7 +575,7 @@ mod tests {
 
     #[test]
     fn from_file_asm() {
-        let sim = Simulator::from_file(Path::new("samples/factorct.asm"));
+        let sim = Simulator::from_file(Path::new("samples/factorct.asm")).unwrap();
         assert_eq!(0, sim.a);
         assert_eq!(0, sim.ci);
         // 01 LDN 24
@@ -589,7 +584,7 @@ mod tests {
 
     #[test]
     fn from_file_snp() {
-        let sim = Simulator::from_file(Path::new("samples/nightmare.snp"));
+        let sim = Simulator::from_file(Path::new("samples/nightmare.snp")).unwrap();
         assert_eq!(0, sim.a);
         assert_eq!(0, sim.ci);
         assert_eq!(
@@ -599,15 +594,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unkown file format 'txt'")]
     fn from_file_unknown_extension() {
-        let _ = Simulator::from_file(Path::new("samples/virpet.txt"));
+        let err = Simulator::from_file(Path::new("samples/virpet.txt"))
+            .err()
+            .unwrap();
+        assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
+        assert!(err.to_string().contains(".asm or .snp"), "err: {err}");
     }
 
     #[test]
-    #[should_panic(expected = "Unkown file format")]
     fn from_file_no_extension() {
-        let _ = Simulator::from_file(Path::new("samples"));
+        let err = Simulator::from_file(Path::new("samples")).err().unwrap();
+        assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
+        assert!(err.to_string().contains(".asm or .snp"), "err: {err}");
     }
 
     #[test]
@@ -1648,7 +1647,7 @@ mod tests {
 
     #[test]
     fn save_writes_a_header_comment_and_the_store() {
-        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm"));
+        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm")).unwrap();
         sim.run(10);
         let file = TempFile::new("save.snp");
         sim.save(file.path()).unwrap();
@@ -1677,21 +1676,21 @@ mod tests {
         assert!(lines.next().unwrap().starts_with("0000: "));
 
         // The saved file reloads as the same store, comments included
-        let reloaded = Simulator::from_file(file.path());
+        let reloaded = Simulator::from_file(file.path()).unwrap();
         assert_eq!(sim.store, reloaded.store);
         assert_eq!(sim.store.comments, reloaded.store.comments);
     }
 
     #[test]
     fn save_asm_round_trips_and_keeps_comments() {
-        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm"));
+        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm")).unwrap();
         sim.run(10);
         let file = TempFile::new("save.asm");
         sim.save(file.path()).unwrap();
 
         let content = std::fs::read_to_string(file.path()).unwrap();
         assert!(content.contains("01 LDN 24; A = -a"), "asm line: {content}");
-        let reloaded = Simulator::from_file(file.path());
+        let reloaded = Simulator::from_file(file.path()).unwrap();
         assert_eq!(sim.store, reloaded.store);
         assert_eq!(sim.store.comments, reloaded.store.comments);
     }

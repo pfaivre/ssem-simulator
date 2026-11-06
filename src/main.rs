@@ -100,7 +100,13 @@ fn main() {
     let args = Args::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
 
     let mut simulator = match &args.file {
-        Some(file) => Simulator::from_file(file),
+        Some(file) => match Simulator::from_file(file) {
+            Ok(sim) => sim,
+            Err(e) => {
+                eprintln!("{}", t!("main.error", error = e.to_string()));
+                std::process::exit(1);
+            }
+        },
         None => Simulator::new(),
     };
 
