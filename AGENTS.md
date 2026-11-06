@@ -58,6 +58,9 @@ cargo clippy
 - Keep the codebase warning-free: run `cargo clippy` before committing.
 - Match the existing style (snake_case, module-per-concern under `src/ssem/`).
 - Don't over comment. Keep inline code comment and docstrings short and concise. Don't comment when the subject is obvious by reading the code.
+- Do not let changes push a file from under 1k lines to over 1k lines without a very strong reason. Prefer extracting helpers, subcomponents, modules, or local abstractions. If the diff crosses that threshold, explicitly ask whether the code should be decomposed first. Only waive this with a compelling structural reason where the file is still clearly organized.
+- Bias toward cleaning the design, not just accepting working code. Strongly prefer simplifications that remove moving pieces altogether over refactors that merely spread the same complexity around. Do not rubber-stamp "it works" implementations that leave the codebase messier.
+- Prefer direct, boring, maintainable code over hacky or magical code. Flag brittle ad-hoc behavior, generic mechanisms hiding simple data-shape assumptions, thin abstractions, identity wrappers, and pass-through helpers that add indirection without buying clarity.
 
 ## Localisation
 
