@@ -2,6 +2,7 @@
 //! keyboard, mouse, history scrubbing, speed display.
 
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
@@ -36,7 +37,8 @@ pub(super) const BIT_REPRESENTATIONS: [(char, char); 5] = [
 
 /// The keymap: (key, legend, help description), localized.
 /// An empty legend means the key does not appear in the bottom bar (e.g. arrow keys).
-pub(super) fn keymap() -> Vec<(&'static str, String, String)> {
+/// The locale is fixed at startup, so the table is built once.
+static KEYMAP: LazyLock<Vec<(&'static str, String, String)>> = LazyLock::new(|| {
     vec![
         ("Ctrl+Q", ts!("keymap.quit.legend"), ts!("keymap.quit.desc")),
         ("H", ts!("keymap.help.legend"), ts!("keymap.help.desc")),
@@ -91,6 +93,10 @@ pub(super) fn keymap() -> Vec<(&'static str, String, String)> {
         ("S", ts!("keymap.save.legend"), ts!("keymap.save.desc")),
         ("T", ts!("keymap.theme.legend"), ts!("keymap.theme.desc")),
     ]
+});
+
+pub(super) fn keymap() -> &'static [(&'static str, String, String)] {
+    &KEYMAP
 }
 
 /// An action of the menu bar (the top row), run by clicking its item.
@@ -106,7 +112,8 @@ pub(super) enum MenuAction {
 }
 
 /// The menu bar items (the top row), with localized labels.
-pub(super) fn menu_items() -> Vec<(String, MenuAction)> {
+/// The locale is fixed at startup, so the table is built once.
+static MENU_ITEMS: LazyLock<Vec<(String, MenuAction)>> = LazyLock::new(|| {
     vec![
         (ts!("menu.quit"), MenuAction::Quit),
         (ts!("menu.clear"), MenuAction::Clear),
@@ -116,6 +123,10 @@ pub(super) fn menu_items() -> Vec<(String, MenuAction)> {
         (ts!("menu.settings"), MenuAction::Settings),
         (ts!("menu.help"), MenuAction::Help),
     ]
+});
+
+pub(super) fn menu_items() -> &'static [(String, MenuAction)] {
+    &MENU_ITEMS
 }
 
 /// How often the displayed speed is refreshed.

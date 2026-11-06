@@ -78,7 +78,7 @@ desc = "Éditer un registre ou un mot de la mémoire"
 
 [keymap.heatmap]
 legend = "CARTE DE CHALEUR"
-desc = "Changer la carte carte thermique"
+desc = "Changer la carte thermique"
 
 [keymap.flow]
 legend = "FLUX"
@@ -109,7 +109,6 @@ flow_control = "CONTRÔLE"
 flow_data = "DONNÉES"
 
 [history]
-prefix = " HISTORIQUE ["
 label = " HISTORIQUE  "
 disabled = " HISTORIQUE [désactivé]"
 range = "  %{start}..%{end}"

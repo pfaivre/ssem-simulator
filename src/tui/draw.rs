@@ -2,6 +2,8 @@
 //! store words, heatmaps, flow arrows/graph), timeline (history scrub bar),
 //! status bar, and the pop-ups (including the scrub pop-up).
 
+use std::borrow::Cow;
+
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -357,15 +359,16 @@ impl App {
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut x = area.x;
         for (label, action) in menu_items() {
+            let action = *action;
             // The run/stop item's label reflects the machine state
-            let label = if action == MenuAction::RunStop {
-                if snap.stop_flag {
+            let label: Cow<str> = if action == MenuAction::RunStop {
+                Cow::Owned(if snap.stop_flag {
                     ts!("menu.run")
                 } else {
                     ts!("menu.stop")
-                }
+                })
             } else {
-                label
+                Cow::Borrowed(label.as_str())
             };
             // No brackets: the button is the label padded with one cell
             // on each side in the block color
@@ -872,7 +875,7 @@ impl App {
         let center = bar_x + offset as u16;
 
         let text = t!("history.scrub_cycle", n = snap.cycle_count);
-        let width = text.len() as u16;
+        let width = text.chars().count() as u16;
         let x = center
             .saturating_sub(width / 2)
             .clamp(area.x, area.x + area.width.saturating_sub(width));

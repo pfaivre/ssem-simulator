@@ -184,7 +184,7 @@ impl HelpPopup {
         lines.push(Line::from(""));
 
         // One line per key
-        for (key, _, description) in &keymap {
+        for (key, _, description) in keymap {
             let key_width = key.chars().count();
             let padding = key_column.saturating_sub(key_width);
             let left_pad = padding / 2;
@@ -1808,7 +1808,9 @@ impl SettingsPopup {
                 vec![(
                     format!(
                         "[{}]",
-                        view.heatmap.label().unwrap_or_else(|| ts!("mode.off"))
+                        view.heatmap
+                            .label()
+                            .map_or_else(|| ts!("mode.off"), str::to_string)
                     ),
                     Some(SettingControl::Heatmap),
                 )],
@@ -1817,7 +1819,12 @@ impl SettingsPopup {
                 ts!("popup.settings.flow"),
                 "F",
                 vec![(
-                    format!("[{}]", view.flow.label().unwrap_or_else(|| ts!("mode.off"))),
+                    format!(
+                        "[{}]",
+                        view.flow
+                            .label()
+                            .map_or_else(|| ts!("mode.off"), str::to_string)
+                    ),
                     Some(SettingControl::Flow),
                 )],
             ),

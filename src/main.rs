@@ -17,6 +17,7 @@ macro_rules! ts {
     };
 }
 
+mod config_path;
 pub mod i18n;
 pub mod ssem;
 pub mod tui;
@@ -46,7 +47,7 @@ struct Args {
 
     /// Language of the interface, overriding the one saved in the config file
     /// for this session
-    #[arg(long, value_enum)]
+    #[arg(long, value_parser = parse_lang)]
     lang: Option<Language>,
 
     /// Write the machine state to this file once the run ends (.asm or .snp,
@@ -59,6 +60,13 @@ struct Args {
     /// When omitted, the machine starts with an empty (all-zero) store
     #[arg(value_name = "FILE")]
     file: Option<PathBuf>,
+}
+
+/// Parse a `--lang` value: a language code or locale tag (`"fr"`,
+/// `"fr_FR.UTF-8"`), the same set the pre-scan and the env vars accept.
+fn parse_lang(value: &str) -> Result<Language, String> {
+    Language::from_tag(value)
+        .ok_or_else(|| format!("unsupported language '{value}' (supported: en, fr)"))
 }
 
 /// The clap command with localized help texts. The derive attributes read

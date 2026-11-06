@@ -112,7 +112,6 @@ flow_control = "CONTROL"
 flow_data = "DATA"
 
 [history]
-prefix = " HISTORY ["
 label = " HISTORY  "
 disabled = " HISTORY [disabled]"
 range = "  %{start}..%{end}"
