@@ -19,8 +19,8 @@ use super::layout::{
 };
 use super::palette::{Palette, Theme};
 use super::popups::{
-    BreakpointPopup, CommentEditor, EditorPopup, HelpPopup, PickerPopup, SavePopup, SettingControl,
-    SettingsPopup,
+    BreakpointPopup, CommentEditor, EditorPopup, HelpPopup, PickerPopup, Popup, SavePopup,
+    SettingControl, SettingsPopup,
 };
 use crate::i18n::Language;
 use crate::ssem::history::History;
@@ -320,6 +320,34 @@ impl App {
         self.theme.palette()
     }
 
+    /// All pop-ups in one fixed order. This is the single list of pop-ups:
+    /// every key, mouse, close and draw site iterates it, so adding a pop-up
+    /// means adding one field here and one entry in this array.
+    pub(super) fn popups_mut(&mut self) -> [&mut dyn Popup; 7] {
+        [
+            &mut self.help_popup,
+            &mut self.breakpoint_popup,
+            &mut self.editor_popup,
+            &mut self.save_popup,
+            &mut self.settings_popup,
+            &mut self.comment_editor,
+            &mut self.picker,
+        ]
+    }
+
+    /// Shared-borrow counterpart of `popups_mut`.
+    fn popups_ref(&self) -> [&dyn Popup; 7] {
+        [
+            &self.help_popup,
+            &self.breakpoint_popup,
+            &self.editor_popup,
+            &self.save_popup,
+            &self.settings_popup,
+            &self.comment_editor,
+            &self.picker,
+        ]
+    }
+
     /// Update the smoothed speed display value from the latest cycle count.
     pub(super) fn update_speed_display(&mut self, is_running: bool, cycle_count: u64) {
         let now = Instant::now();
@@ -352,22 +380,10 @@ impl App {
         // must not repeat, so they are ignored here.
         // Pop-ups keep priority over the scrub keys.
         if key.kind == KeyEventKind::Repeat {
-            if self.help_popup.is_open() {
-                self.help_popup.handle_key(key);
-            } else if self.save_popup.is_open() {
-                self.save_popup.handle_key(key, sim);
-            } else if self.comment_editor.is_open() {
-                self.comment_editor.handle_key(key, sim);
-            } else if self.picker.is_open() {
-                self.picker_key(key, sim);
-            } else if self.settings_popup.is_open() {
-                // The view-mode keys must not repeat, like everywhere else
-                if !is_mode_key(key.code) {
-                    self.handle_settings_key(key, sim);
-                }
-            } else if !self.breakpoint_popup.is_open() && !self.editor_popup.is_open() {
-                self.handle_scrub_key(key.code, sim);
+            if self.route_popup_key(key, sim) {
+                return;
             }
+            self.handle_scrub_key(key.code, sim);
             return;
         }
 
@@ -376,86 +392,9 @@ impl App {
             return;
         }
 
-        // While the picker is open, keys go to it: arrows move the
-        // selection, Enter applies it (inside handle_key), Esc cancels
-        if self.picker.is_open() {
-            self.picker_key(key, sim);
-            return;
-        }
-
-        // While the settings pop-up is open, keys go to it; the view-mode
-        // keys (T/F/M/C/D) keep their no-repeat guard
-        if self.settings_popup.is_open() {
-            if key.code == KeyCode::Esc {
-                self.settings_popup.close();
-            } else {
-                if is_mode_key(key.code) && !self.mode_key_accepted(key.code) {
-                    return;
-                }
-                self.handle_settings_key(key, sim);
-            }
-            return;
-        }
-
-        // While the breakpoint pop-up is open, keys go to it
-        if self.breakpoint_popup.is_open() {
-            if key.code == KeyCode::Esc
-                || key.code == KeyCode::Char('b')
-                || key.code == KeyCode::Char('B')
-            {
-                self.breakpoint_popup.close();
-            } else {
-                self.breakpoint_popup.handle_key(key, &mut sim.breakpoints);
-            }
-            return;
-        }
-
-        // While the editor pop-up is open, keys go to it
-        if self.editor_popup.is_open() {
-            if key.code == KeyCode::Esc
-                || key.code == KeyCode::Char('e')
-                || key.code == KeyCode::Char('E')
-            {
-                self.editor_popup.close();
-            } else {
-                self.editor_popup.handle_key(key, sim);
-            }
-            return;
-        }
-
-        // While the inline comment editor is open, keys go to it: Enter
-        // validates (inside handle_key), Esc cancels, every other key types
-        // into the comment
-        if self.comment_editor.is_open() {
-            if key.code == KeyCode::Esc {
-                self.comment_editor.close();
-            } else {
-                self.comment_editor.handle_key(key, sim);
-            }
-            return;
-        }
-
-        // While the save pop-up is open, keys go to it; only Esc closes it,
-        // because every letter can appear in a file name
-        if self.save_popup.is_open() {
-            if key.code == KeyCode::Esc {
-                self.save_popup.close();
-            } else {
-                self.save_popup.handle_key(key, sim);
-            }
-            return;
-        }
-
-        // While the help pop-up is open, H or Esc closes it; other keys scroll it
-        if self.help_popup.is_open() {
-            if key.code == KeyCode::Char('h')
-                || key.code == KeyCode::Char('H')
-                || key.code == KeyCode::Esc
-            {
-                self.help_popup.close();
-            } else {
-                self.help_popup.handle_key(key);
-            }
+        // Pop-ups keep priority over the main keymap: route the key to the one
+        // open pop-up (at most one is open at a time)
+        if self.route_popup_key(key, sim) {
             return;
         }
 
@@ -530,19 +469,45 @@ impl App {
         accepted
     }
 
-    /// Route a key to the picker while it is open (arrows select, Enter
-    /// applies, Esc cancels). When the key closes the picker, the last
-    /// click is forgotten so the next click cannot chain into a
-    /// double-click with the one that opened the picker.
-    fn picker_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        if key.code == KeyCode::Esc {
-            self.picker.close();
-        } else {
-            self.picker.handle_key(key, sim);
+    /// Route a key to the open pop-up, if any, and return whether a pop-up
+    /// consumed it (at most one pop-up is open at a time, so the registry
+    /// order only fixes which one wins if several ever were).
+    ///
+    /// The settings pop-up is handled here rather than through the registry
+    /// because its keys mutate `App`'s view-mode fields (heatmap, flow, …),
+    /// which live on `App`, not on the pop-up. The picker is modal: when it
+    /// closes, the last click is forgotten so the next click cannot chain
+    /// into a double-click with the one that opened the picker.
+    fn route_popup_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> bool {
+        if self.settings_popup.is_open() {
+            if key.code == KeyCode::Esc && key.kind == KeyEventKind::Press {
+                self.settings_popup.close();
+            } else if key.kind == KeyEventKind::Repeat {
+                // The view-mode keys must not repeat, like everywhere else
+                if !is_mode_key(key.code) {
+                    self.handle_settings_key(key, sim);
+                }
+            } else if is_mode_key(key.code) && !self.mode_key_accepted(key.code) {
+                // Swallowed OS key-repeat of a view-mode key
+            } else {
+                self.handle_settings_key(key, sim);
+            }
+            return true;
         }
-        if !self.picker.is_open() {
+
+        let picker_was_open = self.picker.is_open();
+        let mut routed = false;
+        for popup in self.popups_mut() {
+            if popup.is_open() {
+                popup.handle_key(key, sim);
+                routed = true;
+                break;
+            }
+        }
+        if picker_was_open && !self.picker.is_open() {
             self.last_click = None;
         }
+        routed
     }
 
     /// Handle a history-scrubbing key: Left Right Home End.
@@ -1029,24 +994,18 @@ impl App {
 
     /// Close every pop-up (used when a menu bar action opens one).
     fn close_all_popups(&mut self) {
-        self.help_popup.close();
-        self.breakpoint_popup.close();
-        self.editor_popup.close();
-        self.save_popup.close();
-        self.comment_editor.close();
-        self.picker.close();
-        self.settings_popup.close();
+        for popup in self.popups_mut() {
+            popup.close();
+        }
     }
 
     /// Whether any pop-up without clickable controls (or the inline comment
     /// editor) is open. The settings and picker pop-ups are excluded: they
     /// handle clicks themselves in `handle_mouse`.
     fn any_simple_popup_open(&self) -> bool {
-        self.help_popup.is_open()
-            || self.breakpoint_popup.is_open()
-            || self.editor_popup.is_open()
-            || self.save_popup.is_open()
-            || self.comment_editor.is_open()
+        self.popups_ref()
+            .iter()
+            .any(|p| p.is_open() && !p.handles_own_clicks())
     }
 
     /// Close every open pop-up whose rectangle does not contain the given
@@ -1054,20 +1013,10 @@ impl App {
     /// picker pop-ups are excluded — they have clickable controls and their
     /// own click semantics in `handle_mouse`.
     fn close_popups_outside(&mut self, column: u16, row: u16) {
-        if self.help_popup.is_open() && !self.help_popup.contains(column, row) {
-            self.help_popup.close();
-        }
-        if self.breakpoint_popup.is_open() && !self.breakpoint_popup.contains(column, row) {
-            self.breakpoint_popup.close();
-        }
-        if self.editor_popup.is_open() && !self.editor_popup.contains(column, row) {
-            self.editor_popup.close();
-        }
-        if self.save_popup.is_open() && !self.save_popup.contains(column, row) {
-            self.save_popup.close();
-        }
-        if self.comment_editor.is_open() && !self.comment_editor.contains(column, row) {
-            self.comment_editor.close();
+        for popup in self.popups_mut() {
+            if popup.is_open() && !popup.handles_own_clicks() && !popup.contains(column, row) {
+                popup.close();
+            }
         }
     }
 

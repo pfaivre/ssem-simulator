@@ -16,6 +16,7 @@ use crate::ssem::simulator::{Breakpoint, Simulator};
 use super::app::{BIT_REPRESENTATIONS, keymap};
 use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH};
 use super::palette::{Palette, Theme};
+use super::snapshot::Snapshot;
 
 /// Compute a centered, clamped pop-up rectangle within the given area.
 pub(super) fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
@@ -97,6 +98,47 @@ pub(super) fn content_area(block: &Block, rect: Rect) -> Rect {
 /// overestimate strings containing multi-byte characters like `·` or `↑`.
 pub(super) fn display_width(s: impl AsRef<str>) -> usize {
     s.as_ref().chars().count()
+}
+
+/// Everything a pop-up's `draw` needs besides the frame, bundled so all
+/// pop-ups can be drawn through one uniform `Popup::draw(f, ctx)` call.
+/// Built once per frame in `draw.rs`.
+pub(super) struct PopupDrawCtx<'a> {
+    pub area: Rect,
+    pub palette: &'static Palette,
+    pub snap: &'a Snapshot,
+    /// Pre-built settings rows view (speed, modes, theme).
+    pub settings_view: SettingsView,
+    /// Screen column just right of the store text, where the picker anchors.
+    pub picker_anchor_col: u16,
+}
+
+/// The operations every pop-up shares, so `App` can hold all of them in one
+/// ordered registry (`App::popups_mut`) instead of re-listing the pop-ups at
+/// every key, mouse, close and draw site. Adding a pop-up = one field + one
+/// entry in that array + an impl of this trait.
+pub(super) trait Popup {
+    fn is_open(&self) -> bool;
+    fn close(&mut self);
+    /// Whether the screen cell lies inside this pop-up's last drawn rect.
+    fn contains(&self, column: u16, row: u16) -> bool;
+    /// Pop-ups with their own clickable controls (settings, picker) handle
+    /// mouse clicks themselves in `App::handle_mouse` and are excluded from
+    /// the generic click-outside-to-close logic.
+    fn handles_own_clicks(&self) -> bool {
+        false
+    }
+    /// Route a key event to the pop-up while it is open, including its close
+    /// key. `SettingsPopup` is the exception: its keys are handled in `App`
+    /// because it mutates `App`'s view-mode fields, so its impl is a no-op.
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        let _ = (key, sim);
+    }
+    /// Draw the pop-up as an overlay. The inline comment editor is drawn by
+    /// the main body, not as an overlay, so its impl is a no-op.
+    fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        let _ = (f, ctx);
+    }
 }
 
 mod breakpoint;

@@ -41,6 +41,8 @@ pub struct PickerPopup {
     /// The entry cells from the last draw, for mouse hit-testing; the
     /// position in the vector is the entry index.
     pub(super) entry_cells: Vec<Rect>,
+    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
+    pub(super) last_rect: Rect,
 }
 
 impl PickerPopup {
@@ -52,6 +54,7 @@ impl PickerPopup {
             selected: 0,
             anchor_row: 0,
             entry_cells: Vec::new(),
+            last_rect: Rect::default(),
         }
     }
 
@@ -117,6 +120,11 @@ impl PickerPopup {
             .position(|r| r.contains(Position::new(column, row)))
     }
 
+    /// Whether the given screen cell lies inside the pop-up.
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        self.last_rect.contains(Position::new(column, row))
+    }
+
     /// Handle a key press while the picker is open: the arrows move the
     /// selection (clamped to the list), Enter applies it. Repeats are
     /// accepted so holding an arrow moves quickly.
@@ -175,14 +183,11 @@ impl PickerPopup {
     /// Draw the list. `anchor_col` is the screen column just right of the
     /// store text (the caller computes it from the current heatmap width,
     /// so the popup sits next to the mnemonic/data fields being edited).
-    pub fn draw(
-        &mut self,
-        f: &mut Frame,
-        area: Rect,
-        store: &[i32; 32],
-        palette: &Palette,
-        anchor_col: u16,
-    ) {
+    pub fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        let area = ctx.area;
+        let palette = ctx.palette;
+        let store = &ctx.snap.store;
+        let anchor_col = ctx.picker_anchor_col;
         let (cols, entry_width, title) = match self.kind {
             PickerKind::Mnemonic => (
                 1usize,
@@ -209,6 +214,7 @@ impl PickerPopup {
         let height = (rows + 3) as u16;
 
         let rect = side_rect(width, height, area, anchor_col, self.anchor_row);
+        self.last_rect = rect;
         f.render_widget(Clear, rect);
         // Clear resets the cells to the terminal default; restore the theme's
         // base colors under the pop-up
@@ -271,5 +277,31 @@ impl PickerPopup {
         )));
 
         f.render_widget(Paragraph::new(lines), content);
+    }
+}
+
+impl Popup for PickerPopup {
+    fn is_open(&self) -> bool {
+        PickerPopup::is_open(self)
+    }
+    fn close(&mut self) {
+        PickerPopup::close(self)
+    }
+    fn contains(&self, column: u16, row: u16) -> bool {
+        PickerPopup::contains(self, column, row)
+    }
+    fn handles_own_clicks(&self) -> bool {
+        true
+    }
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        // Esc cancels, on press and repeat (the picker is modal)
+        if key.code == KeyCode::Esc {
+            PickerPopup::close(self);
+            return;
+        }
+        PickerPopup::handle_key(self, key, sim);
+    }
+    fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        PickerPopup::draw(self, f, ctx);
     }
 }

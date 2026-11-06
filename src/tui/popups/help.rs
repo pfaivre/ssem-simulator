@@ -57,7 +57,9 @@ impl HelpPopup {
         }
     }
 
-    pub fn draw(&mut self, f: &mut Frame, area: Rect, palette: &Palette) {
+    pub fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        let area = ctx.area;
+        let palette = ctx.palette;
         let keymap = keymap();
         let key_column = keymap
             .iter()
@@ -244,5 +246,30 @@ impl HelpPopup {
             ))),
             footer_area,
         );
+    }
+}
+
+impl Popup for HelpPopup {
+    fn is_open(&self) -> bool {
+        HelpPopup::is_open(self)
+    }
+    fn close(&mut self) {
+        HelpPopup::close(self)
+    }
+    fn contains(&self, column: u16, row: u16) -> bool {
+        HelpPopup::contains(self, column, row)
+    }
+    fn handle_key(&mut self, key: KeyEvent, _sim: &mut Simulator) {
+        // H toggles the pop-up closed (on a press, like every close key)
+        if key.kind == KeyEventKind::Press
+            && matches!(key.code, KeyCode::Char('h' | 'H') | KeyCode::Esc)
+        {
+            HelpPopup::close(self);
+            return;
+        }
+        HelpPopup::handle_key(self, key);
+    }
+    fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        HelpPopup::draw(self, f, ctx);
     }
 }

@@ -153,3 +153,24 @@ impl CommentEditor {
         self.close();
     }
 }
+
+impl Popup for CommentEditor {
+    fn is_open(&self) -> bool {
+        CommentEditor::is_open(self)
+    }
+    fn close(&mut self) {
+        CommentEditor::close(self)
+    }
+    fn contains(&self, column: u16, row: u16) -> bool {
+        CommentEditor::contains(self, column, row)
+    }
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        // Esc cancels (on a press, like every close key)
+        if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
+            CommentEditor::close(self);
+            return;
+        }
+        CommentEditor::handle_key(self, key, sim);
+    }
+    // No `draw`: the text box is drawn inline in the comment column.
+}

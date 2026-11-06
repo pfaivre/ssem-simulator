@@ -135,7 +135,9 @@ impl SavePopup {
         }
     }
 
-    pub fn draw(&mut self, f: &mut Frame, area: Rect, palette: &Palette) {
+    pub fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        let area = ctx.area;
+        let palette = ctx.palette;
         let explanation = t!("popup.save.explanation");
         let dir_line = t!("popup.save.dir", dir = self.dir.display().to_string());
         let footer = t!("popup.save.footer");
@@ -184,5 +186,29 @@ impl SavePopup {
         ];
 
         f.render_widget(Paragraph::new(lines), content);
+    }
+}
+
+impl Popup for SavePopup {
+    fn is_open(&self) -> bool {
+        SavePopup::is_open(self)
+    }
+    fn close(&mut self) {
+        SavePopup::close(self)
+    }
+    fn contains(&self, column: u16, row: u16) -> bool {
+        SavePopup::contains(self, column, row)
+    }
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        // Esc closes the pop-up (on a press); every other key types into the
+        // file name
+        if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
+            SavePopup::close(self);
+            return;
+        }
+        SavePopup::handle_key(self, key, sim);
+    }
+    fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        SavePopup::draw(self, f, ctx);
     }
 }

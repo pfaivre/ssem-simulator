@@ -21,7 +21,7 @@ use super::layout::{
     timeline_marker_offset,
 };
 use super::palette::Palette;
-use super::popups::SettingsView;
+use super::popups::{PopupDrawCtx, SettingsView};
 use super::snapshot::Snapshot;
 use crate::ssem::{Opcode, Store};
 
@@ -301,40 +301,30 @@ impl App {
         self.draw_timeline(f, chunks[2], snap);
         self.draw_status_bar(f, chunks[3], snap, heatmap, comment_width);
 
-        // Draw pop-ups on top
-        if self.help_popup.is_open() {
-            self.help_popup.draw(f, area, self.palette());
-        }
-        if self.breakpoint_popup.is_open() {
-            self.breakpoint_popup
-                .draw(f, area, &snap.breakpoints, self.palette());
-        }
-        if self.editor_popup.is_open() {
-            self.editor_popup
-                .draw(f, area, snap.ci, snap.a, &snap.store, self.palette());
-        }
-        if self.save_popup.is_open() {
-            self.save_popup.draw(f, area, self.palette());
-        }
-        if self.settings_popup.is_open() {
-            let palette = self.palette();
-            let view = SettingsView {
-                displayed_speed: self.displayed_speed,
-                target_speed: snap.speed,
-                heatmap: self.heatmap,
-                flow: self.flow,
-                comments: self.show_comments,
-                bit_representation: self.bit_representation,
-                theme: self.theme,
+        // Draw pop-ups on top, in registry order (z-order)
+        {
+            let ctx = PopupDrawCtx {
+                area,
+                palette: self.palette(),
+                snap,
+                settings_view: SettingsView {
+                    displayed_speed: self.displayed_speed,
+                    target_speed: snap.speed,
+                    heatmap: self.heatmap,
+                    flow: self.flow,
+                    comments: self.show_comments,
+                    bit_representation: self.bit_representation,
+                    theme: self.theme,
+                },
+                // Anchor the picker just right of the store text (past the
+                // heatmap bars), next to the mnemonic/data fields being edited
+                picker_anchor_col: (STORE_TEXT_WIDTH + heatmap.extra_width() as usize) as u16,
             };
-            self.settings_popup.draw(f, area, &view, palette);
-        }
-        if self.picker.is_open() {
-            // Anchor the list just right of the store text (past the
-            // heatmap bars), next to the mnemonic/data fields being edited
-            let anchor_col = (STORE_TEXT_WIDTH + heatmap.extra_width() as usize) as u16;
-            self.picker
-                .draw(f, area, &snap.store, self.palette(), anchor_col);
+            for popup in self.popups_mut() {
+                if popup.is_open() {
+                    popup.draw(f, &ctx);
+                }
+            }
         }
 
         // While scrubbing the timeline, show the current cycle above the cursor

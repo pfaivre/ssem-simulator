@@ -220,13 +220,10 @@ impl BreakpointPopup {
         }
     }
 
-    pub fn draw(
-        &mut self,
-        f: &mut Frame,
-        area: Rect,
-        breakpoints: &[Breakpoint],
-        palette: &Palette,
-    ) {
+    pub fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        let area = ctx.area;
+        let palette = ctx.palette;
+        let breakpoints = &ctx.snap.breakpoints;
         let explanation = t!("popup.breakpoints.explanation");
         let footer = t!("popup.breakpoints.footer");
 
@@ -312,5 +309,30 @@ impl BreakpointPopup {
         )));
 
         f.render_widget(Paragraph::new(lines), content);
+    }
+}
+
+impl Popup for BreakpointPopup {
+    fn is_open(&self) -> bool {
+        BreakpointPopup::is_open(self)
+    }
+    fn close(&mut self) {
+        BreakpointPopup::close(self)
+    }
+    fn contains(&self, column: u16, row: u16) -> bool {
+        BreakpointPopup::contains(self, column, row)
+    }
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        // B or Esc closes the pop-up (on a press, like every close key)
+        if key.kind == KeyEventKind::Press
+            && matches!(key.code, KeyCode::Esc | KeyCode::Char('b' | 'B'))
+        {
+            BreakpointPopup::close(self);
+            return;
+        }
+        BreakpointPopup::handle_key(self, key, &mut sim.breakpoints);
+    }
+    fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        BreakpointPopup::draw(self, f, ctx);
     }
 }

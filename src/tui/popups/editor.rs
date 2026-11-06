@@ -291,15 +291,12 @@ impl EditorPopup {
         }
     }
 
-    pub fn draw(
-        &mut self,
-        f: &mut Frame,
-        area: Rect,
-        ci: i32,
-        a: i32,
-        store: &[i32; 32],
-        palette: &Palette,
-    ) {
+    pub fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        let area = ctx.area;
+        let palette = ctx.palette;
+        let ci = ctx.snap.ci;
+        let a = ctx.snap.a;
+        let store = &ctx.snap.store;
         let explanation = t!("popup.editor.explanation");
         let footer = t!("popup.editor.footer");
 
@@ -371,5 +368,30 @@ impl EditorPopup {
         ];
 
         f.render_widget(Paragraph::new(lines), content);
+    }
+}
+
+impl Popup for EditorPopup {
+    fn is_open(&self) -> bool {
+        EditorPopup::is_open(self)
+    }
+    fn close(&mut self) {
+        EditorPopup::close(self)
+    }
+    fn contains(&self, column: u16, row: u16) -> bool {
+        EditorPopup::contains(self, column, row)
+    }
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        // E or Esc closes the pop-up (on a press, like every close key)
+        if key.kind == KeyEventKind::Press
+            && matches!(key.code, KeyCode::Esc | KeyCode::Char('e' | 'E'))
+        {
+            EditorPopup::close(self);
+            return;
+        }
+        EditorPopup::handle_key(self, key, sim);
+    }
+    fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
+        EditorPopup::draw(self, f, ctx);
     }
 }
