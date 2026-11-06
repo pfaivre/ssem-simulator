@@ -2,7 +2,10 @@
 //! geometry helpers, and the optional view modes (heatmap, flow) with the
 //! width they add to the store view.
 
+use std::sync::LazyLock;
+
 use ratatui::layout::Rect;
+use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 
 /// Minimum terminal width to display the store in full.
@@ -19,18 +22,19 @@ const MAX_TIMELINE_BAR_WIDTH: usize = 100;
 
 /// Column and width of the timeline bar within the timeline area.
 pub(super) fn timeline_bar_geometry(area: Rect, start: u64, head: u64) -> (u16, u16) {
-    const PREFIX: &str = " HISTORY [";
-    let suffix_len = format!("] {start}..{head}").len();
+    // Measure in characters (not bytes) the same strings `draw_timeline`
+    // renders around the bar: the label on its left, the range on its right
+    let label = t!("history.label");
+    let range = t!("history.range", start = start, end = head);
+    let label_len = label.chars().count();
+    let range_len = range.chars().count();
     let bar_width = (area.width as usize)
-        .saturating_sub(PREFIX.len() + suffix_len)
+        .saturating_sub(label_len + range_len)
         .min(MAX_TIMELINE_BAR_WIDTH);
-    let total = PREFIX.len() + bar_width + suffix_len;
+    let total = label_len + bar_width + range_len;
     // Mirror ratatui's Alignment::Center: (area / 2) - (line / 2)
     let offset = (area.width as usize / 2).saturating_sub(total / 2);
-    (
-        area.x + offset as u16 + PREFIX.len() as u16,
-        bar_width as u16,
-    )
+    (area.x + offset as u16 + label_len as u16, bar_width as u16)
 }
 
 /// Offset (in cells) of the current-position marker within the timeline bar:
@@ -226,11 +230,14 @@ impl HeatmapMode {
     }
 
     /// The label shown in the top bar, or None when the heatmap is off.
+    /// The locale is fixed at startup, so the labels are built once.
     pub(super) fn label(self) -> Option<&'static str> {
+        static EXEC: LazyLock<String> = LazyLock::new(|| ts!("mode.heatmap_exec"));
+        static RW: LazyLock<String> = LazyLock::new(|| ts!("mode.heatmap_rw"));
         match self {
             HeatmapMode::Off => None,
-            HeatmapMode::Exec => Some("EXEC"),
-            HeatmapMode::Rw => Some("R/W"),
+            HeatmapMode::Exec => Some(EXEC.as_str()),
+            HeatmapMode::Rw => Some(RW.as_str()),
         }
     }
 }
@@ -259,10 +266,13 @@ impl FlowMode {
     }
 
     /// The label shown in the top bar, or None when the visualization is off.
+    /// The locale is fixed at startup, so the labels are built once.
     pub(super) fn label(self) -> Option<&'static str> {
+        static CONTROL: LazyLock<String> = LazyLock::new(|| ts!("mode.flow_control"));
+        static DATA: LazyLock<String> = LazyLock::new(|| ts!("mode.flow_data"));
         match self {
-            FlowMode::Control => Some("CONTROL"),
-            FlowMode::Data => Some("DATA"),
+            FlowMode::Control => Some(CONTROL.as_str()),
+            FlowMode::Data => Some(DATA.as_str()),
             FlowMode::Off => None,
         }
     }

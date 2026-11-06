@@ -2,14 +2,17 @@
 //! store words, heatmaps, flow arrows/graph), timeline (history scrub bar),
 //! status bar, and the pop-ups (including the scrub pop-up).
 
+use std::borrow::Cow;
+
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use rust_i18n::t;
 
-use super::app::{App, MENU_ITEMS, MenuAction};
+use super::app::{App, MenuAction, menu_items};
 use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
 use super::layout::{
     A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, FlowMode, HEATMAP_BAR_WIDTH, HeatmapMode,
@@ -269,9 +272,12 @@ impl App {
             self.show_comments || self.comment_editor.is_open(),
         );
         if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
-            let msg = format!(
-                "Terminal too small: {}x{}, needs at least {}x{}",
-                area.width, area.height, MIN_WIDTH, MIN_HEIGHT
+            let msg = t!(
+                "draw.too_small",
+                width = area.width,
+                height = area.height,
+                min_width = MIN_WIDTH,
+                min_height = MIN_HEIGHT
             );
             let paragraph = Paragraph::new(msg);
             f.render_widget(paragraph, area);
@@ -352,19 +358,24 @@ impl App {
 
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut x = area.x;
-        for (label, action) in MENU_ITEMS.iter() {
+        for (label, action) in menu_items() {
+            let action = *action;
             // The run/stop item's label reflects the machine state
-            let label = if *action == MenuAction::RunStop {
-                if snap.stop_flag { "Run " } else { "Stop" }
+            let label: Cow<str> = if action == MenuAction::RunStop {
+                Cow::Owned(if snap.stop_flag {
+                    ts!("menu.run")
+                } else {
+                    ts!("menu.stop")
+                })
             } else {
-                *label
+                Cow::Borrowed(label.as_str())
             };
             // No brackets: the button is the label padded with one cell
             // on each side in the block color
             let text = format!(" {label} ");
             let is_active = matches!(action, MenuAction::Settings if self.settings_popup.is_open())
                 || matches!(action, MenuAction::Help if self.help_popup.is_open());
-            let style = if self.menu_hover == Some(*action) || is_active {
+            let style = if self.menu_hover == Some(action) || is_active {
                 hovered
             } else {
                 block
@@ -372,7 +383,7 @@ impl App {
             let width = text.chars().count() as u16;
             spans.push(Span::styled(text, style));
             self.menu_items
-                .push((Rect::new(x, area.y, width, 1), *action));
+                .push((Rect::new(x, area.y, width, 1), action));
             x += width;
             // (a separator span can be pushed here between buttons, if wanted:
             //  spans.push(Span::styled(" ", bar)); x += 1;)
@@ -786,7 +797,7 @@ impl App {
         // by `timeline_bar_geometry` (used for mouse hit-testing)
         if snap.history_capacity == 0 {
             let line = Line::from(Span::styled(
-                " HISTORY [disabled]",
+                t!("history.disabled"),
                 Style::default().fg(self.palette().dim),
             ));
             f.render_widget(Paragraph::new(line).alignment(Alignment::Center), area);
@@ -807,7 +818,7 @@ impl App {
         );
 
         let chrome = Style::default().fg(self.palette().chrome);
-        let mut spans = vec![Span::styled(" HISTORY  ".to_string(), chrome)];
+        let mut spans = vec![Span::styled(t!("history.label"), chrome)];
         if bar_width > 0 {
             let segment = |from: usize, to: usize| -> String {
                 (from..to)
@@ -828,7 +839,11 @@ impl App {
             ));
         }
         spans.push(Span::styled(
-            format!("  {}..{}", snap.history_start, snap.history_head),
+            t!(
+                "history.range",
+                start = snap.history_start,
+                end = snap.history_head
+            ),
             chrome,
         ));
 
@@ -859,8 +874,8 @@ impl App {
         };
         let center = bar_x + offset as u16;
 
-        let text = format!(" cycle {} ", snap.cycle_count);
-        let width = text.len() as u16;
+        let text = t!("history.scrub_cycle", n = snap.cycle_count);
+        let width = text.chars().count() as u16;
         let x = center
             .saturating_sub(width / 2)
             .clamp(area.x, area.x + area.width.saturating_sub(width));
@@ -907,11 +922,11 @@ impl App {
         f.buffer_mut().set_style(area, bar);
 
         let (status, status_color) = if self.scrubbing {
-            ("REWIND", palette.status_rewind)
+            (t!("status.rewind"), palette.status_rewind)
         } else if snap.stop_flag {
-            ("STOPPED", palette.status_stopped)
+            (t!("status.stopped"), palette.status_stopped)
         } else {
-            ("RUNNING", palette.status_running)
+            (t!("status.running"), palette.status_running)
         };
         let last_instr = snap
             .last_instruction
@@ -922,13 +937,20 @@ impl App {
         // last instruction, and the speed (smoothed display over the target)
         let left_blocks: Vec<Vec<Span<'static>>> = vec![
             vec![
-                Span::styled("STATUS: ", block),
+                Span::styled(t!("status.label"), block),
                 Span::styled(status, block.fg(status_color)),
             ],
-            vec![Span::styled(format!("CYCLES: {}", snap.cycle_count), block)],
+            vec![Span::styled(
+                t!("status.cycles", count = snap.cycle_count),
+                block,
+            )],
             vec![Span::styled(last_instr, block)],
             vec![Span::styled(
-                format!("SPEED: {:>2}/{} ips", self.displayed_speed, snap.speed),
+                t!(
+                    "status.speed",
+                    displayed = self.displayed_speed : {:>2},
+                    target = snap.speed
+                ),
                 block,
             )],
         ];
@@ -936,17 +958,20 @@ impl App {
         // The right group: the view modes and the breakpoints
         let mut right_blocks: Vec<Vec<Span<'static>>> = Vec::new();
         if let Some(label) = heatmap.label() {
-            right_blocks.push(vec![Span::styled(format!("HEATMAP: {label}"), block)]);
+            right_blocks.push(vec![Span::styled(
+                t!("status.heatmap", label = label),
+                block,
+            )]);
         }
         if let Some(label) = self.flow.label() {
-            right_blocks.push(vec![Span::styled(format!("FLOW: {label}"), block)]);
+            right_blocks.push(vec![Span::styled(t!("status.flow", label = label), block)]);
         }
         if comment_width > 0 {
-            right_blocks.push(vec![Span::styled("COMMENTS".to_string(), block)]);
+            right_blocks.push(vec![Span::styled(t!("status.comments"), block)]);
         }
         if !snap.breakpoints.is_empty() {
             right_blocks.push(vec![Span::styled(
-                format!("BREAKPOINTS: {}", snap.breakpoints.len()),
+                t!("status.breakpoints", count = snap.breakpoints.len()),
                 block,
             )]);
         }

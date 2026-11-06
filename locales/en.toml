@@ -1,0 +1,243 @@
+# English translations: the source of truth for all interface strings.
+# Other languages live in locales/<code>.toml with exactly the same keys.
+# Placeholders use %{name} and are filled with t!("key", name = value);
+# a format spec can follow the value: t!("key", n = 5 : {:02}).
+#
+# Not translated on purpose: opcode mnemonics (JMP, LDN, ...), the NUM
+# keyword of .asm/.snp files, the register names CI and A, file extensions,
+# config-file keys, and the comments stored in .asm files.
+
+[cli]
+about = "Advanced simulator of the Small-Scale Experimental Machine from 1948."
+
+[cli.help]
+max_cycles = "Stop after this amount of cycles"
+headless = "Run without the interactive TUI; print the final state and exit"
+history_size = "Number of past machine states kept for time-travel in the interactive interface (0 to disable)"
+theme = "Color theme of the interactive interface, overriding the one saved in the config file for this session (the T key cycles themes at runtime)"
+lang = "Language of the interface, overriding the one saved in the config file for this session"
+save = "Write the machine state to this file once the run ends (.asm or .snp, with the source comments); in the interactive interface, the S key saves the current state at any time"
+file = "Input file to initialize the store. Can be .asm or .snp format. When omitted, the machine starts with an empty (all-zero) store"
+
+[main]
+final_state = "Final state of the machine:"
+saved = "Machine state saved to %{path}"
+save_error = "Error: could not save to %{path}: %{error}"
+history_clamped = "Warning: --history-size %{given} is too large, clamped to %{max} (~14.8 GB max)"
+error = "Error: %{error}"
+tty_hint = "The interactive interface requires a terminal. Run this program in a TTY, or use --headless."
+warning = "Warning: %{message}"
+
+[menu]
+quit = "Quit"
+clear = "Clear"
+save = "Save"
+run_stop = "Run/Stop"
+run = "Run "
+stop = "Stop"
+step = "Step"
+settings = "Settings"
+help = "Help"
+
+[keymap.quit]
+legend = "QUIT"
+desc = "Quit the simulator"
+
+[keymap.help]
+legend = "HELP"
+desc = "Toggle this help pop-up"
+
+[keymap.run_stop]
+legend = "RUN/STOP"
+desc = "Run the program or pause it"
+
+[keymap.step]
+legend = "STEP"
+desc = "Execute one instruction"
+
+[keymap.back_fwd]
+legend = "BACK/FWD"
+desc = "Step back/forward one cycle in the execution history"
+
+[keymap.scroll]
+legend = ""
+desc = "Scroll the store view"
+
+[keymap.speed_up]
+legend = "SPEED UP"
+desc = "Increase the execution speed"
+
+[keymap.speed_down]
+legend = "SPEED DOWN"
+desc = "Decrease the execution speed"
+
+[keymap.display]
+legend = "DISPLAY"
+desc = "Cycle the bit representations"
+
+[keymap.edit]
+legend = "EDIT"
+desc = "Edit a register or store word"
+
+[keymap.heatmap]
+legend = "HEATMAP"
+desc = "Cycle the heatmap"
+
+[keymap.flow]
+legend = "FLOW"
+desc = "Cycle the flow view"
+
+[keymap.comments]
+legend = "COMMENTS"
+desc = "Toggle the source-comment column"
+
+[keymap.breakpt]
+legend = "BREAKPT"
+desc = "Open the breakpoint pop-up"
+
+[keymap.save]
+legend = "SAVE"
+desc = "Save the machine state to a .asm/.snp file"
+
+[keymap.theme]
+legend = "THEME"
+desc = "Cycle through the color themes"
+
+[mode]
+on = "ON"
+off = "OFF"
+heatmap_exec = "EXEC"
+heatmap_rw = "R/W"
+flow_control = "CONTROL"
+flow_data = "DATA"
+
+[history]
+label = " HISTORY  "
+disabled = " HISTORY [disabled]"
+range = "  %{start}..%{end}"
+scrub_cycle = " cycle %{n} "
+
+[status]
+label = "STATUS: "
+stopped = "STOPPED"
+running = "RUNNING"
+rewind = "REWIND"
+cycles = "CYCLES: %{count}"
+speed = "SPEED: %{displayed}/%{target} ips"
+heatmap = "HEATMAP: %{label}"
+flow = "FLOW: %{label}"
+comments = "COMMENTS"
+breakpoints = "BREAKPOINTS: %{count}"
+
+[draw]
+too_small = "Terminal too small: %{width}x%{height}, needs at least %{min_width}x%{min_height}"
+
+[help]
+title = "SSEM SIMULATOR v%{version}"
+footer_close = "Press H to close"
+footer_scroll = "↑/↓ scroll · H close"
+mnemonic_colors = "Mnemonic colors:"
+op_jump = "jump"
+op_memory = "memory access"
+op_arithmetic = "arithmetic"
+op_test = "test"
+op_halt = "halt"
+markers = "Markers when paused:"
+marker_last = "  > last  "
+marker_next = " next  "
+marker_executed = " executed"
+heatmap_title = "Heatmap:"
+heatmap_exec_desc = " execution word frequency"
+heatmap_r = "R"
+heatmap_w = "W"
+heatmap_rw_desc = "  store reads vs writes per word"
+graph_title = "Control-flow graph:"
+graph_jump = "◀── jump"
+graph_skip = "◀── CMP skip"
+graph_halt = "■   halt"
+
+[popup]
+type_number = "TYPE A NUMBER"
+address_range = "ADDRESS MUST BE 0 TO 31"
+
+[popup.breakpoints]
+title = " BREAKPOINTS "
+explanation = "Pause the machine when a condition is met"
+footer = "ENTER add · T type · ↑/↓ select · X delete · ESC close"
+already_set = "BREAKPOINT ALREADY SET"
+new_ci = "NEW: CI: %{buffer}_"
+new_word_address = "NEW: WORD: %{buffer}_  VALUE:"
+new_word_value = "NEW: WORD: %{address}  VALUE: %{buffer}_"
+
+[breakpoint]
+word = "WORD %{address} = %{value}"
+ci = "CI = %{address}"
+
+[popup.editor]
+title = " EDIT "
+explanation = "Edit a register or store word"
+footer = "ENTER apply · T target · ESC close"
+ci_value = "CI   VALUE: %{buffer}_"
+a_value = "A    VALUE: %{buffer}_"
+word_address = "WORD %{buffer}_  VALUE/INSTR:"
+word_value = "WORD %{address}  VALUE/INSTR: %{buffer}_"
+current_ci = "current CI:  %{value}"
+current_a = "current A:   %{value}"
+current_word = "current [%{address}]: %{value}"
+applied_ci = "CI = %{value}"
+applied_a = "A = %{value}"
+applied_word = "WORD %{address} = %{word}  (%{opcode} %{data})"
+preview_value = "→ %{word}"
+preview_instr = "→ %{word}  (%{opcode} %{data})"
+
+[popup.save]
+title = " SAVE "
+explanation = "Save the machine state to a .asm or .snp file"
+dir = "DIR: %{dir}"
+file = "FILE: %{buffer}_"
+footer = "ENTER save · ESC close"
+chars_allowed = "ONLY A-Z 0-9 - _ . ALLOWED"
+type_name = "TYPE A FILE NAME"
+saved_to = "SAVED TO %{path}"
+error = "ERROR: %{error}"
+
+[popup.settings]
+title = " SETTINGS "
+footer = "CLICK a control · ESC close"
+speed = "Machine speed"
+speed_value = "%{displayed}/%{target} ips"
+heatmap = "Heatmap mode"
+flow = "Flow mode"
+comments = "Comments"
+bits = "Store bits"
+theme = "Theme"
+
+[popup.picker]
+mnemonic_title = " MNEMONIC [%{address}] "
+data_title = " DATA [%{address}] "
+footer = "CLICK or ENTER apply · ESC close"
+
+[warn]
+config_read = "could not read %{path}: %{error}"
+config_invalid = "ignoring invalid %{path}: %{error}"
+config_save = "could not save %{path}: %{error}"
+
+[error]
+empty_input = "EMPTY INPUT"
+unknown_opcode = "UNKNOWN OPCODE '%{mnemonic}'"
+invalid_operand = "INVALID OPERAND '%{operand}'"
+operand_range = "OPERAND MUST BE 0 TO %{max}"
+expected_word = "EXPECTED A NUMBER OR 'OPCODE [OPERAND]'"
+bad_extension = "file name must end with .asm or .snp: %{path}"
+read_file = "Error while reading '%{path}': %{error}"
+invalid_instruction = "Unable to read the input file: invalid instruction '%{instruction}'"
+read_number = "Unable to read the number"
+expected_index = "Error near line '%{line}': expected index '%{expected}'"
+index_too_big = "Error near line '%{line}': Index '%{index}' is bigger than the machine size (%{size})"
+opcode_not_valid = "Error near line '%{line}': opcode '%{opcode}' non valid."
+operand_not_valid = "Error near line '%{line}': operand '%{operand}' non valid. Expected a value between 0 and %{max}"
+invalid_syntax = "Error near line '%{line}': invalid syntax"
+word_size = "Error near line '%{line}': Invalid word size, expected 32, got %{got}"
+word_parse = "Error near line '%{line}': Unable to parse the word '%{word}': %{error}"
+unknown_format = "Unkown file format"
+unknown_format_ext = "Unkown file format '%{ext}'"

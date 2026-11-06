@@ -8,12 +8,13 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
+use rust_i18n::t;
 
 use crate::ssem::Opcode;
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, Simulator};
 
-use super::app::{BIT_REPRESENTATIONS, KEYMAP};
+use super::app::{BIT_REPRESENTATIONS, keymap};
 use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH};
 use super::palette::{Palette, Theme};
 
@@ -95,8 +96,8 @@ fn content_area(block: &Block, rect: Rect) -> Rect {
 /// Uses character count, which is correct for the characters used in the UI
 /// (no double-width CJK or emoji). `.len()` would return byte count and
 /// overestimate strings containing multi-byte characters like `·` or `↑`.
-fn display_width(s: &str) -> usize {
-    s.chars().count()
+fn display_width(s: impl AsRef<str>) -> usize {
+    s.as_ref().chars().count()
 }
 
 /// The help pop-up, listing all keyboard shortcuts.
@@ -161,16 +162,17 @@ impl HelpPopup {
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, palette: &Palette) {
-        let key_column = KEYMAP
+        let keymap = keymap();
+        let key_column = keymap
             .iter()
             .map(|(key, _, _)| key.chars().count())
             .max()
             .unwrap_or(0)
             + 2;
 
-        let title = format!("SSEM SIMULATOR v{}", env!("CARGO_PKG_VERSION"));
-        let footer = "Press H to close";
-        let footer_scrollable = "\u{2191}/\u{2193} scroll \u{b7} H close";
+        let title = t!("help.title", version = env!("CARGO_PKG_VERSION"));
+        let footer = t!("help.footer_close");
+        let footer_scrollable = t!("help.footer_scroll");
 
         let key_style = Style::default()
             .fg(palette.key_hint)
@@ -182,7 +184,7 @@ impl HelpPopup {
         lines.push(Line::from(""));
 
         // One line per key
-        for (key, _, description) in KEYMAP {
+        for (key, _, description) in keymap {
             let key_width = key.chars().count();
             let padding = key_column.saturating_sub(key_width);
             let left_pad = padding / 2;
@@ -197,13 +199,13 @@ impl HelpPopup {
 
         // Color legend, drawn from the palette so it cannot drift out of sync
         lines.push(Line::from(""));
-        lines.push(Line::from("Mnemonic colors:"));
+        lines.push(Line::from(t!("help.mnemonic_colors")));
         for (mnemonics, opcode, description) in [
-            ("JMP JRP", Opcode::JMP, "jump"),
-            ("LDN STO", Opcode::LDN, "memory access"),
-            ("SUB SUB2", Opcode::SUB, "arithmetic"),
-            ("CMP", Opcode::CMP, "test"),
-            ("STP", Opcode::STP, "halt"),
+            ("JMP JRP", Opcode::JMP, t!("help.op_jump")),
+            ("LDN STO", Opcode::LDN, t!("help.op_memory")),
+            ("SUB SUB2", Opcode::SUB, t!("help.op_arithmetic")),
+            ("CMP", Opcode::CMP, t!("help.op_test")),
+            ("STP", Opcode::STP, t!("help.op_halt")),
         ] {
             lines.push(Line::from(vec![
                 Span::raw("  "),
@@ -218,77 +220,77 @@ impl HelpPopup {
         }
 
         lines.push(Line::from(""));
-        lines.push(Line::from("Markers when paused:"));
+        lines.push(Line::from(t!("help.markers")));
         lines.push(Line::from(vec![
-            Span::raw("  > last  "),
+            Span::raw(t!("help.marker_last")),
             Span::styled(
                 "\u{bb}",
                 Style::default()
                     .fg(palette.next_marker)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" next  "),
+            Span::raw(t!("help.marker_next")),
             Span::styled("\u{2022}", Style::default().fg(palette.dim)),
-            Span::raw(" executed"),
+            Span::raw(t!("help.marker_executed")),
         ]));
 
         lines.push(Line::from(""));
-        lines.push(Line::from("Heatmap:"));
+        lines.push(Line::from(t!("help.heatmap_title")));
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "EXEC",
+                t!("mode.heatmap_exec"),
                 Style::default()
                     .fg(palette.exec_ramp[2])
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" execution word frequency"),
+            Span::raw(t!("help.heatmap_exec_desc")),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "R",
+                t!("help.heatmap_r"),
                 Style::default()
                     .fg(palette.read_ramp[1])
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("/"),
             Span::styled(
-                "W",
+                t!("help.heatmap_w"),
                 Style::default()
                     .fg(palette.write_ramp[2])
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw("  store reads vs writes per word"),
+            Span::raw(t!("help.heatmap_rw_desc")),
         ]));
 
         lines.push(Line::from(""));
-        lines.push(Line::from("Control-flow graph:"));
+        lines.push(Line::from(t!("help.graph_title")));
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "\u{25c0}\u{2500}\u{2500} jump",
+                t!("help.graph_jump"),
                 Style::default().fg(palette.edge_jump),
             ),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "\u{25c0}\u{2500}\u{2500} CMP skip",
+                t!("help.graph_skip"),
                 Style::default().fg(palette.edge_skip),
             ),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled("■   halt", Style::default().fg(palette.op_halt)),
+            Span::styled(t!("help.graph_halt"), Style::default().fg(palette.op_halt)),
         ]));
 
         // Blank line before the footer, which is pinned to the bottom row
         lines.push(Line::from(""));
 
         let content_width = display_width(&title)
-            .max(display_width(footer))
-            .max(display_width(footer_scrollable))
+            .max(display_width(&footer))
+            .max(display_width(&footer_scrollable))
             .max(lines.iter().map(Line::width).max().unwrap_or(0));
 
         // 2 border columns, 1 left margin, 1 right margin
@@ -482,14 +484,14 @@ impl BreakpointPopup {
         let number: i32 = match buffer.parse() {
             Ok(n) => n,
             Err(_) => {
-                self.message = "TYPE A NUMBER".to_string();
+                self.message = ts!("popup.type_number");
                 return;
             }
         };
 
         if self.field == InputField::Address {
             if !(0..32).contains(&number) {
-                self.message = "ADDRESS MUST BE 0 TO 31".to_string();
+                self.message = ts!("popup.address_range");
                 return;
             }
             self.address = number as usize;
@@ -520,7 +522,7 @@ impl BreakpointPopup {
     /// Add a breakpoint unless an identical one already exists.
     fn add(&mut self, bp: Breakpoint, breakpoints: &mut Vec<Breakpoint>) {
         if breakpoints.contains(&bp) {
-            self.message = "BREAKPOINT ALREADY SET".to_string();
+            self.message = ts!("popup.breakpoints.already_set");
         } else {
             breakpoints.push(bp);
             if !breakpoints.is_empty() {
@@ -548,14 +550,21 @@ impl BreakpointPopup {
     fn input_line(&self) -> String {
         match self.kind {
             BreakpointKind::Ci => {
-                format!("NEW: CI: {}_", self.buffer)
+                ts!("popup.breakpoints.new_ci", buffer = self.buffer.as_str())
             }
             BreakpointKind::Word => match self.field {
                 InputField::Address => {
-                    format!("NEW: WORD: {}_  VALUE:", self.buffer)
+                    ts!(
+                        "popup.breakpoints.new_word_address",
+                        buffer = self.buffer.as_str()
+                    )
                 }
                 InputField::Value => {
-                    format!("NEW: WORD: {:02}  VALUE: {}_", self.address, self.buffer)
+                    ts!(
+                        "popup.breakpoints.new_word_value",
+                        address = self.address : {:02},
+                        buffer = self.buffer.as_str()
+                    )
                 }
             },
         }
@@ -568,22 +577,16 @@ impl BreakpointPopup {
         breakpoints: &[Breakpoint],
         palette: &Palette,
     ) {
-        let explanation = "Pause the machine when a condition is met";
-        let footer = "ENTER add \u{b7} T type \u{b7} \u{2191}/\u{2193} select \u{b7} X delete \u{b7} ESC close";
+        let explanation = t!("popup.breakpoints.explanation");
+        let footer = t!("popup.breakpoints.footer");
 
         let input = self.input_line();
         let descriptions: Vec<String> = breakpoints.iter().map(|bp| bp.description()).collect();
 
-        let content_width = display_width(explanation)
-            .max(display_width(footer))
+        let content_width = display_width(&explanation)
+            .max(display_width(&footer))
             .max(display_width(&input))
-            .max(
-                descriptions
-                    .iter()
-                    .map(|d| display_width(d))
-                    .max()
-                    .unwrap_or(0),
-            );
+            .max(descriptions.iter().map(display_width).max().unwrap_or(0));
 
         // 2 border columns, 1 left margin, 1 right margin
         let width = (content_width + 4) as u16;
@@ -600,7 +603,7 @@ impl BreakpointPopup {
             .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
 
         let block = Block::bordered()
-            .title(" BREAKPOINTS ")
+            .title(t!("popup.breakpoints.title"))
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(palette.breakpoint_border));
         let content = content_area(&block, rect);
@@ -837,38 +840,38 @@ impl EditorPopup {
                 let value: i32 = match buffer.parse() {
                     Ok(n) => n,
                     Err(_) => {
-                        self.message = "TYPE A NUMBER".to_string();
+                        self.message = ts!("popup.type_number");
                         return;
                     }
                 };
                 sim.ci = value;
                 // The recorded future no longer matches the edited machine
                 sim.restart_history();
-                self.message = format!("CI = {value}");
+                self.message = ts!("popup.editor.applied_ci", value = value);
             }
             EditTarget::A => {
                 let value: i32 = match buffer.parse() {
                     Ok(n) => n,
                     Err(_) => {
-                        self.message = "TYPE A NUMBER".to_string();
+                        self.message = ts!("popup.type_number");
                         return;
                     }
                 };
                 sim.a = value;
                 sim.restart_history();
-                self.message = format!("A = {value}");
+                self.message = ts!("popup.editor.applied_a", value = value);
             }
             EditTarget::Word => {
                 if self.field == EditField::Address {
                     let value: i32 = match buffer.parse() {
                         Ok(n) => n,
                         Err(_) => {
-                            self.message = "TYPE A NUMBER".to_string();
+                            self.message = ts!("popup.type_number");
                             return;
                         }
                     };
                     if !(0..32).contains(&value) {
-                        self.message = "ADDRESS MUST BE 0 TO 31".to_string();
+                        self.message = ts!("popup.address_range");
                         return;
                     }
                     self.address = value as usize;
@@ -881,8 +884,13 @@ impl EditorPopup {
                         sim.store.words[self.address] = word;
                         sim.restart_history();
                         let (opcode, data) = Store::decode_word(word);
-                        self.message =
-                            format!("WORD {:02} = {word}  ({opcode} {data:02})", self.address);
+                        self.message = ts!(
+                            "popup.editor.applied_word",
+                            address = self.address : {:02},
+                            word = word,
+                            opcode = opcode.to_string(),
+                            data = data : {:02}
+                        );
                         self.field = EditField::Address;
                     }
                     Err(msg) => {
@@ -896,13 +904,17 @@ impl EditorPopup {
     /// The input line showing the current editing state.
     fn input_line(&self) -> String {
         match self.target {
-            EditTarget::Ci => format!("CI   VALUE: {}_", self.buffer),
-            EditTarget::A => format!("A    VALUE: {}_", self.buffer),
+            EditTarget::Ci => ts!("popup.editor.ci_value", buffer = self.buffer.as_str()),
+            EditTarget::A => ts!("popup.editor.a_value", buffer = self.buffer.as_str()),
             EditTarget::Word => match self.field {
-                EditField::Address => format!("WORD {}_  VALUE/INSTR:", self.buffer),
-                EditField::Value => {
-                    format!("WORD {:02}  VALUE/INSTR: {}_", self.address, self.buffer)
+                EditField::Address => {
+                    ts!("popup.editor.word_address", buffer = self.buffer.as_str())
                 }
+                EditField::Value => ts!(
+                    "popup.editor.word_value",
+                    address = self.address : {:02},
+                    buffer = self.buffer.as_str()
+                ),
             },
         }
     }
@@ -924,10 +936,15 @@ impl EditorPopup {
             Ok(word) => {
                 if self.buffer.parse::<i32>().is_ok() {
                     // Plain number — no need to decode
-                    format!("\u{2192} {word:>12}")
+                    ts!("popup.editor.preview_value", word = word : {:>12})
                 } else {
                     let (opcode, data) = Store::decode_word(word);
-                    format!("\u{2192} {word:>12}  ({opcode} {data:02})")
+                    ts!(
+                        "popup.editor.preview_instr",
+                        word = word : {:>12},
+                        opcode = opcode.to_string(),
+                        data = data : {:02}
+                    )
                 }
             }
             Err(_) => String::new(),
@@ -943,24 +960,28 @@ impl EditorPopup {
         store: &[i32; 32],
         palette: &Palette,
     ) {
-        let explanation = "Edit a register or store word";
-        let footer = "ENTER apply \u{b7} T target \u{b7} ESC close";
+        let explanation = t!("popup.editor.explanation");
+        let footer = t!("popup.editor.footer");
 
         let input = self.input_line();
         let preview = self.preview_line();
 
         // Show the current value of the selected target
         let current = match self.target {
-            EditTarget::Ci => format!("current CI:  {ci:>12}"),
-            EditTarget::A => format!("current A:   {a:>12}"),
+            EditTarget::Ci => ts!("popup.editor.current_ci", value = ci : {:>12}),
+            EditTarget::A => ts!("popup.editor.current_a", value = a : {:>12}),
             EditTarget::Word => {
                 let word = store.get(self.address).copied().unwrap_or(0);
-                format!("current [{:02}]: {word:>12}", self.address)
+                ts!(
+                    "popup.editor.current_word",
+                    address = self.address : {:02},
+                    value = word : {:>12}
+                )
             }
         };
 
-        let content_width = display_width(explanation)
-            .max(display_width(footer))
+        let content_width = display_width(&explanation)
+            .max(display_width(&footer))
             .max(display_width(&input))
             .max(display_width(&current))
             .max(display_width(&preview));
@@ -980,7 +1001,7 @@ impl EditorPopup {
             .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
 
         let block = Block::bordered()
-            .title(" EDIT ")
+            .title(t!("popup.editor.title"))
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(palette.editor_border));
         let content = content_area(&block, rect);
@@ -1366,17 +1387,25 @@ impl PickerPopup {
         anchor_col: u16,
     ) {
         let (cols, entry_width, title) = match self.kind {
-            PickerKind::Mnemonic => (1usize, 6u16, format!(" MNEMONIC [{:02}] ", self.address)),
-            PickerKind::Data => (8, 4u16, format!(" DATA [{:02}] ", self.address)),
+            PickerKind::Mnemonic => (
+                1usize,
+                6u16,
+                t!("popup.picker.mnemonic_title", address = self.address : {:02}),
+            ),
+            PickerKind::Data => (
+                8,
+                4u16,
+                t!("popup.picker.data_title", address = self.address : {:02}),
+            ),
         };
         let len = self.entry_count();
         let rows = len.div_ceil(cols);
-        let footer = "CLICK or ENTER apply \u{b7} ESC close";
+        let footer = t!("popup.picker.footer");
 
         let content_width = cols * entry_width as usize;
         // 2 border columns, 1 left margin, 1 right margin
         let width = (content_width
-            .max(display_width(footer))
+            .max(display_width(&footer))
             .max(display_width(&title))
             + 4) as u16;
         // Entries + footer row, plus the 2 border rows
@@ -1575,7 +1604,7 @@ impl SavePopup {
                         self.message.clear();
                     }
                 } else if !c.is_control() {
-                    self.message = "ONLY A-Z 0-9 - _ . ALLOWED".to_string();
+                    self.message = ts!("popup.save.chars_allowed");
                 }
             }
             _ => {}
@@ -1586,27 +1615,27 @@ impl SavePopup {
     fn save(&mut self, sim: &mut Simulator) {
         let name = self.buffer.trim();
         if name.is_empty() {
-            self.message = "TYPE A FILE NAME".to_string();
+            self.message = ts!("popup.save.type_name");
             return;
         }
         // The input whitelist admits no path separator, so the joined path
         // always stays inside the target folder
         let path = self.dir.join(name);
         match sim.save(&path) {
-            Ok(()) => self.message = format!("SAVED TO {}", path.display()),
-            Err(e) => self.message = format!("ERROR: {e}"),
+            Ok(()) => self.message = ts!("popup.save.saved_to", path = path.display().to_string()),
+            Err(e) => self.message = ts!("popup.save.error", error = e.to_string()),
         }
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, palette: &Palette) {
-        let explanation = "Save the machine state to a .asm or .snp file";
-        let dir_line = format!("DIR: {}", self.dir.display());
-        let footer = "ENTER save \u{b7} ESC close";
-        let input = format!("FILE: {}_", self.buffer);
+        let explanation = t!("popup.save.explanation");
+        let dir_line = t!("popup.save.dir", dir = self.dir.display().to_string());
+        let footer = t!("popup.save.footer");
+        let input = t!("popup.save.file", buffer = self.buffer.as_str());
 
-        let content_width = display_width(explanation)
+        let content_width = display_width(&explanation)
             .max(display_width(&dir_line))
-            .max(display_width(footer))
+            .max(display_width(&footer))
             .max(display_width(&input))
             .max(display_width(&self.message));
 
@@ -1625,7 +1654,7 @@ impl SavePopup {
             .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
 
         let block = Block::bordered()
-            .title(" SAVE ")
+            .title(t!("popup.save.title"))
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(palette.save_border));
         let content = content_area(&block, rect);
@@ -1667,11 +1696,7 @@ pub struct SettingsView {
 /// One row of the settings pop-up: the label, the keyboard shortcut shown
 /// dimmed in its own column left of the controls, then its spans — each
 /// either a clickable button (text + control) or plain value text.
-type SettingsRow = (
-    &'static str,
-    &'static str,
-    Vec<(String, Option<SettingControl>)>,
-);
+type SettingsRow = (String, &'static str, Vec<(String, Option<SettingControl>)>);
 
 /// A clickable control of the settings pop-up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1756,16 +1781,20 @@ impl SettingsPopup {
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, view: &SettingsView, palette: &Palette) {
-        let footer = "CLICK a control \u{b7} ESC close";
+        let footer = t!("popup.settings.footer");
 
-        let speed_text = format!("{}/{} ips", view.displayed_speed, view.target_speed);
+        let speed_text = t!(
+            "popup.settings.speed_value",
+            displayed = view.displayed_speed,
+            target = view.target_speed
+        );
         let (on, off) =
             BIT_REPRESENTATIONS[view.bit_representation.min(BIT_REPRESENTATIONS.len() - 1)];
         // Each row: the label, the shortcut, then its spans — a button (text
         // + control) or plain value text between the speed buttons
         let rows: [SettingsRow; 6] = [
             (
-                "Machine speed",
+                ts!("popup.settings.speed"),
                 "I/K",
                 vec![
                     ("[-]".to_string(), Some(SettingControl::SpeedDown)),
@@ -1774,36 +1803,53 @@ impl SettingsPopup {
                 ],
             ),
             (
-                "Heatmap mode",
+                ts!("popup.settings.heatmap"),
                 "M",
                 vec![(
-                    format!("[{}]", view.heatmap.label().unwrap_or("OFF")),
+                    format!(
+                        "[{}]",
+                        view.heatmap
+                            .label()
+                            .map_or_else(|| ts!("mode.off"), str::to_string)
+                    ),
                     Some(SettingControl::Heatmap),
                 )],
             ),
             (
-                "Flow mode",
+                ts!("popup.settings.flow"),
                 "F",
                 vec![(
-                    format!("[{}]", view.flow.label().unwrap_or("OFF")),
+                    format!(
+                        "[{}]",
+                        view.flow
+                            .label()
+                            .map_or_else(|| ts!("mode.off"), str::to_string)
+                    ),
                     Some(SettingControl::Flow),
                 )],
             ),
             (
-                "Comments",
+                ts!("popup.settings.comments"),
                 "C",
                 vec![(
-                    format!("[{}]", if view.comments { "ON" } else { "OFF" }),
+                    format!(
+                        "[{}]",
+                        if view.comments {
+                            ts!("mode.on")
+                        } else {
+                            ts!("mode.off")
+                        }
+                    ),
                     Some(SettingControl::Comments),
                 )],
             ),
             (
-                "Store bits",
+                ts!("popup.settings.bits"),
                 "D",
                 vec![(format!("[{on}{off}]"), Some(SettingControl::Bits))],
             ),
             (
-                "Theme",
+                ts!("popup.settings.theme"),
                 "T",
                 vec![(
                     format!("[{}]", view.theme.label()),
@@ -1835,7 +1881,7 @@ impl SettingsPopup {
         // + the widest row's controls, so every column is vertically aligned
         let content_width = 2 + label_width + 2 + hint_width + 2 + control_width;
         // 2 border columns, 1 left margin, 1 right margin
-        let width = (content_width.max(display_width(footer)) + 4) as u16;
+        let width = (content_width.max(display_width(&footer)) + 4) as u16;
         // The rows + a blank line + the footer, plus the 2 border rows
         let height = (rows.len() + 4) as u16;
 
@@ -1848,7 +1894,7 @@ impl SettingsPopup {
             .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
 
         let block = Block::bordered()
-            .title(" SETTINGS ")
+            .title(t!("popup.settings.title"))
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(palette.editor_border));
         let content = content_area(&block, rect);

@@ -3,6 +3,7 @@
 
 use super::super::config::Config;
 use super::*;
+use crate::i18n::Language;
 use crate::tui::Theme;
 use crossterm::event::KeyEventKind;
 use std::fs;
@@ -34,6 +35,7 @@ pub(super) fn from_parts_restores_the_saved_modes() {
         heatmap: HeatmapMode::Exec,
         comments: false,
         bit_representation: 4,
+        language: Language::Fr,
     };
     let app = App::from_parts(config, None, None);
     assert_eq!(Theme::Monokai, app.theme);
@@ -80,6 +82,28 @@ pub(super) fn modes_are_saved_once_on_close_not_on_key_press() {
     assert_eq!(FlowMode::Data, saved.flow, "control cycles to data");
     assert_eq!(1, saved.bit_representation, "D cycles 0 -> 1");
     assert!(app.config_error.is_none());
+
+    fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+pub(super) fn startup_language_is_persisted_over_the_saved_one() {
+    // A config file saved with language = "en" (e.g. by an older version)
+    // while the app started in French from the environment: closing the
+    // app must save "fr", not the stale "en"
+    let path = temp_config_path("language");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "language = \"en\"\n").unwrap();
+    let (store, warning) = super::super::config::ConfigStore::load_from(Some(path.clone()));
+    assert!(warning.is_none());
+
+    let (config, _) = super::super::runner::startup_config(store, Language::Fr);
+    assert_eq!(Language::Fr, config.language);
+
+    let mut app = App::from_parts(config, None, Some(path.clone()));
+    app.save_config();
+    let saved: Config = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(Language::Fr, saved.language);
 
     fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }

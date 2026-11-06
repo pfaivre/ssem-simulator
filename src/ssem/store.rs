@@ -39,7 +39,7 @@ impl FileFormat {
             Some("snp") => Ok(FileFormat::Snp),
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("file name must end with .asm or .snp: {}", path.display()),
+                ts!("error.bad_extension", path = path.display().to_string()),
             )),
         }
     }
@@ -115,9 +115,12 @@ impl Store {
             Ok(f) => f,
             Err(e) => {
                 panic!(
-                    "Error while reading '{}': {}",
-                    filename.to_str().unwrap_or(""),
-                    e
+                    "{}",
+                    ts!(
+                        "error.read_file",
+                        path = filename.to_str().unwrap_or(""),
+                        error = e
+                    )
                 );
             }
         };
@@ -131,9 +134,12 @@ impl Store {
         for line in reader.lines() {
             let line = line.unwrap_or_else(|e| {
                 panic!(
-                    "Error while reading '{}': {}",
-                    filename.to_str().unwrap_or(""),
-                    e
+                    "{}",
+                    ts!(
+                        "error.read_file",
+                        path = filename.to_str().unwrap_or(""),
+                        error = e
+                    )
                 );
             });
 
@@ -159,16 +165,19 @@ impl Store {
             let i: Vec<&str> = instruction.split_ascii_whitespace().collect();
             if i.len() < 2 {
                 panic!(
-                    "Unable to read the input file: invalid instruction '{}'",
-                    instruction
+                    "{}",
+                    ts!("error.invalid_instruction", instruction = instruction)
                 );
             }
 
-            let index: i32 = i[0].parse().expect("Unable to read the number");
+            let index: i32 = i[0]
+                .parse()
+                .unwrap_or_else(|_| panic!("{}", ts!("error.read_number")));
             let opcode: &str = i[1];
 
             let operand: i32 = if i.len() >= 3 {
-                i[2].parse().expect("Unable to read the number")
+                i[2].parse()
+                    .unwrap_or_else(|_| panic!("{}", ts!("error.read_number")))
             } else {
                 0
             };
@@ -176,9 +185,12 @@ impl Store {
             // Ensure lines are contiguous and without duplicates
             if index > 0 && index != last_index + 1 {
                 panic!(
-                    "Error near line '{}': expected index '{}'",
-                    line,
-                    last_index + 1
+                    "{}",
+                    ts!(
+                        "error.expected_index",
+                        line = line,
+                        expected = last_index + 1
+                    )
                 )
             }
             last_index = index;
@@ -186,10 +198,13 @@ impl Store {
             // Ensure we don't write outside of the store
             if index >= words.len() as i32 {
                 panic!(
-                    "Error near line '{}': Index '{}' is bigger than the machine size ({})",
-                    instruction,
-                    index,
-                    words.len(),
+                    "{}",
+                    ts!(
+                        "error.index_too_big",
+                        line = instruction,
+                        index = index,
+                        size = words.len()
+                    )
                 );
             }
 
@@ -197,8 +212,12 @@ impl Store {
 
             let opcode = Opcode::from_str(opcode).unwrap_or_else(|_| {
                 panic!(
-                    "Error near line '{}': opcode '{}' non valid.",
-                    instruction, opcode,
+                    "{}",
+                    ts!(
+                        "error.opcode_not_valid",
+                        line = instruction,
+                        opcode = opcode
+                    )
                 );
             });
 
@@ -211,8 +230,13 @@ impl Store {
                     // Ensure the operand fits in the instruction's data bits
                     if !(0..=SSEM_DATA_MASK).contains(&operand) {
                         panic!(
-                            "Error near line '{}': operand '{}' non valid. Expected a value between 0 and {}",
-                            instruction, operand, SSEM_DATA_MASK,
+                            "{}",
+                            ts!(
+                                "error.operand_not_valid",
+                                line = instruction,
+                                operand = operand,
+                                max = SSEM_DATA_MASK
+                            )
                         );
                     }
 
@@ -257,9 +281,12 @@ impl Store {
             Ok(f) => f,
             Err(e) => {
                 panic!(
-                    "Error while reading '{}': {}",
-                    filename.to_str().unwrap_or(""),
-                    e
+                    "{}",
+                    ts!(
+                        "error.read_file",
+                        path = filename.to_str().unwrap_or(""),
+                        error = e
+                    )
                 );
             }
         };
@@ -273,9 +300,12 @@ impl Store {
         for line in reader.lines() {
             let line = line.unwrap_or_else(|e| {
                 panic!(
-                    "Error while reading '{}': {}",
-                    filename.to_str().unwrap_or(""),
-                    e
+                    "{}",
+                    ts!(
+                        "error.read_file",
+                        path = filename.to_str().unwrap_or(""),
+                        error = e
+                    )
                 );
             });
 
@@ -300,10 +330,12 @@ impl Store {
             // Extracting tokens "<index>: <binary_word>"
             let i: Vec<&str> = instruction.splitn(2, ':').collect();
             if i.len() != 2 {
-                panic!("Error near line '{}': invalid syntax", instruction);
+                panic!("{}", ts!("error.invalid_syntax", line = instruction));
             }
 
-            let index: i32 = i[0].parse().expect("Unable to read the number");
+            let index: i32 = i[0]
+                .parse()
+                .unwrap_or_else(|_| panic!("{}", ts!("error.read_number")));
 
             // Ensure lines are contiguous and without duplicates
             if index > 0 && index != last_index + 1 {
@@ -318,10 +350,13 @@ impl Store {
             // Ensure we don't write outside of the store
             if index >= words.len() as i32 {
                 panic!(
-                    "Error near line '{}': Index '{}' is bigger than the machine size ({})",
-                    instruction,
-                    index,
-                    words.len(),
+                    "{}",
+                    ts!(
+                        "error.index_too_big",
+                        line = instruction,
+                        index = index,
+                        size = words.len()
+                    )
                 );
             }
 
@@ -330,18 +365,19 @@ impl Store {
             // Reverse the bit order: SSEM is least significant bit first
             let word = i[1].trim().chars().rev().collect::<String>();
             if word.len() != 32 {
-                panic!(
-                    "Error near line '{}': Invalid word size, expected 32, got {}",
-                    line,
-                    word.len()
-                );
+                panic!("{}", ts!("error.word_size", line = line, got = word.len()));
             }
             // Use a 64-bit temporarily before casting down later below, to avoid parsing errors on some cases
             let word: i64 = match i64::from_str_radix(&word, 2) {
                 Ok(value) => value,
                 Err(e) => panic!(
-                    "Error near line '{}': Unable to parse the word '{}': {}",
-                    instruction, word, e
+                    "{}",
+                    ts!(
+                        "error.word_parse",
+                        line = instruction,
+                        word = word,
+                        error = e
+                    )
                 ),
             };
 
@@ -433,7 +469,7 @@ impl Store {
     pub fn parse_word(input: &str) -> Result<i32, String> {
         let input = input.trim();
         if input.is_empty() {
-            return Err("EMPTY INPUT".to_string());
+            return Err(ts!("error.empty_input"));
         }
 
         // Try a plain decimal number first
@@ -447,11 +483,11 @@ impl Store {
             1 | 2 => {
                 let mnemonic = tokens[0].to_uppercase();
                 let opcode = Opcode::from_str(&mnemonic)
-                    .map_err(|_| format!("UNKNOWN OPCODE '{mnemonic}'"))?;
+                    .map_err(|_| ts!("error.unknown_opcode", mnemonic = mnemonic.as_str()))?;
                 let operand: i32 = if tokens.len() == 2 {
                     tokens[1]
                         .parse()
-                        .map_err(|_| format!("INVALID OPERAND '{}'", tokens[1]))?
+                        .map_err(|_| ts!("error.invalid_operand", operand = tokens[1]))?
                 } else {
                     0
                 };
@@ -460,13 +496,13 @@ impl Store {
                     Opcode::NUM => Ok(operand),
                     opcode => {
                         if !(0..=SSEM_DATA_MASK).contains(&operand) {
-                            return Err(format!("OPERAND MUST BE 0 TO {SSEM_DATA_MASK}"));
+                            return Err(ts!("error.operand_range", max = SSEM_DATA_MASK));
                         }
                         Ok((opcode as i32) << SSEM_OPCODE_BIT_SHIFT | operand)
                     }
                 }
             }
-            _ => Err("EXPECTED A NUMBER OR 'OPCODE [OPERAND]'".to_string()),
+            _ => Err(ts!("error.expected_word")),
         }
     }
 

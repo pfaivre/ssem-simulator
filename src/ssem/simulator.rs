@@ -88,10 +88,10 @@ impl Breakpoint {
     pub fn description(&self) -> String {
         match self {
             Breakpoint::WordValue { address, value, .. } => {
-                format!("WORD {address:02} = {value}")
+                ts!("breakpoint.word", address = address : {:02}, value = value)
             }
             Breakpoint::CiValue { address, .. } => {
-                format!("CI = {address:02}")
+                ts!("breakpoint.ci", address = address : {:02})
             }
         }
     }
@@ -190,10 +190,13 @@ impl Simulator {
                 } else if ext.eq_ignore_ascii_case("snp") {
                     Store::from_snp_file(filename)
                 } else {
-                    panic!("Unkown file format '{}'", ext.to_str().unwrap_or(""));
+                    panic!(
+                        "{}",
+                        ts!("error.unknown_format_ext", ext = ext.to_str().unwrap_or(""))
+                    );
                 }
             }
-            None => panic!("Unkown file format"),
+            None => panic!("{}", ts!("error.unknown_format")),
         };
 
         Simulator {
