@@ -87,6 +87,28 @@ pub(super) fn modes_are_saved_once_on_close_not_on_key_press() {
 }
 
 #[test]
+pub(super) fn startup_language_is_persisted_over_the_saved_one() {
+    // A config file saved with language = "en" (e.g. by an older version)
+    // while the app started in French from the environment: closing the
+    // app must save "fr", not the stale "en"
+    let path = temp_config_path("language");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "language = \"en\"\n").unwrap();
+    let (store, warning) = super::super::config::ConfigStore::load_from(Some(path.clone()));
+    assert!(warning.is_none());
+
+    let (config, _) = super::super::runner::startup_config(store, Language::Fr);
+    assert_eq!(Language::Fr, config.language);
+
+    let mut app = App::from_parts(config, None, Some(path.clone()));
+    app.save_config();
+    let saved: Config = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(Language::Fr, saved.language);
+
+    fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[test]
 pub(super) fn save_failure_is_reported_in_config_error() {
     // A path whose parent is a regular file: the directory cannot be created
     let blocker = temp_config_path("blocked");

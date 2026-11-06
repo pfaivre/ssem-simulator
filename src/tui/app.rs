@@ -204,8 +204,8 @@ pub(super) struct App {
 
     /// The interface language, persisted with the other view modes. The
     /// locale itself is resolved once at startup in `main` (from `--lang`,
-    /// the config file, or the environment); this is only kept so saving
-    /// the config does not lose it.
+    /// the config file, or the environment); this is that startup language
+    /// without a `--lang` override, saved so the choice survives restarts.
     pub(super) language: Language,
 
     /// Where to save the view modes when the application closes

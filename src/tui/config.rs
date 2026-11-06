@@ -33,8 +33,9 @@ pub(super) struct Config {
     pub comments: bool,
     /// Index into `BIT_REPRESENTATIONS` (cycled with the D key).
     pub bit_representation: usize,
-    /// Interface language. Read at startup (before the TUI) to pick the
-    /// locale; `--lang` overrides it for the session without rewriting it.
+    /// Interface language. Read at startup to pick the locale (`--lang`
+    /// overrides it for the session), and saved back with the language the
+    /// app started with, so the choice survives restarts.
     pub language: Language,
 }
 
@@ -78,7 +79,7 @@ impl ConfigStore {
     }
 
     /// Load the config from the given path (None disables persistence).
-    fn load_from(path: Option<PathBuf>) -> (Self, Option<String>) {
+    pub(super) fn load_from(path: Option<PathBuf>) -> (Self, Option<String>) {
         let Some(path) = path else {
             return (
                 Self {

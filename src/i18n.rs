@@ -70,7 +70,7 @@ fn prescan_from(args: impl Iterator<Item = std::ffi::OsString>) -> Option<Langua
 }
 
 /// The `language` key of the config file, when present and valid.
-fn config_language() -> Option<Language> {
+pub fn config_language() -> Option<Language> {
     #[derive(Deserialize)]
     struct LangOnly {
         language: Option<Language>,
@@ -90,11 +90,10 @@ fn env_language() -> Option<Language> {
 }
 
 /// Resolve the interface language: `--lang` wins, then the config file, then
-/// the environment, falling back to English.
-pub fn resolve(cli: Option<Language>) -> Language {
-    cli.or_else(config_language)
-        .or_else(env_language)
-        .unwrap_or(Language::En)
+/// the environment, falling back to English. The config file language is
+/// passed in (already read by the caller), so it is not read twice.
+pub fn resolve(cli: Option<Language>, config: Option<Language>) -> Language {
+    cli.or(config).or_else(env_language).unwrap_or(Language::En)
 }
 
 #[cfg(test)]
@@ -129,6 +128,17 @@ mod tests {
         assert!(text.contains("language = \"fr\""), "unexpected: {text}");
         assert_eq!(Some(Language::Fr), Language::from_tag("fr"));
         assert_eq!(Some(Language::Fr), Language::from_tag("fr-FR"));
+    }
+
+    #[test]
+    fn resolve_prefers_cli_then_config() {
+        // Cases that do not depend on the test machine's environment
+        assert_eq!(
+            Language::En,
+            resolve(Some(Language::En), Some(Language::Fr))
+        );
+        assert_eq!(Language::Fr, resolve(None, Some(Language::Fr)));
+        assert_eq!(Language::Fr, resolve(Some(Language::Fr), None));
     }
 
     #[test]
