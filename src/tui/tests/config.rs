@@ -3,6 +3,7 @@
 
 use super::super::config::Config;
 use super::*;
+use crate::i18n::Language;
 use crate::tui::Theme;
 use crossterm::event::KeyEventKind;
 use std::fs;
@@ -34,6 +35,7 @@ pub(super) fn from_parts_restores_the_saved_modes() {
         heatmap: HeatmapMode::Exec,
         comments: false,
         bit_representation: 4,
+        language: Language::Fr,
     };
     let app = App::from_parts(config, None, None);
     assert_eq!(Theme::Monokai, app.theme);

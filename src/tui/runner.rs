@@ -14,6 +14,7 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use rust_i18n::t;
 
 use super::app::App;
 use super::config::ConfigStore;
@@ -118,7 +119,7 @@ pub fn run(simulator: Simulator, max_cycles: u32, theme: Option<Theme>) -> io::R
     // warning about an invalid config file prints cleanly
     let (store, load_warning) = ConfigStore::load();
     if let Some(warning) = load_warning {
-        eprintln!("Warning: {warning}");
+        eprintln!("{}", t!("main.warning", message = warning));
     }
 
     // Setup terminal
@@ -143,7 +144,7 @@ pub fn run(simulator: Simulator, max_cycles: u32, theme: Option<Theme>) -> io::R
     // A config-save failure cannot be printed while the TUI owns the
     // terminal, so report it now
     if let Ok((_, Some(error))) = &result {
-        eprintln!("Warning: {error}");
+        eprintln!("{}", t!("main.warning", message = error.as_str()));
     }
 
     result.map(|(sim, _)| sim)

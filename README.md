@@ -80,7 +80,7 @@ Run the machine as fast as possible without any graphical interface and only pri
 
 ## Persistent preferences
 
-The interactive interface remembers the last view modes — color theme (`T`), flow view (`F`), heatmap (`M`), the comments toggle (`C`), and the bit representation (`D`) — in `$XDG_CONFIG_HOME/ssem-simulator/config.toml` (default `$HOME/.config/ssem-simulator/config.toml`; on Windows, `%APPDATA%\ssem-simulator\config.toml`). The file is written when the application exits, and read back on the next start.
+The interactive interface remembers the last view modes — color theme (`T`), flow view (`F`), heatmap (`M`), the comments toggle (`C`), the bit representation (`D`), and the language — in `$XDG_CONFIG_HOME/ssem-simulator/config.toml` (default `$HOME/.config/ssem-simulator/config.toml`; on Windows, `%APPDATA%\ssem-simulator\config.toml`). The file is written when the application exits, and read back on the next start.
 
 # Documentation
 

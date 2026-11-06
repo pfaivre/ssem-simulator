@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use super::layout::{FlowMode, HeatmapMode};
 use super::palette::Theme;
+use crate::i18n::Language;
 
 /// The persisted view modes. The defaults match a fresh start with no
 /// config file.
@@ -32,6 +33,9 @@ pub(super) struct Config {
     pub comments: bool,
     /// Index into `BIT_REPRESENTATIONS` (cycled with the D key).
     pub bit_representation: usize,
+    /// Interface language. Read at startup (before the TUI) to pick the
+    /// locale; `--lang` overrides it for the session without rewriting it.
+    pub language: Language,
 }
 
 impl Default for Config {
@@ -42,6 +46,7 @@ impl Default for Config {
             heatmap: HeatmapMode::Off,
             comments: true,
             bit_representation: 0,
+            language: Language::En,
         }
     }
 }
@@ -59,7 +64,7 @@ impl Config {
 
 /// The config file location, or None when no config directory can be
 /// determined from the environment (persistence is then disabled).
-fn config_path() -> Option<PathBuf> {
+pub(crate) fn config_path() -> Option<PathBuf> {
     config_path_from_env(
         cfg!(windows),
         std::env::var_os("XDG_CONFIG_HOME"),
@@ -139,7 +144,11 @@ impl ConfigStore {
                 );
             }
             Err(e) => {
-                let warning = format!("could not read {}: {e}", path.display());
+                let warning = ts!(
+                    "warn.config_read",
+                    path = path.display().to_string(),
+                    error = e.to_string()
+                );
                 return (
                     Self {
                         path: Some(path),
@@ -158,7 +167,11 @@ impl ConfigStore {
                 None,
             ),
             Err(e) => {
-                let warning = format!("ignoring invalid {}: {e}", path.display());
+                let warning = ts!(
+                    "warn.config_invalid",
+                    path = path.display().to_string(),
+                    error = e.to_string()
+                );
                 (
                     Self {
                         path: Some(path),
@@ -196,6 +209,7 @@ mod tests {
             heatmap: HeatmapMode::Rw,
             comments: false,
             bit_representation: 3,
+            language: Language::Fr,
         };
         config.save(&path).unwrap();
         let text = fs::read_to_string(&path).unwrap();
@@ -235,6 +249,7 @@ mod tests {
             text.contains("bit_representation = 0"),
             "unexpected: {text}"
         );
+        assert!(text.contains("language = \"en\""), "unexpected: {text}");
     }
 
     #[test]

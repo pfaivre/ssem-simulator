@@ -3,6 +3,7 @@
 //! width they add to the store view.
 
 use ratatui::layout::Rect;
+use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 
 /// Minimum terminal width to display the store in full.
@@ -19,16 +20,16 @@ const MAX_TIMELINE_BAR_WIDTH: usize = 100;
 
 /// Column and width of the timeline bar within the timeline area.
 pub(super) fn timeline_bar_geometry(area: Rect, start: u64, head: u64) -> (u16, u16) {
-    const PREFIX: &str = " HISTORY [";
+    let prefix = t!("history.prefix");
     let suffix_len = format!("] {start}..{head}").len();
     let bar_width = (area.width as usize)
-        .saturating_sub(PREFIX.len() + suffix_len)
+        .saturating_sub(prefix.len() + suffix_len)
         .min(MAX_TIMELINE_BAR_WIDTH);
-    let total = PREFIX.len() + bar_width + suffix_len;
+    let total = prefix.len() + bar_width + suffix_len;
     // Mirror ratatui's Alignment::Center: (area / 2) - (line / 2)
     let offset = (area.width as usize / 2).saturating_sub(total / 2);
     (
-        area.x + offset as u16 + PREFIX.len() as u16,
+        area.x + offset as u16 + prefix.len() as u16,
         bar_width as u16,
     )
 }
@@ -226,11 +227,11 @@ impl HeatmapMode {
     }
 
     /// The label shown in the top bar, or None when the heatmap is off.
-    pub(super) fn label(self) -> Option<&'static str> {
+    pub(super) fn label(self) -> Option<String> {
         match self {
             HeatmapMode::Off => None,
-            HeatmapMode::Exec => Some("EXEC"),
-            HeatmapMode::Rw => Some("R/W"),
+            HeatmapMode::Exec => Some(ts!("mode.heatmap_exec")),
+            HeatmapMode::Rw => Some(ts!("mode.heatmap_rw")),
         }
     }
 }
@@ -259,10 +260,10 @@ impl FlowMode {
     }
 
     /// The label shown in the top bar, or None when the visualization is off.
-    pub(super) fn label(self) -> Option<&'static str> {
+    pub(super) fn label(self) -> Option<String> {
         match self {
-            FlowMode::Control => Some("CONTROL"),
-            FlowMode::Data => Some("DATA"),
+            FlowMode::Control => Some(ts!("mode.flow_control")),
+            FlowMode::Data => Some(ts!("mode.flow_data")),
             FlowMode::Off => None,
         }
     }

@@ -61,5 +61,6 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use config::config_path;
 pub use palette::Theme;
 pub use runner::run;

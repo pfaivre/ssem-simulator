@@ -21,6 +21,7 @@ use super::popups::{
     BreakpointPopup, CommentEditor, EditorPopup, HelpPopup, PickerPopup, SavePopup, SettingControl,
     SettingsPopup,
 };
+use crate::i18n::Language;
 use crate::ssem::history::History;
 use crate::ssem::simulator::Simulator;
 
@@ -33,55 +34,64 @@ pub(super) const BIT_REPRESENTATIONS: [(char, char); 5] = [
     ('1', '0'),             // Binary digits
 ];
 
-/// The keymap: (key, legend, help description).
+/// The keymap: (key, legend, help description), localized.
 /// An empty legend means the key does not appear in the bottom bar (e.g. arrow keys).
-pub(super) const KEYMAP: &[(&str, &str, &str)] = &[
-    ("Ctrl+Q", "QUIT", "Quit the simulator"),
-    ("H", "HELP", "Toggle this help pop-up"),
-    ("Space", "RUN/STOP", "Run the program or pause it"),
-    ("F10", "STEP", "Execute one instruction"),
-    (
-        "\u{2190}/\u{2192}",
-        "BACK/FWD",
-        "Step back/forward one cycle in the execution history",
-    ),
-    ("\u{2191}/\u{2193}", "", "Scroll the store view"),
-    ("I", "SPEED UP", "Increase the execution speed"),
-    ("K", "SPEED DOWN", "Decrease the execution speed"),
-    ("D", "DISPLAY", "Cycle the bit representations"),
-    (
-        "E",
-        "EDIT",
-        "Edit a register or store word (double-click its line)",
-    ),
-    (
-        "M",
-        "HEATMAP",
-        "Cycle the heatmap: off, execution frequency, reads/writes",
-    ),
-    (
-        "F",
-        "FLOW",
-        "Cycle the flow view: data flow, control flow, off",
-    ),
-    (
-        "C",
-        "COMMENTS",
-        "Toggle the source-comment column next to each store word",
-    ),
-    ("B", "BREAKPT", "Open the breakpoint pop-up"),
-    (
-        "S",
-        "SAVE",
-        "Save the machine state to a .asm/.snp file in the input file's folder",
-    ),
-    ("T", "THEME", "Cycle through the color themes"),
-    (
-        "MOUSE",
-        "",
-        "Drag the timeline bar to scrub the history; double-click a comment cell to edit it.",
-    ),
-];
+pub(super) fn keymap() -> Vec<(&'static str, String, String)> {
+    vec![
+        ("Ctrl+Q", ts!("keymap.quit.legend"), ts!("keymap.quit.desc")),
+        ("H", ts!("keymap.help.legend"), ts!("keymap.help.desc")),
+        (
+            "Space",
+            ts!("keymap.run_stop.legend"),
+            ts!("keymap.run_stop.desc"),
+        ),
+        ("F10", ts!("keymap.step.legend"), ts!("keymap.step.desc")),
+        (
+            "\u{2190}/\u{2192}",
+            ts!("keymap.back_fwd.legend"),
+            ts!("keymap.back_fwd.desc"),
+        ),
+        (
+            "\u{2191}/\u{2193}",
+            ts!("keymap.scroll.legend"),
+            ts!("keymap.scroll.desc"),
+        ),
+        (
+            "I",
+            ts!("keymap.speed_up.legend"),
+            ts!("keymap.speed_up.desc"),
+        ),
+        (
+            "K",
+            ts!("keymap.speed_down.legend"),
+            ts!("keymap.speed_down.desc"),
+        ),
+        (
+            "D",
+            ts!("keymap.display.legend"),
+            ts!("keymap.display.desc"),
+        ),
+        ("E", ts!("keymap.edit.legend"), ts!("keymap.edit.desc")),
+        (
+            "M",
+            ts!("keymap.heatmap.legend"),
+            ts!("keymap.heatmap.desc"),
+        ),
+        ("F", ts!("keymap.flow.legend"), ts!("keymap.flow.desc")),
+        (
+            "C",
+            ts!("keymap.comments.legend"),
+            ts!("keymap.comments.desc"),
+        ),
+        (
+            "B",
+            ts!("keymap.breakpt.legend"),
+            ts!("keymap.breakpt.desc"),
+        ),
+        ("S", ts!("keymap.save.legend"), ts!("keymap.save.desc")),
+        ("T", ts!("keymap.theme.legend"), ts!("keymap.theme.desc")),
+    ]
+}
 
 /// An action of the menu bar (the top row), run by clicking its item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,16 +105,18 @@ pub(super) enum MenuAction {
     Help,
 }
 
-/// The menu bar items (the top row)
-pub(super) const MENU_ITEMS: &[(&str, MenuAction)] = &[
-    ("Quit", MenuAction::Quit),
-    ("Clear", MenuAction::Clear),
-    ("Save", MenuAction::Save),
-    ("Run/Stop", MenuAction::RunStop),
-    ("Step", MenuAction::Step),
-    ("Settings", MenuAction::Settings),
-    ("Help", MenuAction::Help),
-];
+/// The menu bar items (the top row), with localized labels.
+pub(super) fn menu_items() -> Vec<(String, MenuAction)> {
+    vec![
+        (ts!("menu.quit"), MenuAction::Quit),
+        (ts!("menu.clear"), MenuAction::Clear),
+        (ts!("menu.save"), MenuAction::Save),
+        (ts!("menu.run_stop"), MenuAction::RunStop),
+        (ts!("menu.step"), MenuAction::Step),
+        (ts!("menu.settings"), MenuAction::Settings),
+        (ts!("menu.help"), MenuAction::Help),
+    ]
+}
 
 /// How often the displayed speed is refreshed.
 const SPEED_DISPLAY_PERIOD: Duration = Duration::from_millis(500);
@@ -179,6 +191,12 @@ pub(super) struct App {
     /// or chosen with the `--theme` command-line option).
     pub(super) theme: Theme,
 
+    /// The interface language, persisted with the other view modes. The
+    /// locale itself is resolved once at startup in `main` (from `--lang`,
+    /// the config file, or the environment); this is only kept so saving
+    /// the config does not lose it.
+    pub(super) language: Language,
+
     /// Where to save the view modes when the application closes
     /// (None in tests: persistence disabled).
     pub(super) config_path: Option<PathBuf>,
@@ -250,6 +268,7 @@ impl App {
             flow: config.flow,
             show_comments: config.comments,
             theme: theme_override.unwrap_or(config.theme),
+            language: config.language,
             config_path,
             config_error: None,
             last_mode_key: None,
@@ -274,9 +293,14 @@ impl App {
             heatmap: self.heatmap,
             comments: self.show_comments,
             bit_representation: self.bit_representation,
+            language: self.language,
         };
         if let Err(e) = config.save(path) {
-            self.config_error = Some(format!("could not save {}: {e}", path.display()));
+            self.config_error = Some(ts!(
+                "warn.config_save",
+                path = path.display().to_string(),
+                error = e.to_string()
+            ));
         }
     }
 

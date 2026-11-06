@@ -1,0 +1,241 @@
+# Traductions françaises. Mêmes clés que locales/en.toml.
+# Non traduits : les mnémoniques d'opcodes (JMP, LDN, ...), le mot-clé NUM
+# des fichiers .asm/.snp, les noms de registres CI et A, les extensions de
+# fichiers, les clés du fichier de configuration et les commentaires des
+# fichiers .asm.
+
+[cli]
+about = "Simulateur avancé de la Small-Scale Experimental Machine de 1948."
+
+[cli.help]
+max_cycles = "Arrêter après ce nombre de cycles"
+headless = "Exécuter sans l'interface interactive (TUI) ; afficher l'état final et quitter"
+history_size = "Nombre d'états passés de la machine conservés pour le voyage dans le temps dans l'interface interactive (0 pour désactiver)"
+theme = "Thème de couleurs de l'interface interactive, prioritaire sur celui du fichier de configuration pour cette session (la touche T fait défiler les thèmes à l'exécution)"
+lang = "Langue de l'interface, prioritaire sur celle du fichier de configuration pour cette session"
+save = "Écrire l'état de la machine dans ce fichier à la fin de l'exécution (.asm ou .snp, avec les commentaires source) ; dans l'interface interactive, la touche S sauvegarde l'état courant à tout moment"
+file = "Fichier d'entrée pour initialiser la mémoire. Peut être au format .asm ou .snp. Sans fichier, la machine démarre avec une mémoire vide (tous les mots à zéro)"
+
+[main]
+final_state = "État final de la machine :"
+saved = "État de la machine sauvegardé dans %{path}"
+save_error = "Erreur : impossible de sauvegarder dans %{path} : %{error}"
+history_clamped = "Attention : --history-size %{given} est trop grand, limité à %{max} (max ~14,8 Go)"
+error = "Erreur : %{error}"
+tty_hint = "L'interface interactive nécessite un terminal. Lancez ce programme dans un TTY, ou utilisez --headless."
+warning = "Attention : %{message}"
+
+[menu]
+quit = "Quitter"
+clear = "Effacer"
+save = "Sauver"
+run_stop = "Marche/Arrêt"
+run = "Marche"
+stop = "Arrêt "
+step = "Pas"
+settings = "Réglages"
+help = "Aide"
+
+[keymap.quit]
+legend = "QUITTER"
+desc = "Quitter le simulateur"
+
+[keymap.help]
+legend = "AIDE"
+desc = "Afficher ou masquer cette fenêtre d'aide"
+
+[keymap.run_stop]
+legend = "MARCHE/ARRÊT"
+desc = "Lancer le programme ou le mettre en pause"
+
+[keymap.step]
+legend = "PAS"
+desc = "Exécuter une instruction"
+
+[keymap.back_fwd]
+legend = "AVANT/ARR"
+desc = "Avancer ou reculer d'un cycle dans l'historique d'exécution"
+
+[keymap.scroll]
+legend = ""
+desc = "Faire défiler la vue de la mémoire"
+
+[keymap.speed_up]
+legend = "VITESSE +"
+desc = "Augmenter la vitesse d'exécution"
+
+[keymap.speed_down]
+legend = "VITESSE -"
+desc = "Diminuer la vitesse d'exécution"
+
+[keymap.display]
+legend = "AFFICHAGE"
+desc = "Changer la représentation des bits"
+
+[keymap.edit]
+legend = "ÉDITER"
+desc = "Éditer un registre ou un mot de la mémoire"
+
+[keymap.heatmap]
+legend = "CARTE DE CHALEUR"
+desc = "Changer la carte carte thermique"
+
+[keymap.flow]
+legend = "FLUX"
+desc = "Changer la vue de flux"
+
+[keymap.comments]
+legend = "COMMENTAIRES"
+desc = "Afficher ou masquer la colonne de commentaires"
+
+[keymap.breakpt]
+legend = "ARRÊTS"
+desc = "Ouvrir la fenêtre des points d'arrêt"
+
+[keymap.save]
+legend = "SAUVER"
+desc = "Sauvegarder l'état de la machine dans un fichier"
+
+[keymap.theme]
+legend = "THÈME"
+desc = "Changer de thème de couleurs"
+
+[mode]
+on = "OUI"
+off = "NON"
+heatmap_exec = "EXÉC"
+heatmap_rw = "R/W"
+flow_control = "CONTRÔLE"
+flow_data = "DONNÉES"
+
+[history]
+prefix = " HISTORIQUE ["
+label = " HISTORIQUE  "
+disabled = " HISTORIQUE [désactivé]"
+range = "  %{start}..%{end}"
+scrub_cycle = " cycle %{n} "
+
+[status]
+label = "ÉTAT : "
+stopped = "ARRÊTÉ"
+running = "EN COURS"
+rewind = "RETOUR"
+cycles = "CYCLES : %{count}"
+speed = "VITESSE : %{displayed}/%{target} ips"
+heatmap = "CARTE : %{label}"
+flow = "FLUX : %{label}"
+comments = "COMMENTAIRES"
+breakpoints = "ARRÊTS : %{count}"
+
+[draw]
+too_small = "Terminal trop petit : %{width}x%{height}, minimum requis %{min_width}x%{min_height}"
+
+[help]
+title = "SIMULATEUR SSEM v%{version}"
+footer_close = "Appuyez sur H pour fermer"
+footer_scroll = "↑/↓ défiler · H fermer"
+mnemonic_colors = "Couleurs des mnémoniques :"
+op_jump = "saut"
+op_memory = "accès mémoire"
+op_arithmetic = "arithmétique"
+op_test = "test"
+op_halt = "arrêt"
+markers = "Marqueurs en pause :"
+marker_last = "  > dernier "
+marker_next = " suivant "
+marker_executed = " exécuté"
+heatmap_title = "Carte thermique :"
+heatmap_exec_desc = " fréquence d'exécution par mot"
+heatmap_r = "R"
+heatmap_w = "W"
+heatmap_rw_desc = "  lectures vs écritures par mot"
+graph_title = "Graphe de flot de contrôle :"
+graph_jump = "◀── saut"
+graph_skip = "◀── saut CMP"
+graph_halt = "■   arrêt"
+
+[popup]
+type_number = "TAPEZ UN NOMBRE"
+address_range = "L'ADRESSE DOIT ÊTRE ENTRE 0 ET 31"
+
+[popup.breakpoints]
+title = " POINTS D'ARRÊT "
+explanation = "Mettre la machine en pause quand une condition est remplie"
+footer = "ENTRÉE ajouter · T type · ↑/↓ sélectionner · X supprimer · ÉCHAP fermer"
+already_set = "POINT D'ARRÊT DÉJÀ DÉFINI"
+new_ci = "NOUV. CI : %{buffer}_"
+new_word_address = "NOUV. MOT : %{buffer}_  VAL :"
+new_word_value = "NOUV. MOT : %{address}  VAL : %{buffer}_"
+
+[breakpoint]
+word = "MOT %{address} = %{value}"
+ci = "CI = %{address}"
+
+[popup.editor]
+title = " ÉDITION "
+explanation = "Éditer un registre ou un mot de la mémoire"
+footer = "ENTRÉE appliquer · T cible · ÉCHAP fermer"
+ci_value = "CI   VAL : %{buffer}_"
+a_value = "A    VAL : %{buffer}_"
+word_address = "MOT %{buffer}_  VAL/INSTR :"
+word_value = "MOT %{address}  VAL/INSTR : %{buffer}_"
+current_ci = "CI actuel :  %{value}"
+current_a = "A actuel :   %{value}"
+current_word = "[%{address}] actuel : %{value}"
+applied_ci = "CI = %{value}"
+applied_a = "A = %{value}"
+applied_word = "MOT %{address} = %{word}  (%{opcode} %{data})"
+preview_value = "→ %{word}"
+preview_instr = "→ %{word}  (%{opcode} %{data})"
+
+[popup.save]
+title = " SAUVER "
+explanation = "Sauvegarder l'état de la machine dans un fichier .asm ou .snp"
+dir = "RÉP : %{dir}"
+file = "FICHIER : %{buffer}_"
+footer = "ENTRÉE sauvegarder · ÉCHAP fermer"
+chars_allowed = "SEULS A-Z 0-9 - _ . SONT AUTORISÉS"
+type_name = "TAPEZ UN NOM DE FICHIER"
+saved_to = "SAUVEGARDÉ DANS %{path}"
+error = "ERREUR : %{error}"
+
+[popup.settings]
+title = " RÉGLAGES "
+footer = "CLIQUEZ un contrôle · ÉCHAP fermer"
+speed = "Vitesse de la machine"
+speed_value = "%{displayed}/%{target} ips"
+heatmap = "Carte thermique"
+flow = "Mode de flux"
+comments = "Commentaires"
+bits = "Apparence des mots"
+theme = "Thème"
+
+[popup.picker]
+mnemonic_title = " MNÉMONIQUE [%{address}] "
+data_title = " DONNÉE [%{address}] "
+footer = "CLIC ou ENTRÉE appliquer · ÉCHAP fermer"
+
+[warn]
+config_read = "impossible de lire %{path} : %{error}"
+config_invalid = "%{path} invalide, ignoré : %{error}"
+config_save = "impossible de sauvegarder %{path} : %{error}"
+
+[error]
+empty_input = "ENTRÉE VIDE"
+unknown_opcode = "OPCODE INCONNU '%{mnemonic}'"
+invalid_operand = "OPÉRANDE INVALIDE '%{operand}'"
+operand_range = "L'OPÉRANDE DOIT ÊTRE ENTRE 0 ET %{max}"
+expected_word = "NOMBRE OU 'OPCODE [OPÉRANDE]' ATTENDU"
+bad_extension = "le nom de fichier doit finir par .asm ou .snp : %{path}"
+read_file = "Erreur de lecture de '%{path}' : %{error}"
+invalid_instruction = "Impossible de lire le fichier d'entrée : instruction invalide '%{instruction}'"
+read_number = "Impossible de lire le nombre"
+expected_index = "Erreur près de la ligne '%{line}' : index '%{expected}' attendu"
+index_too_big = "Erreur près de la ligne '%{line}' : l'index '%{index}' dépasse la taille de la machine (%{size})"
+opcode_not_valid = "Erreur près de la ligne '%{line}' : opcode '%{opcode}' non valide."
+operand_not_valid = "Erreur près de la ligne '%{line}' : opérande '%{operand}' non valide. Valeur attendue entre 0 et %{max}"
+invalid_syntax = "Erreur près de la ligne '%{line}' : syntaxe invalide"
+word_size = "Erreur près de la ligne '%{line}' : taille de mot invalide, 32 attendu, %{got} reçu"
+word_parse = "Erreur près de la ligne '%{line}' : impossible d'analyser le mot '%{word}' : %{error}"
+unknown_format = "Format de fichier inconnu"
+unknown_format_ext = "Format de fichier inconnu '%{ext}'"
