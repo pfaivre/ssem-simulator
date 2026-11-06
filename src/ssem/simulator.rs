@@ -161,10 +161,17 @@ impl Default for Simulator {
 
 impl Simulator {
     pub fn new() -> Simulator {
+        Self::with_store(Store::new(), None)
+    }
+
+    /// A simulator around `store` with every other field at its default — the
+    /// single place the full field list lives, so `new`, `from_file`, and
+    /// `From<Vec<String>>` delegate here and a new field is added in one spot.
+    fn with_store(store: Store, source_path: Option<PathBuf>) -> Self {
         Simulator {
             a: 0,
             ci: 0,
-            store: Store::new(),
+            store,
             stop_flag: false,
             cycle_count: 0,
             speed: TYPICAL_SPEED,
@@ -175,7 +182,17 @@ impl Simulator {
             write_counts: [0; 32],
             history: None,
             heatmap_reset_pending: false,
-            source_path: None,
+            source_path,
+        }
+    }
+
+    /// Capture the current machine state for the history ring.
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            a: self.a,
+            ci: self.ci,
+            store: self.store.words,
+            last_instruction: self.last_instruction,
         }
     }
 
@@ -194,22 +211,7 @@ impl Simulator {
             FileFormat::Snp => Store::from_snp_file(filename)?,
         };
 
-        Ok(Simulator {
-            a: 0,
-            ci: 0,
-            store,
-            stop_flag: false,
-            cycle_count: 0,
-            speed: TYPICAL_SPEED,
-            last_instruction: None,
-            breakpoints: Vec::new(),
-            exec_counts: [0; 32],
-            read_counts: [0; 32],
-            write_counts: [0; 32],
-            history: None,
-            heatmap_reset_pending: false,
-            source_path: Some(filename.to_path_buf()),
-        })
+        Ok(Self::with_store(store, Some(filename.to_path_buf())))
     }
 
     /// Whether the machine is currently running (not stopped).
@@ -249,15 +251,7 @@ impl Simulator {
     /// headless runs pay no memory or CPU cost.
     pub fn enable_history(&mut self, capacity: usize) {
         let mut history = History::new(capacity);
-        history.record(
-            self.cycle_count,
-            Snapshot {
-                a: self.a,
-                ci: self.ci,
-                store: self.store.words,
-                last_instruction: self.last_instruction,
-            },
-        );
+        history.record(self.cycle_count, self.snapshot());
         self.history = Some(history);
         // A fresh history starts at the tip, so nothing is pending
         self.heatmap_reset_pending = false;
@@ -303,17 +297,10 @@ impl Simulator {
     /// the one where the change was made. Does nothing when history is
     /// disabled.
     pub fn restart_history(&mut self) {
+        let snapshot = self.snapshot();
         if let Some(history) = &mut self.history {
             history.clear();
-            history.record(
-                self.cycle_count,
-                Snapshot {
-                    a: self.a,
-                    ci: self.ci,
-                    store: self.store.words,
-                    last_instruction: self.last_instruction,
-                },
-            );
+            history.record(self.cycle_count, snapshot);
         }
     }
 
@@ -336,17 +323,10 @@ impl Simulator {
         self.breakpoints.clear();
         self.reset_heatmap();
         self.heatmap_reset_pending = false;
+        let snapshot = self.snapshot();
         if let Some(history) = &mut self.history {
             history.clear();
-            history.record(
-                self.cycle_count,
-                Snapshot {
-                    a: self.a,
-                    ci: self.ci,
-                    store: self.store.words,
-                    last_instruction: self.last_instruction,
-                },
-            );
+            history.record(self.cycle_count, snapshot);
         }
     }
 
@@ -401,16 +381,9 @@ impl Simulator {
         self.cycle_count += 1;
 
         // Record for time-travel
+        let snapshot = self.snapshot();
         if let Some(history) = &mut self.history {
-            history.record(
-                self.cycle_count,
-                Snapshot {
-                    a: self.a,
-                    ci: self.ci,
-                    store: self.store.words,
-                    last_instruction: self.last_instruction,
-                },
-            );
+            history.record(self.cycle_count, snapshot);
         }
     }
 
@@ -509,22 +482,7 @@ impl Simulator {
 
 impl From<Vec<String>> for Simulator {
     fn from(value: Vec<String>) -> Self {
-        Simulator {
-            a: 0,
-            ci: 0,
-            store: Store::from(value),
-            stop_flag: false,
-            cycle_count: 0,
-            speed: TYPICAL_SPEED,
-            last_instruction: None,
-            breakpoints: Vec::new(),
-            exec_counts: [0; 32],
-            read_counts: [0; 32],
-            write_counts: [0; 32],
-            history: None,
-            heatmap_reset_pending: false,
-            source_path: None,
-        }
+        Self::with_store(Store::from(value), None)
     }
 }
 
