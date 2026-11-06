@@ -844,6 +844,10 @@ impl EditorPopup {
                         return;
                     }
                 };
+                if !(0..32).contains(&value) {
+                    self.message = ts!("popup.address_range");
+                    return;
+                }
                 sim.ci = value;
                 // The recorded future no longer matches the edited machine
                 sim.restart_history();
@@ -2010,6 +2014,36 @@ mod tests {
         popup.handle_key(press('(', KeyModifiers::SHIFT), &mut sim); // ( -> 5
         popup.handle_key(press('7', KeyModifiers::NONE), &mut sim);
         assert_eq!("057", popup.buffer);
+    }
+
+    #[test]
+    fn editor_popup_rejects_out_of_range_ci() {
+        let mut popup = EditorPopup::new();
+        popup.open_for_ci();
+        let mut sim = Simulator::new();
+
+        // i32::MAX used to be stored unvalidated; the next fetch (`ci += 1`)
+        // then panicked with an overflow in debug builds
+        for c in "2147483647".chars() {
+            popup.handle_key(press(c, KeyModifiers::NONE), &mut sim);
+        }
+        popup.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut sim);
+        assert_eq!(0, sim.ci);
+        assert_eq!(ts!("popup.address_range"), popup.message);
+
+        // Upper boundary: 31 is accepted, 32 is rejected
+        for c in "31".chars() {
+            popup.handle_key(press(c, KeyModifiers::NONE), &mut sim);
+        }
+        popup.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut sim);
+        assert_eq!(31, sim.ci);
+
+        for c in "32".chars() {
+            popup.handle_key(press(c, KeyModifiers::NONE), &mut sim);
+        }
+        popup.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut sim);
+        assert_eq!(31, sim.ci, "32 is out of range and must not be applied");
+        assert_eq!(ts!("popup.address_range"), popup.message);
     }
 
     #[test]

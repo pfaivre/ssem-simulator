@@ -383,7 +383,7 @@ impl Simulator {
         }
 
         // Fetch
-        self.ci += 1;
+        self.ci = self.ci.wrapping_add(1);
         self.ci &= Store::INDEX_MASK; // CI loops back to the begining when it exceeds the store boundaries
 
         // Decode
@@ -664,6 +664,15 @@ mod tests {
     fn instruction_cycle_wraps_ci_around_store() {
         let mut sim = Simulator::new();
         sim.ci = 31;
+        sim.store.words[0] = instr(Opcode::STP, 0);
+        sim.instruction_cycle();
+        assert_eq!(0, sim.ci);
+    }
+
+    #[test]
+    fn instruction_cycle_does_not_overflow_on_max_ci() {
+        let mut sim = Simulator::new();
+        sim.ci = i32::MAX;
         sim.store.words[0] = instr(Opcode::STP, 0);
         sim.instruction_cycle();
         assert_eq!(0, sim.ci);
