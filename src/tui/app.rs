@@ -143,11 +143,33 @@ const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 /// key is swallowed; a human double-press (~100 ms apart) always counts.
 const MODE_KEY_REPEAT_GUARD: Duration = Duration::from_millis(50);
 
-/// Whether the key is a view-mode key that must not auto-repeat when held.
+/// The settings control a key activates, if any — the single key→control
+/// map shared by the main keymap and the settings pop-up. `+`/`=`/`-` adjust
+/// the speed like I/K. Modifiers are not considered: Ctrl+letter is not a
+/// plain-letter action in the main keymap.
+fn control_for_key(code: KeyCode) -> Option<SettingControl> {
+    let KeyCode::Char(c) = code else {
+        return None;
+    };
+    Some(match c.to_ascii_lowercase() {
+        'i' | '+' | '=' => SettingControl::SpeedUp,
+        'k' | '-' => SettingControl::SpeedDown,
+        'm' => SettingControl::Heatmap,
+        'f' => SettingControl::Flow,
+        'c' => SettingControl::Comments,
+        'd' => SettingControl::Bits,
+        't' => SettingControl::Theme,
+        _ => return None,
+    })
+}
+
+/// Whether the key is a view-mode key that must not auto-repeat when held:
+/// any settings control except the speed keys — holding I/K (or +/-) should
+/// keep adjusting the speed, but holding M must not keep cycling the mode.
 fn is_mode_key(code: KeyCode) -> bool {
-    matches!(
-        code,
-        KeyCode::Char('m' | 'M' | 'f' | 'F' | 'c' | 'C' | 't' | 'T' | 'd' | 'D')
+    !matches!(
+        control_for_key(code),
+        None | Some(SettingControl::SpeedUp | SettingControl::SpeedDown)
     )
 }
 
@@ -412,25 +434,17 @@ impl App {
                     if c.eq_ignore_ascii_case(&'q') {
                         self.should_quit = true;
                     }
+                } else if let Some(control) = control_for_key(key.code) {
+                    self.perform_setting(control, sim);
                 } else {
                     match c.to_ascii_lowercase() {
                         ' ' => sim.stop_flag = !sim.stop_flag,
-                        'i' => Self::speed_up(sim),
-                        'k' => Self::speed_down(sim),
-                        'd' => {
-                            self.bit_representation =
-                                (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
-                        }
                         'b' => self.breakpoint_popup.open(),
                         'e' => {
                             self.comment_editor.close();
                             self.editor_popup.open();
                         }
                         's' => self.save_popup.open(sim.source_path.as_deref()),
-                        'm' => self.heatmap = self.heatmap.cycle(),
-                        'f' => self.flow = self.flow.cycle(),
-                        'c' => self.show_comments = !self.show_comments,
-                        't' => self.theme = self.theme.cycle(),
                         'h' => self.help_popup.open(),
                         _ => {}
                     }
@@ -1020,7 +1034,9 @@ impl App {
         }
     }
 
-    /// Apply one settings control (a click on a settings pop-up button).
+    /// Apply one settings control — the single control→effect map, used by
+    /// mouse clicks on the settings pop-up and by keyboard keys through
+    /// `control_for_key`.
     fn perform_setting(&mut self, control: SettingControl, sim: &mut Simulator) {
         match control {
             SettingControl::SpeedDown => Self::speed_down(sim),
@@ -1035,24 +1051,11 @@ impl App {
         }
     }
 
-    /// Handle a key press while the settings pop-up is open: the same keys as
-    /// the main keymap for the modes it controls (I/K speed, M/F/C/D/T modes),
-    /// plus +/- for the speed.
+    /// Handle a key press while the settings pop-up is open: the same
+    /// key→control map as the main keymap, applied through `perform_setting`.
     fn handle_settings_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        if let KeyCode::Char(c) = key.code {
-            match c.to_ascii_lowercase() {
-                'i' | '+' | '=' => Self::speed_up(sim),
-                'k' | '-' => Self::speed_down(sim),
-                'm' => self.heatmap = self.heatmap.cycle(),
-                'f' => self.flow = self.flow.cycle(),
-                'c' => self.show_comments = !self.show_comments,
-                'd' => {
-                    self.bit_representation =
-                        (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
-                }
-                't' => self.theme = self.theme.cycle(),
-                _ => {}
-            }
+        if let Some(control) = control_for_key(key.code) {
+            self.perform_setting(control, sim);
         }
     }
 
