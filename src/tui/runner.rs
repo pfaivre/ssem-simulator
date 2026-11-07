@@ -110,18 +110,34 @@ fn machine_thread(sim: Arc<Mutex<Simulator>>, quit: Arc<AtomicBool>, max_cycles:
     }
 }
 
-/// Best-effort terminal restore: disable raw mode, leave the alternate
-/// screen, release mouse capture, and show the cursor.
-fn restore_terminal() -> io::Result<()> {
-    disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
-    execute!(io::stdout(), Show)?;
-    Ok(())
+/// Combine already-evaluated step results: all steps run unconditionally,
+/// and every failure is reported in one combined error.
+fn combine_results(steps: impl IntoIterator<Item = io::Result<()>>) -> io::Result<()> {
+    let errors: Vec<String> = steps
+        .into_iter()
+        .filter_map(|step| step.err().map(|e| e.to_string()))
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(io::Error::other(errors.join("; ")))
+    }
 }
 
-/// Restores the terminal on drop unless disarmed with [`TerminalGuard::restore`],
-/// so a panic or an early `?` cannot leave the terminal in raw mode on the
-/// alternate screen with the cursor hidden.
+/// Best-effort terminal restore: disable raw mode, leave the alternate
+/// screen, release mouse capture, and show the cursor. The array literal
+/// evaluates every step, so one failure cannot skip the remaining cleanup.
+fn restore_terminal() -> io::Result<()> {
+    combine_results([
+        disable_raw_mode(),
+        execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture),
+        execute!(io::stdout(), Show),
+    ])
+}
+
+/// Restores the terminal on drop unless disarmed by a successful
+/// [`TerminalGuard::restore`], so a panic or an early `?` cannot leave the
+/// terminal in raw mode on the alternate screen with the cursor hidden.
 struct TerminalGuard {
     active: bool,
     restore: fn() -> io::Result<()>,
@@ -145,10 +161,14 @@ impl TerminalGuard {
         }
     }
 
-    /// Restore the terminal now and disarm the guard (Drop becomes a no-op).
+    /// Restore the terminal now. Disarms the guard only on success, so a
+    /// failed restore is retried by Drop instead of being skipped.
     fn restore(mut self) -> io::Result<()> {
-        self.active = false;
-        (self.restore)()
+        let result = (self.restore)();
+        if result.is_ok() {
+            self.active = false;
+        }
+        result
     }
 }
 
@@ -186,8 +206,8 @@ pub fn run(
     //
     // The guard restores the terminal (raw mode, alternate screen, mouse
     // capture, cursor) on drop, so a panic in `run_app` or a partway setup
-    // failure cannot leave the user's terminal broken. It is disarmed by the
-    // explicit `restore()` on the normal path.
+    // failure cannot leave the user's terminal broken. The explicit
+    // `restore()` below disarms it — but only when that restore succeeds.
     let guard = TerminalGuard::new();
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -341,5 +361,39 @@ mod tests {
         }
         // Without a TTY the real restore errors; Drop must swallow it, not panic
         drop(TerminalGuard::with_restore(failing));
+    }
+
+    #[test]
+    fn guard_failed_restore_is_retried_on_drop() {
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        fn failing() -> io::Result<()> {
+            CALLS.fetch_add(1, Ordering::Relaxed);
+            Err(io::Error::other("no tty"))
+        }
+        let guard = TerminalGuard::with_restore(failing);
+        assert!(guard.restore().is_err());
+        assert_eq!(
+            2,
+            CALLS.load(Ordering::Relaxed),
+            "a failed restore() must not disarm the guard; Drop retries it"
+        );
+    }
+
+    #[test]
+    fn combine_results_reports_every_failure() {
+        let err = combine_results([
+            Err(io::Error::other("raw mode")),
+            Ok(()),
+            Err(io::Error::other("cursor")),
+        ])
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("raw mode"), "missing first error: {err}");
+        assert!(err.contains("cursor"), "missing later error: {err}");
+    }
+
+    #[test]
+    fn combine_results_ok_when_all_steps_succeed() {
+        assert!(combine_results([Ok(()), Ok(()), Ok(())]).is_ok());
     }
 }
