@@ -22,38 +22,35 @@ pub(super) enum InputField {
 /// While open, all key events are routed here by the main event loop.
 /// The breakpoint editor pop-up.
 pub struct BreakpointPopup {
-    pub(super) open: bool,
+    pub(super) frame: PopupFrame,
     pub(super) kind: BreakpointKind,
     pub(super) field: InputField,
     pub(super) buffer: String,
     pub(super) address: usize,
     pub(super) selected: usize,
     pub(super) message: String,
-    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
-    pub(super) last_rect: Rect,
 }
 
 impl BreakpointPopup {
     pub fn new() -> Self {
         BreakpointPopup {
-            open: false,
+            frame: PopupFrame::new(),
             kind: BreakpointKind::Word,
             field: InputField::Address,
             buffer: String::new(),
             address: 0,
             selected: 0,
             message: String::new(),
-            last_rect: Rect::default(),
         }
     }
 
     pub fn is_open(&self) -> bool {
-        self.open
+        self.frame.is_open()
     }
 
     /// Open the pop-up, resetting the editing state.
     pub fn open(&mut self) {
-        self.open = true;
+        self.frame.open = true;
         self.kind = BreakpointKind::Word;
         self.field = InputField::Address;
         self.buffer.clear();
@@ -61,12 +58,12 @@ impl BreakpointPopup {
     }
 
     pub fn close(&mut self) {
-        self.open = false;
+        self.frame.close();
     }
 
     /// Whether the given screen cell lies inside the pop-up.
     pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.last_rect.contains(Position::new(column, row))
+        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the pop-up is open.
@@ -235,26 +232,19 @@ impl BreakpointPopup {
             .max(display_width(&input))
             .max(descriptions.iter().map(display_width).max().unwrap_or(0));
 
-        // 2 border columns, 1 left margin, 1 right margin
-        let width = (content_width + 4) as u16;
+        let width = popup_width(content_width);
         // Title is in the border. Interior rows: explanation, blank, N breakpoints,
         // blank, input, message, footer = N + 6. Plus 2 border rows.
         let height = (breakpoints.len() + 8) as u16;
 
         let rect = popup_rect(height, width, area);
-        self.last_rect = rect;
-        f.render_widget(Clear, rect);
-        // Clear resets the cells to the terminal default; restore the theme's
-        // base colors under the pop-up
-        f.buffer_mut()
-            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
-
-        let block = Block::bordered()
-            .title(t!("popup.breakpoints.title"))
-            .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(palette.breakpoint_border));
-        let content = content_area(&block, rect);
-        f.render_widget(block, rect);
+        let content = self.frame.begin_popup(
+            f,
+            rect,
+            t!("popup.breakpoints.title"),
+            Some(palette.breakpoint_border),
+            palette,
+        );
 
         let selected_style = Style::default()
             .fg(palette.selection)

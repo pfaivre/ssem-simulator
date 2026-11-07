@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
 use ratatui::layout::{Position, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
@@ -81,13 +81,79 @@ pub(super) fn azerty_digit_of(key: &KeyEvent) -> Option<char> {
 
 /// The content area inside a bordered block, with a 1-column horizontal margin
 /// on each side so text does not touch the border.
-pub(super) fn content_area(block: &Block, rect: Rect) -> Rect {
+fn content_area(block: &Block, rect: Rect) -> Rect {
     let inner = block.inner(rect);
     Rect {
         x: inner.x + 1,
         y: inner.y,
         width: inner.width.saturating_sub(2),
         height: inner.height,
+    }
+}
+
+/// The pop-up rect width for a content width: 2 border columns plus a
+/// 1-column margin on each side, so text does not touch the border.
+pub(super) fn popup_width(content_width: usize) -> u16 {
+    (content_width + 4) as u16
+}
+
+/// The state and chrome shared by every pop-up: the open flag, the rect from
+/// the last draw (for mouse hit-testing), and the frame drawing — Clear, the
+/// theme's base colors, and the rounded bordered block. Pop-ups embed this as
+/// `frame` and route their drawing through [`PopupFrame::begin_popup`].
+pub(super) struct PopupFrame {
+    pub open: bool,
+    pub last_rect: Rect,
+}
+
+impl PopupFrame {
+    pub fn new() -> Self {
+        Self {
+            open: false,
+            last_rect: Rect::default(),
+        }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+
+    /// Whether the given screen cell lies inside the pop-up's last rect.
+    pub fn contains(&self, column: u16, row: u16) -> bool {
+        self.last_rect.contains(Position::new(column, row))
+    }
+
+    /// Draw the pop-up frame at `rect` and return the content area inside the
+    /// border. Records `rect` as the last-drawn rect, clears it, restores the
+    /// theme's base colors under it (Clear resets cells to the terminal
+    /// default), and renders the rounded bordered block with `title`.
+    /// `border_color` colors the border; `None` leaves it in the base fg.
+    pub fn begin_popup(
+        &mut self,
+        f: &mut Frame,
+        rect: Rect,
+        title: impl Into<Line<'static>>,
+        border_color: Option<Color>,
+        palette: &Palette,
+    ) -> Rect {
+        self.last_rect = rect;
+        f.render_widget(Clear, rect);
+        f.buffer_mut()
+            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
+
+        let mut block = Block::bordered()
+            .title(title)
+            .border_type(BorderType::Rounded);
+        if let Some(color) = border_color {
+            block = block.border_style(Style::new().fg(color));
+        }
+        let content = content_area(&block, rect);
+        f.render_widget(block, rect);
+        content
     }
 }
 

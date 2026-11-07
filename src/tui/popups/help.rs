@@ -2,35 +2,32 @@ use super::*;
 use rust_i18n::t;
 
 pub struct HelpPopup {
-    pub(super) open: bool,
+    pub(super) frame: PopupFrame,
     pub(super) scroll: usize,
     /// Maximum scroll offset, refreshed on every draw so key handling can clamp.
     pub(super) max_scroll: usize,
-    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
-    pub(super) last_rect: Rect,
 }
 
 impl HelpPopup {
     pub fn new() -> Self {
         HelpPopup {
-            open: false,
+            frame: PopupFrame::new(),
             scroll: 0,
             max_scroll: 0,
-            last_rect: Rect::default(),
         }
     }
 
     pub fn is_open(&self) -> bool {
-        self.open
+        self.frame.is_open()
     }
 
     pub fn open(&mut self) {
-        self.open = true;
+        self.frame.open = true;
         self.scroll = 0;
     }
 
     pub fn close(&mut self) {
-        self.open = false;
+        self.frame.close();
     }
 
     /// Scroll by `delta` lines (negative goes up), clamped to the content.
@@ -40,7 +37,7 @@ impl HelpPopup {
 
     /// Whether the given screen cell lies inside the pop-up.
     pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.last_rect.contains(Position::new(column, row))
+        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the pop-up is open: arrows scroll the text.
@@ -191,24 +188,15 @@ impl HelpPopup {
             .max(display_width(&footer_scrollable))
             .max(lines.iter().map(Line::width).max().unwrap_or(0));
 
-        // 2 border columns, 1 left margin, 1 right margin
-        let width = (content_width + 4) as u16;
+        let width = popup_width(content_width);
         // 1 footer row + 2 border rows around the content
         let height = (lines.len() + 3) as u16;
 
         let rect = popup_rect(height, width, area);
-        self.last_rect = rect;
-        f.render_widget(Clear, rect);
-        // Clear resets the cells to the terminal default; restore the theme's
-        // base colors under the pop-up
-        f.buffer_mut()
-            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
-
-        let block = Block::bordered()
-            .title(format!(" {title} "))
-            .border_type(BorderType::Rounded);
-        let content = content_area(&block, rect);
-        f.render_widget(block, rect);
+        // No border color: the border stays in the base foreground
+        let content = self
+            .frame
+            .begin_popup(f, rect, format!(" {title} "), None, palette);
 
         // The footer takes the bottom content row; the body scrolls above it.
         let body_height = content.height.saturating_sub(1) as usize;

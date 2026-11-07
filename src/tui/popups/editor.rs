@@ -28,36 +28,33 @@ pub(super) enum EditField {
 /// entered — then type a number or instruction and press Enter to apply.
 /// The editor pop-up for modifying registers and store words.
 pub struct EditorPopup {
-    pub(super) open: bool,
+    pub(super) frame: PopupFrame,
     pub(super) target: EditTarget,
     pub(super) field: EditField,
     pub(super) buffer: String,
     pub(super) address: usize,
     pub(super) message: String,
-    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
-    pub(super) last_rect: Rect,
 }
 
 impl EditorPopup {
     pub fn new() -> Self {
         EditorPopup {
-            open: false,
+            frame: PopupFrame::new(),
             target: EditTarget::Word,
             field: EditField::Address,
             buffer: String::new(),
             address: 0,
             message: String::new(),
-            last_rect: Rect::default(),
         }
     }
 
     pub fn is_open(&self) -> bool {
-        self.open
+        self.frame.is_open()
     }
 
     /// Open the pop-up, resetting the editing state.
     pub fn open(&mut self) {
-        self.open = true;
+        self.frame.open = true;
         self.target = EditTarget::Word;
         self.field = EditField::Address;
         self.buffer.clear();
@@ -66,7 +63,7 @@ impl EditorPopup {
 
     /// Open the pop-up pre-configured to edit CI (double-click on the CI line).
     pub fn open_for_ci(&mut self) {
-        self.open = true;
+        self.frame.open = true;
         self.target = EditTarget::Ci;
         self.field = EditField::Value;
         self.buffer.clear();
@@ -75,7 +72,7 @@ impl EditorPopup {
 
     /// Open the pop-up pre-configured to edit the accumulator (double-click on the A line).
     pub fn open_for_a(&mut self) {
-        self.open = true;
+        self.frame.open = true;
         self.target = EditTarget::A;
         self.field = EditField::Value;
         self.buffer.clear();
@@ -84,7 +81,7 @@ impl EditorPopup {
 
     /// Open the pop-up pre-configured to edit a store word (double-click on a store line).
     pub fn open_for_word(&mut self, address: usize) {
-        self.open = true;
+        self.frame.open = true;
         self.target = EditTarget::Word;
         self.field = EditField::Value;
         self.address = address;
@@ -93,12 +90,12 @@ impl EditorPopup {
     }
 
     pub fn close(&mut self) {
-        self.open = false;
+        self.frame.close();
     }
 
     /// Whether the given screen cell lies inside the pop-up.
     pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.last_rect.contains(Position::new(column, row))
+        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the pop-up is open.
@@ -323,26 +320,19 @@ impl EditorPopup {
             .max(display_width(&current))
             .max(display_width(&preview));
 
-        // 2 border columns, 1 left margin, 1 right margin
-        let width = (content_width + 4) as u16;
+        let width = popup_width(content_width);
         // Title in border. Interior: explanation, blank, current, blank, input,
         // preview, message, blank, footer = 9. Plus 2 border rows.
         let height = 11u16;
 
         let rect = popup_rect(height, width, area);
-        self.last_rect = rect;
-        f.render_widget(Clear, rect);
-        // Clear resets the cells to the terminal default; restore the theme's
-        // base colors under the pop-up
-        f.buffer_mut()
-            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
-
-        let block = Block::bordered()
-            .title(t!("popup.editor.title"))
-            .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(palette.editor_border));
-        let content = content_area(&block, rect);
-        f.render_widget(block, rect);
+        let content = self.frame.begin_popup(
+            f,
+            rect,
+            t!("popup.editor.title"),
+            Some(palette.editor_border),
+            palette,
+        );
 
         let lines: Vec<Line<'static>> = vec![
             Line::from(explanation.to_string()),

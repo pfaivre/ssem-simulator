@@ -34,9 +34,7 @@ pub enum SettingControl {
 /// One row per setting, each with its keyboard shortcut on the left of a
 /// clickable control.
 pub struct SettingsPopup {
-    pub(super) open: bool,
-    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
-    pub(super) last_rect: Rect,
+    pub(super) frame: PopupFrame,
     /// The control buttons' cells from the last draw: (rect, control).
     pub(super) buttons: Vec<(Rect, SettingControl)>,
     /// The control under the mouse cursor, for the hover highlight.
@@ -46,30 +44,29 @@ pub struct SettingsPopup {
 impl SettingsPopup {
     pub fn new() -> Self {
         SettingsPopup {
-            open: false,
-            last_rect: Rect::default(),
+            frame: PopupFrame::new(),
             buttons: Vec::new(),
             hover: None,
         }
     }
 
     pub fn is_open(&self) -> bool {
-        self.open
+        self.frame.is_open()
     }
 
     pub fn open(&mut self) {
-        self.open = true;
+        self.frame.open = true;
         self.hover = None;
     }
 
     pub fn close(&mut self) {
-        self.open = false;
+        self.frame.close();
         self.hover = None;
     }
 
     /// Whether the given screen cell lies inside the pop-up.
     pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.last_rect.contains(Position::new(column, row))
+        self.frame.contains(column, row)
     }
 
     /// The control drawn under the given screen cell, if any.
@@ -195,25 +192,18 @@ impl SettingsPopup {
         // Leading margin (2) + label + gap (2) + shortcut column + gap (2)
         // + the widest row's controls, so every column is vertically aligned
         let content_width = 2 + label_width + 2 + hint_width + 2 + control_width;
-        // 2 border columns, 1 left margin, 1 right margin
-        let width = (content_width.max(display_width(&footer)) + 4) as u16;
+        let width = popup_width(content_width.max(display_width(&footer)));
         // The rows + a blank line + the footer, plus the 2 border rows
         let height = (rows.len() + 4) as u16;
 
         let rect = popup_rect(height, width, area);
-        self.last_rect = rect;
-        f.render_widget(Clear, rect);
-        // Clear resets the cells to the terminal default; restore the theme's
-        // base colors under the pop-up
-        f.buffer_mut()
-            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
-
-        let block = Block::bordered()
-            .title(t!("popup.settings.title"))
-            .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(palette.editor_border));
-        let content = content_area(&block, rect);
-        f.render_widget(block, rect);
+        let content = self.frame.begin_popup(
+            f,
+            rect,
+            t!("popup.settings.title"),
+            Some(palette.editor_border),
+            palette,
+        );
 
         // A control is highlighted (same hover style as the menu bar) only
         // while the mouse is over it; otherwise it is plain key-hint text

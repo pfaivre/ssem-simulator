@@ -31,7 +31,7 @@ fn side_rect(width: u16, height: u16, area: Rect, anchor_col: u16, anchor_row: u
 /// While open, the picker is modal: `App` routes all key and mouse events
 /// to it.
 pub struct PickerPopup {
-    pub(super) open: bool,
+    pub(super) frame: PopupFrame,
     pub(super) kind: PickerKind,
     pub(super) address: usize,
     /// The highlighted entry (arrow keys move it, Enter applies it).
@@ -41,25 +41,22 @@ pub struct PickerPopup {
     /// The entry cells from the last draw, for mouse hit-testing; the
     /// position in the vector is the entry index.
     pub(super) entry_cells: Vec<Rect>,
-    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
-    pub(super) last_rect: Rect,
 }
 
 impl PickerPopup {
     pub fn new() -> Self {
         PickerPopup {
-            open: false,
+            frame: PopupFrame::new(),
             kind: PickerKind::Mnemonic,
             address: 0,
             selected: 0,
             anchor_row: 0,
             entry_cells: Vec::new(),
-            last_rect: Rect::default(),
         }
     }
 
     pub fn is_open(&self) -> bool {
-        self.open
+        self.frame.is_open()
     }
 
     /// Which field of the word the open picker rewrites (tests only).
@@ -88,7 +85,7 @@ impl PickerPopup {
     /// Open on the mnemonic field of the word at `address`, preselecting
     /// the word's current opcode.
     pub fn open_for_mnemonic(&mut self, address: usize, word: i32, anchor_row: u16) {
-        self.open = true;
+        self.frame.open = true;
         self.kind = PickerKind::Mnemonic;
         self.address = address;
         self.anchor_row = anchor_row;
@@ -100,7 +97,7 @@ impl PickerPopup {
     /// Open on the data field of the word at `address`, preselecting the
     /// word's current data value.
     pub fn open_for_data(&mut self, address: usize, word: i32, anchor_row: u16) {
-        self.open = true;
+        self.frame.open = true;
         self.kind = PickerKind::Data;
         self.address = address;
         self.anchor_row = anchor_row;
@@ -110,7 +107,7 @@ impl PickerPopup {
     }
 
     pub fn close(&mut self) {
-        self.open = false;
+        self.frame.close();
     }
 
     /// The entry drawn under the given screen cell, if any.
@@ -122,7 +119,7 @@ impl PickerPopup {
 
     /// Whether the given screen cell lies inside the pop-up.
     pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.last_rect.contains(Position::new(column, row))
+        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the picker is open: the arrows move the
@@ -205,28 +202,18 @@ impl PickerPopup {
         let footer = t!("popup.picker.footer");
 
         let content_width = cols * entry_width as usize;
-        // 2 border columns, 1 left margin, 1 right margin
-        let width = (content_width
-            .max(display_width(&footer))
-            .max(display_width(&title))
-            + 4) as u16;
+        let width = popup_width(
+            content_width
+                .max(display_width(&footer))
+                .max(display_width(&title)),
+        );
         // Entries + footer row, plus the 2 border rows
         let height = (rows + 3) as u16;
 
         let rect = side_rect(width, height, area, anchor_col, self.anchor_row);
-        self.last_rect = rect;
-        f.render_widget(Clear, rect);
-        // Clear resets the cells to the terminal default; restore the theme's
-        // base colors under the pop-up
-        f.buffer_mut()
-            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
-
-        let block = Block::bordered()
-            .title(title)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(palette.editor_border));
-        let content = content_area(&block, rect);
-        f.render_widget(block, rect);
+        let content = self
+            .frame
+            .begin_popup(f, rect, title, Some(palette.editor_border), palette);
 
         // The entry matching the word's current value, marked with '>'
         let (current_op, current_data) = Store::decode_word(store[self.address]);

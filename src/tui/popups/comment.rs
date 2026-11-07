@@ -11,37 +11,33 @@ const MAX_COMMENT_INPUT: usize = MAX_COMMENT_WIDTH;
 /// While open, all key events are routed here by the main event loop;
 /// repeats are accepted so holding Backspace deletes several characters.
 pub struct CommentEditor {
-    pub(super) open: bool,
+    pub(super) frame: PopupFrame,
     pub(super) address: usize,
     pub(super) buffer: String,
-    /// Rectangle of the inline text box from the last draw, for mouse
-    /// hit-testing.
-    pub(super) last_rect: Rect,
 }
 
 impl CommentEditor {
     pub fn new() -> Self {
         CommentEditor {
-            open: false,
+            frame: PopupFrame::new(),
             address: 0,
             buffer: String::new(),
-            last_rect: Rect::default(),
         }
     }
 
     pub fn is_open(&self) -> bool {
-        self.open
+        self.frame.is_open()
     }
 
     /// Record the text box's screen rectangle (called by the draw code,
     /// which knows where the box is drawn).
     pub fn set_last_rect(&mut self, rect: Rect) {
-        self.last_rect = rect;
+        self.frame.last_rect = rect;
     }
 
     /// Whether the given screen cell lies inside the text box.
     pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.last_rect.contains(Position::new(column, row))
+        self.frame.contains(column, row)
     }
 
     /// The text typed so far.
@@ -53,7 +49,7 @@ impl CommentEditor {
     /// buffer plus one cell for the cursor, so the text box stays fully
     /// visible while typing. Zero when the editor is closed.
     pub fn edit_width(&self) -> usize {
-        if self.open {
+        if self.frame.is_open() {
             (self.buffer.chars().count() + 1).min(MAX_COMMENT_WIDTH)
         } else {
             0
@@ -63,19 +59,19 @@ impl CommentEditor {
     /// Whether the editor is open on the given store word (that row draws
     /// the inline text box instead of the comment).
     pub fn is_open_for(&self, index: usize) -> bool {
-        self.open && self.address == index
+        self.frame.is_open() && self.address == index
     }
 
     /// Open on the given word, prefilled with its current comment.
     pub fn open_for(&mut self, address: usize, current: Option<&str>) {
-        self.open = true;
+        self.frame.open = true;
         self.address = address;
         self.buffer = current.unwrap_or_default().to_string();
     }
 
     /// Close without applying (Esc).
     pub fn close(&mut self) {
-        self.open = false;
+        self.frame.close();
         self.buffer.clear();
     }
 

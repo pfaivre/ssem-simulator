@@ -23,28 +23,25 @@ pub(super) fn default_save_name(path: &Path) -> String {
 /// The save pop-up: a single name field; Enter writes the current machine
 /// state to `<dir>/<field>`.
 pub struct SavePopup {
-    pub(super) open: bool,
+    pub(super) frame: PopupFrame,
     /// The folder names are resolved against (the open file's folder).
     pub(super) dir: PathBuf,
     pub(super) buffer: String,
     pub(super) message: String,
-    /// Rectangle of the pop-up from the last draw, for mouse hit-testing.
-    pub(super) last_rect: Rect,
 }
 
 impl SavePopup {
     pub fn new() -> Self {
         SavePopup {
-            open: false,
+            frame: PopupFrame::new(),
             dir: PathBuf::from("."),
             buffer: String::new(),
             message: String::new(),
-            last_rect: Rect::default(),
         }
     }
 
     pub fn is_open(&self) -> bool {
-        self.open
+        self.frame.is_open()
     }
 
     /// Open the pop-up, resetting the input and message.
@@ -55,7 +52,7 @@ impl SavePopup {
     /// `factorct.asm` → `factorct_edited.asm`). Without a source file, the
     /// folder is the current working directory and the field is empty.
     pub fn open(&mut self, source: Option<&Path>) {
-        self.open = true;
+        self.frame.open = true;
         self.message.clear();
         let dir = match source {
             Some(path) => {
@@ -76,12 +73,12 @@ impl SavePopup {
     }
 
     pub fn close(&mut self) {
-        self.open = false;
+        self.frame.close();
     }
 
     /// Whether the given screen cell lies inside the pop-up.
     pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.last_rect.contains(Position::new(column, row))
+        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the pop-up is open. Repeats are accepted so
@@ -149,26 +146,19 @@ impl SavePopup {
             .max(display_width(&input))
             .max(display_width(&self.message));
 
-        // 2 border columns, 1 left margin, 1 right margin
-        let width = (content_width + 4) as u16;
+        let width = popup_width(content_width);
         // Title in border. Interior: explanation, dir, blank, input, message,
         // footer = 6. Plus 2 border rows.
         let height = 8u16;
 
         let rect = popup_rect(height, width, area);
-        self.last_rect = rect;
-        f.render_widget(Clear, rect);
-        // Clear resets the cells to the terminal default; restore the theme's
-        // base colors under the pop-up
-        f.buffer_mut()
-            .set_style(rect, Style::default().fg(palette.fg).bg(palette.bg));
-
-        let block = Block::bordered()
-            .title(t!("popup.save.title"))
-            .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(palette.save_border));
-        let content = content_area(&block, rect);
-        f.render_widget(block, rect);
+        let content = self.frame.begin_popup(
+            f,
+            rect,
+            t!("popup.save.title"),
+            Some(palette.save_border),
+            palette,
+        );
 
         let lines: Vec<Line<'static>> = vec![
             Line::from(explanation.to_string()),
