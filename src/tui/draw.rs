@@ -21,7 +21,7 @@ use super::layout::{
     timeline_marker_offset,
 };
 use super::palette::Palette;
-use super::popups::{PopupDrawCtx, SettingsView};
+use super::popups::{Popup, PopupDrawCtx, SettingsView};
 use super::snapshot::Snapshot;
 use crate::ssem::{Opcode, Store};
 

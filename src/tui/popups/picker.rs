@@ -55,10 +55,6 @@ impl PickerPopup {
         }
     }
 
-    pub fn is_open(&self) -> bool {
-        self.frame.is_open()
-    }
-
     /// Which field of the word the open picker rewrites (tests only).
     #[cfg(test)]
     pub fn kind(&self) -> PickerKind {
@@ -106,20 +102,11 @@ impl PickerPopup {
         self.entry_cells.clear();
     }
 
-    pub fn close(&mut self) {
-        self.frame.close();
-    }
-
     /// The entry drawn under the given screen cell, if any.
     pub fn entry_at(&self, column: u16, row: u16) -> Option<usize> {
         self.entry_cells
             .iter()
             .position(|r| r.contains(Position::new(column, row)))
-    }
-
-    /// Whether the given screen cell lies inside the pop-up.
-    pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the picker is open: the arrows move the
@@ -268,14 +255,11 @@ impl PickerPopup {
 }
 
 impl Popup for PickerPopup {
-    fn is_open(&self) -> bool {
-        PickerPopup::is_open(self)
+    fn frame(&self) -> &PopupFrame {
+        &self.frame
     }
-    fn close(&mut self) {
-        PickerPopup::close(self)
-    }
-    fn contains(&self, column: u16, row: u16) -> bool {
-        PickerPopup::contains(self, column, row)
+    fn frame_mut(&mut self) -> &mut PopupFrame {
+        &mut self.frame
     }
     fn handles_own_clicks(&self) -> bool {
         true
@@ -283,7 +267,7 @@ impl Popup for PickerPopup {
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
         // Esc cancels, on press and repeat (the picker is modal)
         if key.code == KeyCode::Esc {
-            PickerPopup::close(self);
+            self.close();
             return;
         }
         PickerPopup::handle_key(self, key, sim);

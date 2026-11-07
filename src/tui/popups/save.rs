@@ -40,10 +40,6 @@ impl SavePopup {
         }
     }
 
-    pub fn is_open(&self) -> bool {
-        self.frame.is_open()
-    }
-
     /// Open the pop-up, resetting the input and message.
     ///
     /// When the machine was loaded from a file (`source`), the target folder
@@ -70,15 +66,6 @@ impl SavePopup {
             Some(path) => default_save_name(path),
             None => String::new(),
         };
-    }
-
-    pub fn close(&mut self) {
-        self.frame.close();
-    }
-
-    /// Whether the given screen cell lies inside the pop-up.
-    pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the pop-up is open. Repeats are accepted so
@@ -180,20 +167,17 @@ impl SavePopup {
 }
 
 impl Popup for SavePopup {
-    fn is_open(&self) -> bool {
-        SavePopup::is_open(self)
+    fn frame(&self) -> &PopupFrame {
+        &self.frame
     }
-    fn close(&mut self) {
-        SavePopup::close(self)
-    }
-    fn contains(&self, column: u16, row: u16) -> bool {
-        SavePopup::contains(self, column, row)
+    fn frame_mut(&mut self) -> &mut PopupFrame {
+        &mut self.frame
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
         // Esc closes the pop-up (on a press); every other key types into the
         // file name
         if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
-            SavePopup::close(self);
+            self.close();
             return;
         }
         SavePopup::handle_key(self, key, sim);

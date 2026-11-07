@@ -17,27 +17,14 @@ impl HelpPopup {
         }
     }
 
-    pub fn is_open(&self) -> bool {
-        self.frame.is_open()
-    }
-
     pub fn open(&mut self) {
         self.frame.open = true;
         self.scroll = 0;
     }
 
-    pub fn close(&mut self) {
-        self.frame.close();
-    }
-
     /// Scroll by `delta` lines (negative goes up), clamped to the content.
     pub fn scroll_by(&mut self, delta: i32) {
         self.scroll = (self.scroll as i64 + delta as i64).clamp(0, self.max_scroll as i64) as usize;
-    }
-
-    /// Whether the given screen cell lies inside the pop-up.
-    pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the pop-up is open: arrows scroll the text.
@@ -238,21 +225,18 @@ impl HelpPopup {
 }
 
 impl Popup for HelpPopup {
-    fn is_open(&self) -> bool {
-        HelpPopup::is_open(self)
+    fn frame(&self) -> &PopupFrame {
+        &self.frame
     }
-    fn close(&mut self) {
-        HelpPopup::close(self)
-    }
-    fn contains(&self, column: u16, row: u16) -> bool {
-        HelpPopup::contains(self, column, row)
+    fn frame_mut(&mut self) -> &mut PopupFrame {
+        &mut self.frame
     }
     fn handle_key(&mut self, key: KeyEvent, _sim: &mut Simulator) {
         // H toggles the pop-up closed (on a press, like every close key)
         if key.kind == KeyEventKind::Press
             && matches!(key.code, KeyCode::Char('h' | 'H') | KeyCode::Esc)
         {
-            HelpPopup::close(self);
+            self.close();
             return;
         }
         HelpPopup::handle_key(self, key);

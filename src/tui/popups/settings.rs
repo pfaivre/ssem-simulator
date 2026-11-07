@@ -50,23 +50,9 @@ impl SettingsPopup {
         }
     }
 
-    pub fn is_open(&self) -> bool {
-        self.frame.is_open()
-    }
-
     pub fn open(&mut self) {
         self.frame.open = true;
         self.hover = None;
-    }
-
-    pub fn close(&mut self) {
-        self.frame.close();
-        self.hover = None;
-    }
-
-    /// Whether the given screen cell lies inside the pop-up.
-    pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.frame.contains(column, row)
     }
 
     /// The control drawn under the given screen cell, if any.
@@ -254,14 +240,15 @@ impl SettingsPopup {
 }
 
 impl Popup for SettingsPopup {
-    fn is_open(&self) -> bool {
-        SettingsPopup::is_open(self)
+    fn frame(&self) -> &PopupFrame {
+        &self.frame
+    }
+    fn frame_mut(&mut self) -> &mut PopupFrame {
+        &mut self.frame
     }
     fn close(&mut self) {
-        SettingsPopup::close(self)
-    }
-    fn contains(&self, column: u16, row: u16) -> bool {
-        SettingsPopup::contains(self, column, row)
+        self.frame_mut().close();
+        self.hover = None;
     }
     fn handles_own_clicks(&self) -> bool {
         true

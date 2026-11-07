@@ -25,19 +25,10 @@ impl CommentEditor {
         }
     }
 
-    pub fn is_open(&self) -> bool {
-        self.frame.is_open()
-    }
-
     /// Record the text box's screen rectangle (called by the draw code,
     /// which knows where the box is drawn).
     pub fn set_last_rect(&mut self, rect: Rect) {
         self.frame.last_rect = rect;
-    }
-
-    /// Whether the given screen cell lies inside the text box.
-    pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.frame.contains(column, row)
     }
 
     /// The text typed so far.
@@ -67,12 +58,6 @@ impl CommentEditor {
         self.frame.open = true;
         self.address = address;
         self.buffer = current.unwrap_or_default().to_string();
-    }
-
-    /// Close without applying (Esc).
-    pub fn close(&mut self) {
-        self.frame.close();
-        self.buffer.clear();
     }
 
     /// Handle a key press while the editor is open. Repeats are accepted
@@ -151,19 +136,20 @@ impl CommentEditor {
 }
 
 impl Popup for CommentEditor {
-    fn is_open(&self) -> bool {
-        CommentEditor::is_open(self)
+    fn frame(&self) -> &PopupFrame {
+        &self.frame
+    }
+    fn frame_mut(&mut self) -> &mut PopupFrame {
+        &mut self.frame
     }
     fn close(&mut self) {
-        CommentEditor::close(self)
-    }
-    fn contains(&self, column: u16, row: u16) -> bool {
-        CommentEditor::contains(self, column, row)
+        self.frame_mut().close();
+        self.buffer.clear();
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
         // Esc cancels (on a press, like every close key)
         if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
-            CommentEditor::close(self);
+            self.close();
             return;
         }
         CommentEditor::handle_key(self, key, sim);

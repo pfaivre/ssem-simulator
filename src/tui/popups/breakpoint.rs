@@ -44,10 +44,6 @@ impl BreakpointPopup {
         }
     }
 
-    pub fn is_open(&self) -> bool {
-        self.frame.is_open()
-    }
-
     /// Open the pop-up, resetting the editing state.
     pub fn open(&mut self) {
         self.frame.open = true;
@@ -55,15 +51,6 @@ impl BreakpointPopup {
         self.field = InputField::Address;
         self.buffer.clear();
         self.message.clear();
-    }
-
-    pub fn close(&mut self) {
-        self.frame.close();
-    }
-
-    /// Whether the given screen cell lies inside the pop-up.
-    pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the pop-up is open.
@@ -303,21 +290,18 @@ impl BreakpointPopup {
 }
 
 impl Popup for BreakpointPopup {
-    fn is_open(&self) -> bool {
-        BreakpointPopup::is_open(self)
+    fn frame(&self) -> &PopupFrame {
+        &self.frame
     }
-    fn close(&mut self) {
-        BreakpointPopup::close(self)
-    }
-    fn contains(&self, column: u16, row: u16) -> bool {
-        BreakpointPopup::contains(self, column, row)
+    fn frame_mut(&mut self) -> &mut PopupFrame {
+        &mut self.frame
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
         // B or Esc closes the pop-up (on a press, like every close key)
         if key.kind == KeyEventKind::Press
             && matches!(key.code, KeyCode::Esc | KeyCode::Char('b' | 'B'))
         {
-            BreakpointPopup::close(self);
+            self.close();
             return;
         }
         BreakpointPopup::handle_key(self, key, &mut sim.breakpoints);

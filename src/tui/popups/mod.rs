@@ -182,12 +182,23 @@ pub(super) struct PopupDrawCtx<'a> {
 /// The operations every pop-up shares, so `App` can hold all of them in one
 /// ordered registry (`App::popups_mut`) instead of re-listing the pop-ups at
 /// every key, mouse, close and draw site. Adding a pop-up = one field + one
-/// entry in that array + an impl of this trait.
+/// entry in that array + an impl of this trait. The chrome methods default
+/// to the pop-up's embedded [`PopupFrame`], so an impl only writes the two
+/// frame accessors plus its real `handle_key`/`draw`.
 pub(super) trait Popup {
-    fn is_open(&self) -> bool;
-    fn close(&mut self);
+    fn frame(&self) -> &PopupFrame;
+    fn frame_mut(&mut self) -> &mut PopupFrame;
+
+    fn is_open(&self) -> bool {
+        self.frame().is_open()
+    }
+    fn close(&mut self) {
+        self.frame_mut().close()
+    }
     /// Whether the screen cell lies inside this pop-up's last drawn rect.
-    fn contains(&self, column: u16, row: u16) -> bool;
+    fn contains(&self, column: u16, row: u16) -> bool {
+        self.frame().contains(column, row)
+    }
     /// Pop-ups with their own clickable controls (settings, picker) handle
     /// mouse clicks themselves in `App::handle_mouse` and are excluded from
     /// the generic click-outside-to-close logic.

@@ -48,10 +48,6 @@ impl EditorPopup {
         }
     }
 
-    pub fn is_open(&self) -> bool {
-        self.frame.is_open()
-    }
-
     /// Open the pop-up, resetting the editing state.
     pub fn open(&mut self) {
         self.frame.open = true;
@@ -87,15 +83,6 @@ impl EditorPopup {
         self.address = address;
         self.buffer.clear();
         self.message.clear();
-    }
-
-    pub fn close(&mut self) {
-        self.frame.close();
-    }
-
-    /// Whether the given screen cell lies inside the pop-up.
-    pub fn contains(&self, column: u16, row: u16) -> bool {
-        self.frame.contains(column, row)
     }
 
     /// Handle a key press while the pop-up is open.
@@ -362,21 +349,18 @@ impl EditorPopup {
 }
 
 impl Popup for EditorPopup {
-    fn is_open(&self) -> bool {
-        EditorPopup::is_open(self)
+    fn frame(&self) -> &PopupFrame {
+        &self.frame
     }
-    fn close(&mut self) {
-        EditorPopup::close(self)
-    }
-    fn contains(&self, column: u16, row: u16) -> bool {
-        EditorPopup::contains(self, column, row)
+    fn frame_mut(&mut self) -> &mut PopupFrame {
+        &mut self.frame
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
         // E or Esc closes the pop-up (on a press, like every close key)
         if key.kind == KeyEventKind::Press
             && matches!(key.code, KeyCode::Esc | KeyCode::Char('e' | 'E'))
         {
-            EditorPopup::close(self);
+            self.close();
             return;
         }
         EditorPopup::handle_key(self, key, sim);
