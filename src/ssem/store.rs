@@ -85,6 +85,85 @@ fn read_error(path: &Path, e: std::io::Error) -> std::io::Error {
     )
 }
 
+/// Parse a store from an indexed text file — the skeleton shared by
+/// `from_asm_file` and `from_snp_file`: open the file, split each line into
+/// its instruction and `;` comment, skip comment-only lines, check that
+/// indices are contiguous from 0 and within the store, record each word's
+/// comment, and assemble the `Store`.
+///
+/// `parse_line` is the format-specific part: given the trimmed instruction
+/// (comment removed) and the raw line, it returns the word's index and value.
+fn parse_indexed_file(
+    filename: &Path,
+    parse_line: impl Fn(&str, &str) -> std::io::Result<(i32, i32)>,
+) -> std::io::Result<Store> {
+    let file = File::open(filename).map_err(|e| read_error(filename, e))?;
+    let reader = BufReader::new(file);
+
+    let mut words = [0_i32; SSEM_STORE_WORDS];
+    let mut comments = std::array::from_fn(|_| None);
+
+    let mut last_index: i32 = 0;
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| read_error(filename, e))?;
+
+        // Split the instruction from its comment; the comment is kept
+        // for display (a comment-only line has no instruction and is skipped)
+        let (instruction, comment) = match line.split_once(ASM_COMMENT_CHAR) {
+            Some((instruction, comment)) => {
+                // Keep the comment's original indentation (the spacing
+                // after the ';'), so aligned comments in the source stay
+                // aligned on screen; only trailing whitespace is dropped
+                let comment = comment.trim_end();
+                (
+                    instruction.trim(),
+                    (!comment.trim().is_empty()).then(|| comment.to_string()),
+                )
+            }
+            None => (line.trim(), None),
+        };
+        if instruction.is_empty() {
+            continue;
+        }
+
+        let (index, word) = parse_line(instruction, &line)?;
+
+        // Ensure lines are contiguous and without duplicates
+        if index > 0 && index != last_index + 1 {
+            return Err(parse_error(ts!(
+                "error.expected_index",
+                line = line,
+                expected = last_index + 1
+            )));
+        }
+        last_index = index;
+
+        // Ensure the index is within the store (this also rejects negatives,
+        // which the contiguity check above lets through)
+        if !(0..words.len() as i32).contains(&index) {
+            return Err(parse_error(ts!(
+                "error.index_too_big",
+                line = instruction,
+                index = index,
+                size = words.len()
+            )));
+        }
+        let addr = index as usize;
+
+        comments[addr] = comment;
+        words[addr] = word;
+    }
+
+    let store = Store {
+        words,
+        comments: Arc::new(comments),
+    };
+    store._check();
+
+    Ok(store)
+}
+
 /// Main memory of a SSEM-like machine
 ///
 /// Note: SSEM writes integers with its least significant to most significant bits from left to right.
@@ -155,35 +234,7 @@ impl Store {
     /// Returns an `io::Error` with a localized message when the file cannot be
     /// read or a line cannot be parsed, instead of panicking.
     pub fn from_asm_file(filename: &Path) -> std::io::Result<Store> {
-        let file = File::open(filename).map_err(|e| read_error(filename, e))?;
-        let reader = BufReader::new(file);
-
-        let mut words = [0_i32; SSEM_STORE_WORDS];
-        let mut comments = std::array::from_fn(|_| None);
-
-        let mut last_index: i32 = 0;
-
-        for line in reader.lines() {
-            let line = line.map_err(|e| read_error(filename, e))?;
-
-            // Split the instruction from its comment; the comment is kept
-            // for display (a comment-only line has no instruction and is skipped)
-            let (instruction, comment) = match line.split_once(ASM_COMMENT_CHAR) {
-                Some((instruction, comment)) => {
-                    // Keep the comment's original indentation (the spacing
-                    // after the ';'), so aligned comments in the source stay
-                    // aligned on screen; only trailing whitespace is dropped
-                    let comment = comment.trim_end();
-                    (
-                        instruction.trim(),
-                        (!comment.trim().is_empty()).then(|| comment.to_string()),
-                    )
-                }
-                None => (line.trim(), None),
-            };
-            if instruction.is_empty() {
-                continue;
-            }
+        parse_indexed_file(filename, |instruction, _line| {
             // Extracting tokens "<index> <opcode> <operand>"
             let i: Vec<&str> = instruction.split_ascii_whitespace().collect();
             if i.len() < 2 {
@@ -205,30 +256,6 @@ impl Store {
                 0
             };
 
-            // Ensure lines are contiguous and without duplicates
-            if index > 0 && index != last_index + 1 {
-                return Err(parse_error(ts!(
-                    "error.expected_index",
-                    line = line,
-                    expected = last_index + 1
-                )));
-            }
-            last_index = index;
-
-            // Ensure the index is within the store (this also rejects negatives,
-            // which the contiguity check above lets through)
-            if !(0..words.len() as i32).contains(&index) {
-                return Err(parse_error(ts!(
-                    "error.index_too_big",
-                    line = instruction,
-                    index = index,
-                    size = words.len()
-                )));
-            }
-            let addr = index as usize;
-
-            comments[addr] = comment;
-
             let opcode = Opcode::from_str(opcode).map_err(|_| {
                 parse_error(ts!(
                     "error.opcode_not_valid",
@@ -237,10 +264,8 @@ impl Store {
                 ))
             })?;
 
-            match opcode {
-                Opcode::NUM => {
-                    words[addr] = operand;
-                }
+            let word = match opcode {
+                Opcode::NUM => operand,
                 opcode => {
                     // Ensure the operand fits in the instruction's data bits
                     if !(0..=SSEM_DATA_MASK).contains(&operand) {
@@ -251,23 +276,11 @@ impl Store {
                             max = SSEM_DATA_MASK
                         )));
                     }
-
-                    // Print the opcode
-                    let w: i32 = (opcode as i32) << SSEM_OPCODE_BIT_SHIFT;
-
-                    // Print the operand
-                    words[addr] = w | operand;
+                    (opcode as i32) << SSEM_OPCODE_BIT_SHIFT | operand
                 }
-            }
-        }
-
-        let store = Store {
-            words,
-            comments: Arc::new(comments),
-        };
-        store._check();
-
-        Ok(store)
+            };
+            Ok((index, word))
+        })
     }
 
     /// Initializes the store with the given snp file
@@ -292,35 +305,7 @@ impl Store {
     /// Returns an `io::Error` with a localized message when the file cannot be
     /// read or a line cannot be parsed, instead of panicking.
     pub fn from_snp_file(filename: &Path) -> std::io::Result<Store> {
-        let file = File::open(filename).map_err(|e| read_error(filename, e))?;
-        let reader = BufReader::new(file);
-
-        let mut words = [0_i32; SSEM_STORE_WORDS];
-        let mut comments = std::array::from_fn(|_| None);
-
-        let mut last_index: i32 = 0;
-
-        for line in reader.lines() {
-            let line = line.map_err(|e| read_error(filename, e))?;
-
-            // Split the word from its comment; the comment is kept for
-            // display (a comment-only line has no word and is skipped)
-            let (instruction, comment) = match line.split_once(ASM_COMMENT_CHAR) {
-                Some((instruction, comment)) => {
-                    // Keep the comment's original indentation (the spacing
-                    // after the ';'), so aligned comments in the source stay
-                    // aligned on screen; only trailing whitespace is dropped
-                    let comment = comment.trim_end();
-                    (
-                        instruction.trim(),
-                        (!comment.trim().is_empty()).then(|| comment.to_string()),
-                    )
-                }
-                None => (line.trim(), None),
-            };
-            if instruction.is_empty() {
-                continue;
-            }
+        parse_indexed_file(filename, |instruction, line| {
             // Extracting tokens "<index>: <binary_word>"
             let i: Vec<&str> = instruction.splitn(2, ':').collect();
             if i.len() != 2 {
@@ -331,30 +316,6 @@ impl Store {
                 .parse()
                 .map_err(|_| parse_error(ts!("error.read_number")))?;
 
-            // Ensure lines are contiguous and without duplicates
-            if index > 0 && index != last_index + 1 {
-                return Err(parse_error(ts!(
-                    "error.expected_index",
-                    line = line,
-                    expected = last_index + 1
-                )));
-            }
-            last_index = index;
-
-            // Ensure the index is within the store (this also rejects negatives,
-            // which the contiguity check above lets through)
-            if !(0..words.len() as i32).contains(&index) {
-                return Err(parse_error(ts!(
-                    "error.index_too_big",
-                    line = instruction,
-                    index = index,
-                    size = words.len()
-                )));
-            }
-            let addr = index as usize;
-
-            comments[addr] = comment;
-
             // Reverse the bit order: SSEM is least significant bit first
             let word = i[1].trim().chars().rev().collect::<String>();
             if word.len() != 32 {
@@ -364,7 +325,7 @@ impl Store {
                     got = word.len()
                 )));
             }
-            // Use a 64-bit temporarily before casting down later below, to avoid parsing errors on some cases
+            // Use a 64-bit temporarily before casting down below, to avoid parsing errors on some cases
             let word: i64 = match i64::from_str_radix(&word, 2) {
                 Ok(value) => value,
                 Err(e) => {
@@ -377,17 +338,9 @@ impl Store {
                 }
             };
 
-            // The cast to i32 is safe because we ensured before there is only 32 bits of data in the word
-            words[addr] = word as i32;
-        }
-
-        let store = Store {
-            words,
-            comments: Arc::new(comments),
-        };
-        store._check();
-
-        Ok(store)
+            // The cast to i32 is safe because we ensured above there is only 32 bits of data in the word
+            Ok((index, word as i32))
+        })
     }
 
     /// Set the source comment of the word at `index` (`None` clears it).
