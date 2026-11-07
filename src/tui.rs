@@ -44,9 +44,11 @@
 //!
 //! Where to add things: a new view mode goes in `layout.rs` (+ `config.rs` to
 //! persist it, + `draw.rs` to render it, + `app.rs` for its key); a new pop-up
-//! goes in `popups.rs` with its state in `app.rs`; a new theme is a new file
-//! in `palette/` plus a `Theme` variant; new machine-thread behavior goes in
-//! `runner.rs`.
+//! goes in `popups/` (one file per widget, re-exported in `popups/mod.rs`),
+//! gets a `Popup` impl, a field on `App`, and one entry in `App::popups_mut`
+//! — that array is the single list every key/mouse/close/draw site iterates;
+//! a new theme is a new file in `palette/` plus a `Theme` variant; new
+//! machine-thread behavior goes in `runner.rs`.
 
 mod app;
 mod config;

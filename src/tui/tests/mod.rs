@@ -23,6 +23,7 @@ use super::layout::{
     CONTENT_HEIGHT, FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, MIN_WIDTH, STORE_TEXT_WIDTH,
     comment_column_width, timeline_bar_geometry, timeline_marker_offset,
 };
+use super::popups::Popup;
 use super::snapshot::Snapshot;
 use crate::ssem::Store;
 use crate::ssem::simulator::{LastInstruction, Simulator};

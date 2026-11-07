@@ -236,5 +236,3 @@ operand_not_valid = "Erreur près de la ligne '%{line}' : opérande '%{operand}'
 invalid_syntax = "Erreur près de la ligne '%{line}' : syntaxe invalide"
 word_size = "Erreur près de la ligne '%{line}' : taille de mot invalide, 32 attendu, %{got} reçu"
 word_parse = "Erreur près de la ligne '%{line}' : impossible d'analyser le mot '%{word}' : %{error}"
-unknown_format = "Format de fichier inconnu"
-unknown_format_ext = "Format de fichier inconnu '%{ext}'"

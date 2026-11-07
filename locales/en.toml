@@ -239,5 +239,3 @@ operand_not_valid = "Error near line '%{line}': operand '%{operand}' non valid. 
 invalid_syntax = "Error near line '%{line}': invalid syntax"
 word_size = "Error near line '%{line}': Invalid word size, expected 32, got %{got}"
 word_parse = "Error near line '%{line}': Unable to parse the word '%{word}': %{error}"
-unknown_format = "Unkown file format"
-unknown_format_ext = "Unkown file format '%{ext}'"

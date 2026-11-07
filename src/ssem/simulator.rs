@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::{
-    history::{History, Snapshot},
+    history::{History, MachineState},
     opcode::Opcode,
     store::{Bits, FileFormat, Store},
 };
@@ -161,44 +161,13 @@ impl Default for Simulator {
 
 impl Simulator {
     pub fn new() -> Simulator {
-        Simulator {
-            a: 0,
-            ci: 0,
-            store: Store::new(),
-            stop_flag: false,
-            cycle_count: 0,
-            speed: TYPICAL_SPEED,
-            last_instruction: None,
-            breakpoints: Vec::new(),
-            exec_counts: [0; 32],
-            read_counts: [0; 32],
-            write_counts: [0; 32],
-            history: None,
-            heatmap_reset_pending: false,
-            source_path: None,
-        }
+        Self::with_store(Store::new(), None)
     }
 
-    /// Initializes an SSEM simulator with memory state described in the given file.
-    /// Supported file types are .snp and .asm
-    pub fn from_file(filename: &Path) -> Simulator {
-        let store = match filename.extension() {
-            Some(ext) => {
-                // Case-insensitive, so a file saved as e.g. "STATE.SNP" reloads
-                if ext.eq_ignore_ascii_case("asm") {
-                    Store::from_asm_file(filename)
-                } else if ext.eq_ignore_ascii_case("snp") {
-                    Store::from_snp_file(filename)
-                } else {
-                    panic!(
-                        "{}",
-                        ts!("error.unknown_format_ext", ext = ext.to_str().unwrap_or(""))
-                    );
-                }
-            }
-            None => panic!("{}", ts!("error.unknown_format")),
-        };
-
+    /// A simulator around `store` with every other field at its default — the
+    /// single place the full field list lives, so `new`, `from_file`, and
+    /// `From<Vec<String>>` delegate here and a new field is added in one spot.
+    fn with_store(store: Store, source_path: Option<PathBuf>) -> Self {
         Simulator {
             a: 0,
             ci: 0,
@@ -213,8 +182,34 @@ impl Simulator {
             write_counts: [0; 32],
             history: None,
             heatmap_reset_pending: false,
-            source_path: Some(filename.to_path_buf()),
+            source_path,
         }
+    }
+
+    /// Capture the current machine state for the history ring.
+    fn machine_state(&self) -> MachineState {
+        MachineState {
+            a: self.a,
+            ci: self.ci,
+            store: self.store.words,
+            last_instruction: self.last_instruction,
+        }
+    }
+
+    /// Initializes an SSEM simulator with memory state described in the given file.
+    /// Supported file types are .snp and .asm, chosen by the file extension via
+    /// [`FileFormat::from_path`] + [`FileFormat::load`] (the same dispatcher
+    /// the save path uses).
+    ///
+    /// # Errors
+    ///
+    /// Returns an `io::Error` with a localized message when the extension is
+    /// missing/unknown, the file cannot be read, or a line cannot be parsed —
+    /// the same error type as the save path, instead of panicking.
+    pub fn from_file(filename: &Path) -> std::io::Result<Simulator> {
+        let store = FileFormat::from_path(filename)?.load(filename)?;
+
+        Ok(Self::with_store(store, Some(filename.to_path_buf())))
     }
 
     /// Whether the machine is currently running (not stopped).
@@ -233,10 +228,7 @@ impl Simulator {
     /// Returns an `InvalidInput` error when the extension is missing or
     /// unknown, and the underlying I/O error when the write fails.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let body = match FileFormat::from_path(path)? {
-            FileFormat::Asm => self.store.to_asm_string(),
-            FileFormat::Snp => self.store.to_snp_string(),
-        };
+        let body = FileFormat::from_path(path)?.dump(&self.store);
         let header = format!(
             "; Machine state saved by ssem-simulator v{}\n; CI: {}  A: {}  cycles: {}\n",
             env!("CARGO_PKG_VERSION"),
@@ -250,19 +242,11 @@ impl Simulator {
     /// Enable execution history, retaining up to `capacity` past states.
     ///
     /// The current state is recorded as cycle 0; every subsequent instruction
-    /// cycle appends a snapshot. History is disabled (None) by default, so
+    /// cycle appends a machine state. History is disabled (None) by default, so
     /// headless runs pay no memory or CPU cost.
     pub fn enable_history(&mut self, capacity: usize) {
         let mut history = History::new(capacity);
-        history.record(
-            self.cycle_count,
-            Snapshot {
-                a: self.a,
-                ci: self.ci,
-                store: self.store.words,
-                last_instruction: self.last_instruction,
-            },
-        );
+        history.record(self.cycle_count, self.machine_state());
         self.history = Some(history);
         // A fresh history starts at the tip, so nothing is pending
         self.heatmap_reset_pending = false;
@@ -270,7 +254,7 @@ impl Simulator {
 
     /// Restore the machine to the state recorded at `cycle`.
     ///
-    /// Restores the last-instruction display from the snapshot and pauses
+    /// Restores the last-instruction display from the recorded machine state and pauses
     /// the machine. The heatmap counters (execution and read/write) are
     /// kept, so scrubbing the history does not wipe the heatmap; they are
     /// reset only when the machine restarts from the rewound position (see
@@ -282,7 +266,7 @@ impl Simulator {
         let Some(history) = &self.history else {
             return false;
         };
-        let Some(snapshot) = history.get(cycle).copied() else {
+        let Some(machine_state) = history.get(cycle).copied() else {
             return false;
         };
         // Latch whether this position is behind the head, so the next
@@ -290,11 +274,11 @@ impl Simulator {
         // without re-deriving it on every cycle. Scrubbing back to the
         // tip clears the latch: resuming from there is a continuation.
         let pending = cycle < history.head();
-        self.a = snapshot.a;
-        self.ci = snapshot.ci;
-        self.store.words = snapshot.store;
+        self.a = machine_state.a;
+        self.ci = machine_state.ci;
+        self.store.words = machine_state.store;
         self.cycle_count = cycle;
-        self.last_instruction = snapshot.last_instruction;
+        self.last_instruction = machine_state.last_instruction;
         self.heatmap_reset_pending = pending;
         self.stop_flag = true;
         true
@@ -308,17 +292,10 @@ impl Simulator {
     /// the one where the change was made. Does nothing when history is
     /// disabled.
     pub fn restart_history(&mut self) {
+        let machine_state = self.machine_state();
         if let Some(history) = &mut self.history {
             history.clear();
-            history.record(
-                self.cycle_count,
-                Snapshot {
-                    a: self.a,
-                    ci: self.ci,
-                    store: self.store.words,
-                    last_instruction: self.last_instruction,
-                },
-            );
+            history.record(self.cycle_count, machine_state);
         }
     }
 
@@ -341,17 +318,10 @@ impl Simulator {
         self.breakpoints.clear();
         self.reset_heatmap();
         self.heatmap_reset_pending = false;
+        let machine_state = self.machine_state();
         if let Some(history) = &mut self.history {
             history.clear();
-            history.record(
-                self.cycle_count,
-                Snapshot {
-                    a: self.a,
-                    ci: self.ci,
-                    store: self.store.words,
-                    last_instruction: self.last_instruction,
-                },
-            );
+            history.record(self.cycle_count, machine_state);
         }
     }
 
@@ -383,7 +353,7 @@ impl Simulator {
         }
 
         // Fetch
-        self.ci += 1;
+        self.ci = self.ci.wrapping_add(1);
         self.ci &= Store::INDEX_MASK; // CI loops back to the begining when it exceeds the store boundaries
 
         // Decode
@@ -406,16 +376,9 @@ impl Simulator {
         self.cycle_count += 1;
 
         // Record for time-travel
+        let machine_state = self.machine_state();
         if let Some(history) = &mut self.history {
-            history.record(
-                self.cycle_count,
-                Snapshot {
-                    a: self.a,
-                    ci: self.ci,
-                    store: self.store.words,
-                    last_instruction: self.last_instruction,
-                },
-            );
+            history.record(self.cycle_count, machine_state);
         }
     }
 
@@ -514,22 +477,7 @@ impl Simulator {
 
 impl From<Vec<String>> for Simulator {
     fn from(value: Vec<String>) -> Self {
-        Simulator {
-            a: 0,
-            ci: 0,
-            store: Store::from(value),
-            stop_flag: false,
-            cycle_count: 0,
-            speed: TYPICAL_SPEED,
-            last_instruction: None,
-            breakpoints: Vec::new(),
-            exec_counts: [0; 32],
-            read_counts: [0; 32],
-            write_counts: [0; 32],
-            history: None,
-            heatmap_reset_pending: false,
-            source_path: None,
-        }
+        Self::with_store(Store::from(value), None)
     }
 }
 
@@ -580,7 +528,7 @@ mod tests {
 
     #[test]
     fn from_file_asm() {
-        let sim = Simulator::from_file(Path::new("samples/factorct.asm"));
+        let sim = Simulator::from_file(Path::new("samples/factorct.asm")).unwrap();
         assert_eq!(0, sim.a);
         assert_eq!(0, sim.ci);
         // 01 LDN 24
@@ -589,7 +537,7 @@ mod tests {
 
     #[test]
     fn from_file_snp() {
-        let sim = Simulator::from_file(Path::new("samples/nightmare.snp"));
+        let sim = Simulator::from_file(Path::new("samples/nightmare.snp")).unwrap();
         assert_eq!(0, sim.a);
         assert_eq!(0, sim.ci);
         assert_eq!(
@@ -599,15 +547,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unkown file format 'txt'")]
     fn from_file_unknown_extension() {
-        let _ = Simulator::from_file(Path::new("samples/virpet.txt"));
+        let err = Simulator::from_file(Path::new("samples/virpet.txt"))
+            .err()
+            .unwrap();
+        assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
+        assert!(err.to_string().contains(".asm or .snp"), "err: {err}");
     }
 
     #[test]
-    #[should_panic(expected = "Unkown file format")]
     fn from_file_no_extension() {
-        let _ = Simulator::from_file(Path::new("samples"));
+        let err = Simulator::from_file(Path::new("samples")).err().unwrap();
+        assert_eq!(std::io::ErrorKind::InvalidInput, err.kind());
+        assert!(err.to_string().contains(".asm or .snp"), "err: {err}");
     }
 
     #[test]
@@ -664,6 +616,15 @@ mod tests {
     fn instruction_cycle_wraps_ci_around_store() {
         let mut sim = Simulator::new();
         sim.ci = 31;
+        sim.store.words[0] = instr(Opcode::STP, 0);
+        sim.instruction_cycle();
+        assert_eq!(0, sim.ci);
+    }
+
+    #[test]
+    fn instruction_cycle_does_not_overflow_on_max_ci() {
+        let mut sim = Simulator::new();
+        sim.ci = i32::MAX;
         sim.store.words[0] = instr(Opcode::STP, 0);
         sim.instruction_cycle();
         assert_eq!(0, sim.ci);
@@ -1639,7 +1600,7 @@ mod tests {
 
     #[test]
     fn save_writes_a_header_comment_and_the_store() {
-        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm"));
+        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm")).unwrap();
         sim.run(10);
         let file = TempFile::new("save.snp");
         sim.save(file.path()).unwrap();
@@ -1668,21 +1629,21 @@ mod tests {
         assert!(lines.next().unwrap().starts_with("0000: "));
 
         // The saved file reloads as the same store, comments included
-        let reloaded = Simulator::from_file(file.path());
+        let reloaded = Simulator::from_file(file.path()).unwrap();
         assert_eq!(sim.store, reloaded.store);
         assert_eq!(sim.store.comments, reloaded.store.comments);
     }
 
     #[test]
     fn save_asm_round_trips_and_keeps_comments() {
-        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm"));
+        let mut sim = Simulator::from_file(Path::new("samples/factorct.asm")).unwrap();
         sim.run(10);
         let file = TempFile::new("save.asm");
         sim.save(file.path()).unwrap();
 
         let content = std::fs::read_to_string(file.path()).unwrap();
         assert!(content.contains("01 LDN 24; A = -a"), "asm line: {content}");
-        let reloaded = Simulator::from_file(file.path());
+        let reloaded = Simulator::from_file(file.path()).unwrap();
         assert_eq!(sim.store, reloaded.store);
         assert_eq!(sim.store.comments, reloaded.store.comments);
     }

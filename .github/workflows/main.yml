@@ -1,4 +1,4 @@
-name: Rust
+name: Main
 
 on:
   push:
@@ -16,6 +16,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+
+    - name: Fmt
+      run: cargo fmt --check
+
+    - name: Clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
 
     - name: Build
       run: cargo build --verbose
