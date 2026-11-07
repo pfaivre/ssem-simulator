@@ -43,6 +43,25 @@ impl FileFormat {
             )),
         }
     }
+
+    /// Load a store from `path` in this format. This is the single
+    /// extension→load-action dispatch: every caller goes through here, so a
+    /// new format is one variant plus one arm here (and in `dump`).
+    pub(crate) fn load(&self, path: &Path) -> std::io::Result<Store> {
+        match self {
+            FileFormat::Asm => Store::from_asm_file(path),
+            FileFormat::Snp => Store::from_snp_file(path),
+        }
+    }
+
+    /// Serialize `store` in this format (the body only, without the
+    /// machine-state header comment `Simulator::save` prepends).
+    pub(crate) fn dump(&self, store: &Store) -> String {
+        match self {
+            FileFormat::Asm => store.to_asm_string(),
+            FileFormat::Snp => store.to_snp_string(),
+        }
+    }
 }
 
 /// An `InvalidData` io::Error carrying a localized parse message, so the
@@ -541,10 +560,7 @@ impl Store {
     /// Returns an `InvalidInput` error when the extension is missing or
     /// unknown, and the underlying I/O error when the write fails.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let content = match FileFormat::from_path(path)? {
-            FileFormat::Asm => self.to_asm_string(),
-            FileFormat::Snp => self.to_snp_string(),
-        };
+        let content = FileFormat::from_path(path)?.dump(self);
         std::fs::write(path, content)
     }
 

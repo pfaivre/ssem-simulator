@@ -198,7 +198,8 @@ impl Simulator {
 
     /// Initializes an SSEM simulator with memory state described in the given file.
     /// Supported file types are .snp and .asm, chosen by the file extension via
-    /// [`FileFormat::from_path`] (the same dispatcher the save path uses).
+    /// [`FileFormat::from_path`] + [`FileFormat::load`] (the same dispatcher
+    /// the save path uses).
     ///
     /// # Errors
     ///
@@ -206,10 +207,7 @@ impl Simulator {
     /// missing/unknown, the file cannot be read, or a line cannot be parsed —
     /// the same error type as the save path, instead of panicking.
     pub fn from_file(filename: &Path) -> std::io::Result<Simulator> {
-        let store = match FileFormat::from_path(filename)? {
-            FileFormat::Asm => Store::from_asm_file(filename)?,
-            FileFormat::Snp => Store::from_snp_file(filename)?,
-        };
+        let store = FileFormat::from_path(filename)?.load(filename)?;
 
         Ok(Self::with_store(store, Some(filename.to_path_buf())))
     }
@@ -230,10 +228,7 @@ impl Simulator {
     /// Returns an `InvalidInput` error when the extension is missing or
     /// unknown, and the underlying I/O error when the write fails.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let body = match FileFormat::from_path(path)? {
-            FileFormat::Asm => self.store.to_asm_string(),
-            FileFormat::Snp => self.store.to_snp_string(),
-        };
+        let body = FileFormat::from_path(path)?.dump(&self.store);
         let header = format!(
             "; Machine state saved by ssem-simulator v{}\n; CI: {}  A: {}  cycles: {}\n",
             env!("CARGO_PKG_VERSION"),
