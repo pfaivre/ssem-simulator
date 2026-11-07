@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::{
-    history::{History, Snapshot},
+    history::{History, MachineState},
     opcode::Opcode,
     store::{Bits, FileFormat, Store},
 };
@@ -187,8 +187,8 @@ impl Simulator {
     }
 
     /// Capture the current machine state for the history ring.
-    fn snapshot(&self) -> Snapshot {
-        Snapshot {
+    fn machine_state(&self) -> MachineState {
+        MachineState {
             a: self.a,
             ci: self.ci,
             store: self.store.words,
@@ -242,11 +242,11 @@ impl Simulator {
     /// Enable execution history, retaining up to `capacity` past states.
     ///
     /// The current state is recorded as cycle 0; every subsequent instruction
-    /// cycle appends a snapshot. History is disabled (None) by default, so
+    /// cycle appends a machine state. History is disabled (None) by default, so
     /// headless runs pay no memory or CPU cost.
     pub fn enable_history(&mut self, capacity: usize) {
         let mut history = History::new(capacity);
-        history.record(self.cycle_count, self.snapshot());
+        history.record(self.cycle_count, self.machine_state());
         self.history = Some(history);
         // A fresh history starts at the tip, so nothing is pending
         self.heatmap_reset_pending = false;
@@ -254,7 +254,7 @@ impl Simulator {
 
     /// Restore the machine to the state recorded at `cycle`.
     ///
-    /// Restores the last-instruction display from the snapshot and pauses
+    /// Restores the last-instruction display from the recorded machine state and pauses
     /// the machine. The heatmap counters (execution and read/write) are
     /// kept, so scrubbing the history does not wipe the heatmap; they are
     /// reset only when the machine restarts from the rewound position (see
@@ -266,7 +266,7 @@ impl Simulator {
         let Some(history) = &self.history else {
             return false;
         };
-        let Some(snapshot) = history.get(cycle).copied() else {
+        let Some(machine_state) = history.get(cycle).copied() else {
             return false;
         };
         // Latch whether this position is behind the head, so the next
@@ -274,11 +274,11 @@ impl Simulator {
         // without re-deriving it on every cycle. Scrubbing back to the
         // tip clears the latch: resuming from there is a continuation.
         let pending = cycle < history.head();
-        self.a = snapshot.a;
-        self.ci = snapshot.ci;
-        self.store.words = snapshot.store;
+        self.a = machine_state.a;
+        self.ci = machine_state.ci;
+        self.store.words = machine_state.store;
         self.cycle_count = cycle;
-        self.last_instruction = snapshot.last_instruction;
+        self.last_instruction = machine_state.last_instruction;
         self.heatmap_reset_pending = pending;
         self.stop_flag = true;
         true
@@ -292,10 +292,10 @@ impl Simulator {
     /// the one where the change was made. Does nothing when history is
     /// disabled.
     pub fn restart_history(&mut self) {
-        let snapshot = self.snapshot();
+        let machine_state = self.machine_state();
         if let Some(history) = &mut self.history {
             history.clear();
-            history.record(self.cycle_count, snapshot);
+            history.record(self.cycle_count, machine_state);
         }
     }
 
@@ -318,10 +318,10 @@ impl Simulator {
         self.breakpoints.clear();
         self.reset_heatmap();
         self.heatmap_reset_pending = false;
-        let snapshot = self.snapshot();
+        let machine_state = self.machine_state();
         if let Some(history) = &mut self.history {
             history.clear();
-            history.record(self.cycle_count, snapshot);
+            history.record(self.cycle_count, machine_state);
         }
     }
 
@@ -376,9 +376,9 @@ impl Simulator {
         self.cycle_count += 1;
 
         // Record for time-travel
-        let snapshot = self.snapshot();
+        let machine_state = self.machine_state();
         if let Some(history) = &mut self.history {
-            history.record(self.cycle_count, snapshot);
+            history.record(self.cycle_count, machine_state);
         }
     }
 
