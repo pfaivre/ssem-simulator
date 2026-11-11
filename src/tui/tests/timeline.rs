@@ -140,12 +140,48 @@ pub(super) fn editing_a_word_clears_the_history_to_the_edited_state() {
 }
 
 #[test]
+pub(super) fn ctrl_arrows_scrub_ten_cycles_at_a_time() {
+    let mut sim = looping_sim(30);
+    let mut app = App::new();
+    assert_eq!(30, sim.cycle_count);
+
+    let ctrl_left = KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL);
+    let ctrl_right = KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL);
+
+    app.handle_key(ctrl_left, &mut sim);
+    assert_eq!(20, sim.cycle_count);
+    app.handle_key(ctrl_left, &mut sim);
+    assert_eq!(10, sim.cycle_count);
+    // Clamps at the oldest retained cycle
+    app.handle_key(ctrl_left, &mut sim);
+    app.handle_key(ctrl_left, &mut sim);
+    assert_eq!(0, sim.cycle_count);
+
+    app.handle_key(ctrl_right, &mut sim);
+    assert_eq!(10, sim.cycle_count);
+    // Holding the key repeats, still ten cycles at a time
+    app.handle_key(
+        KeyEvent::new_with_kind(KeyCode::Right, KeyModifiers::CONTROL, KeyEventKind::Repeat),
+        &mut sim,
+    );
+    assert_eq!(20, sim.cycle_count);
+    // Clamps at the tip
+    app.handle_key(ctrl_right, &mut sim);
+    app.handle_key(ctrl_right, &mut sim);
+    assert_eq!(30, sim.cycle_count);
+
+    // Plain arrows still step a single cycle
+    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut sim);
+    assert_eq!(29, sim.cycle_count);
+}
+
+#[test]
 pub(super) fn scrub_without_history_is_noop() {
     let mut sim = Simulator::new();
     sim.run(10);
     let mut app = App::new();
 
-    app.handle_scrub_key(KeyCode::Left, &mut sim);
+    app.handle_scrub_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &mut sim);
     assert_eq!(10, sim.cycle_count);
     assert!(!sim.stop_flag);
 }
