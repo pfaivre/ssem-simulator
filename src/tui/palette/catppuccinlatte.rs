@@ -8,7 +8,10 @@
 
 use super::{Palette, blend, rgb};
 
-pub const CATPPUCCIN_LATTE: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Catppuccin Latte";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome (subtext gray, so the
     // blue stays free for arithmetic, distinct from the memory teal)
     fg: rgb(0x4C4F69),

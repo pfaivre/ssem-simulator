@@ -9,7 +9,10 @@
 
 use super::{Palette, blend, rgb};
 
-pub const GRUVBOX_LIGHT: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Gruvbox Light";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome
     fg: rgb(0x3C3836),
     bg: rgb(0xFBF1C7),

@@ -8,7 +8,10 @@
 
 use super::{Palette, blend, rgb};
 
-pub const ROSE_PINE_DAWN: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Rose Pine Dawn";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome
     fg: rgb(0x575279),
     bg: rgb(0xFAF4ED),

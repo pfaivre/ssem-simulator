@@ -9,7 +9,10 @@
 
 use super::{Palette, blend, rgb};
 
-pub const DRACULA: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Dracula";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome (the comment gray,
     // so the cyan stays free for memory accesses)
     fg: rgb(0xF8F8F2),

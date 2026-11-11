@@ -2,7 +2,10 @@
 
 use super::{Palette, blend, rgb};
 
-pub const BASE16_OCEAN: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Base16 Ocean";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome
     // (colors.primary foreground/background, colors.normal blue)
     fg: rgb(0xEFF1F5),

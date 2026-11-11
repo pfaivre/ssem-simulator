@@ -161,7 +161,7 @@ mod tests {
     fn config_round_trips_through_toml() {
         let path = temp_config_path("roundtrip");
         let config = Config {
-            theme: Theme::CatpuccinMacchiato,
+            theme: Theme::CatppuccinMacchiato,
             flow: FlowMode::Data,
             heatmap: HeatmapMode::Rw,
             comments: false,
@@ -195,8 +195,8 @@ mod tests {
     fn theme_names_match_the_cli_value_names() {
         // clap's ValueEnum uses kebab-case, so the config file accepts the
         // same spellings as --theme
-        let parsed: Config = toml::from_str("theme = \"catpuccin-macchiato\"\n").unwrap();
-        assert_eq!(Theme::CatpuccinMacchiato, parsed.theme);
+        let parsed: Config = toml::from_str("theme = \"catppuccin-macchiato\"\n").unwrap();
+        assert_eq!(Theme::CatppuccinMacchiato, parsed.theme);
         let text = toml::to_string_pretty(&Config::default()).unwrap();
         assert!(
             text.contains("theme = \"base16-ocean\""),

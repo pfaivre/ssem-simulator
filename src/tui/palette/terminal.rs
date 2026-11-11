@@ -4,7 +4,10 @@ use ratatui::style::Color;
 
 use super::{Palette, blend};
 
-pub const TERMINAL: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "terminal";
+
+pub const PALETTE: Palette = Palette {
     // Base: the terminal's own default foreground/background
     fg: Color::Reset,
     bg: Color::Reset,

@@ -8,7 +8,10 @@
 
 use super::{Palette, blend, rgb};
 
-pub const MONOKAI: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Monokai";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome (a warm gray, so the
     // signature cyan stays free for memory accesses)
     fg: rgb(0xF8F8F2),

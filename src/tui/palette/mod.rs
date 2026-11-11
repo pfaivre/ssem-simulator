@@ -3,10 +3,11 @@
 //! this directory (`base16ocean.rs`, `notebook.rs`, …), so a theme can be tweaked —
 //! or a new one added — without touching the rendering code.
 //!
-//! To add a theme: create a file here with a `pub const MY_THEME: Palette`,
-//! add a `Theme` variant (its doc comment becomes the `--theme` help text),
-//! and add one entry to [`Theme::ALL`] — that table is the single place
-//! where labels, palettes, and cycle order are wired together.
+//! To add a theme: create a file here with `pub const PALETTE: Palette` and
+//! `pub const LABEL: &str`, then add one line to the [`themes!`] invocation
+//! below (`MyTheme = mytheme,`) — it declares the module, the [`Theme`]
+//! variant (its doc comment becomes the `--theme` help text), and the
+//! [`Theme::ALL`] entry (label, palette, cycle order) in one place.
 //!
 //! Themes are picked with the `--theme` command-line option, or cycled at
 //! runtime with the T key (through [`Theme::ALL`]).
@@ -16,35 +17,77 @@
 //! terminal's color scheme; the terminal theme defers to the terminal's own
 //! colors instead.
 
-pub mod base16ocean;
-pub mod catppuccinlatte;
-pub mod catppuccinmacchiato;
-pub mod dracula;
-pub mod gruvbox;
-pub mod gruvboxlight;
-pub mod monokai;
-pub mod notebook;
-pub mod rosepine;
-pub mod rosepinedawn;
-pub mod terminal;
-
 use clap::ValueEnum;
 use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
 
 use crate::ssem::Opcode;
 
-pub use base16ocean::BASE16_OCEAN;
-pub use catppuccinlatte::CATPPUCCIN_LATTE;
-pub use catppuccinmacchiato::CATPPUCCIN_MACCHIATO;
-pub use dracula::DRACULA;
-pub use gruvbox::GRUVBOX;
-pub use gruvboxlight::GRUVBOX_LIGHT;
-pub use monokai::MONOKAI;
-pub use notebook::NOTEBOOK;
-pub use rosepine::ROSE_PINE;
-pub use rosepinedawn::ROSE_PINE_DAWN;
-pub use terminal::TERMINAL;
+/// Declare the built-in themes in one list. Each entry generates the theme's
+/// module, its [`Theme`] variant (the doc comment becomes the `--theme` help
+/// text), and its entry in [`Theme::ALL`] (from the module's own `LABEL` and
+/// `PALETTE` consts).
+macro_rules! themes {
+    (
+        $(
+            $(#[$meta:meta])*
+            $variant:ident = $module:ident
+        ),* $(,)?
+    ) => {
+        $(
+            pub mod $module;
+        )*
+
+        /// The built-in color themes.
+        ///
+        /// Serialized in kebab-case, so the config file accepts the same
+        /// spellings as the `--theme` command-line option.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+        #[serde(rename_all = "kebab-case")]
+        pub enum Theme {
+            $(
+                $(#[$meta])*
+                $variant,
+            )*
+        }
+
+        impl Theme {
+            /// Every built-in theme with its name and palette, in the order
+            /// the T key cycles through them: the dark themes first and the
+            /// light ones last, so cycling never flashes between a dark and
+            /// a light theme; `terminal`, which follows the terminal's own
+            /// colors, goes last.
+            pub const ALL: &[(Theme, &'static str, Palette)] = &[
+                $( (Theme::$variant, $module::LABEL, $module::PALETTE) ),*
+            ];
+        }
+    };
+}
+
+themes! {
+    /// The Base16 Ocean theme: dark, blue-tinted (the default).
+    Base16Ocean = base16ocean,
+    /// A Monokai-inspired theme: dark background, bright accents.
+    Monokai = monokai,
+    /// A Catppuccin Macchiato theme: dark, with pastel accents.
+    CatppuccinMacchiato = catppuccinmacchiato,
+    /// The Dracula theme: dark, with purple and pink accents.
+    Dracula = dracula,
+    /// The Gruvbox theme: dark, with retro warm colors.
+    Gruvbox = gruvbox,
+    /// The Rose Pine theme: dark, with soft pastels.
+    RosePine = rosepine,
+    /// The Notebook theme: light, like a paper notebook.
+    Notebook = notebook,
+    /// A Catppuccin Latte theme: light, with pastel accents.
+    CatppuccinLatte = catppuccinlatte,
+    /// The Gruvbox Light theme: light, with retro warm colors.
+    GruvboxLight = gruvboxlight,
+    /// The Rose Pine Dawn theme: light, with soft pastels.
+    RosePineDawn = rosepinedawn,
+    /// The terminal's own colors: default fg/bg, standard ANSI accents.
+    Terminal = terminal,
+}
 
 /// Build a color from a hex literal: `rgb(0x6C9EF8)`.
 pub const fn rgb(hex: u32) -> Color {
@@ -205,63 +248,7 @@ impl Palette {
     }
 }
 
-/// The built-in color themes.
-///
-/// Serialized in kebab-case, so the config file accepts the same spellings
-/// as the `--theme` command-line option.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Theme {
-    /// The Base16 Ocean theme: dark, blue-tinted (the default).
-    Base16Ocean,
-    /// A Monokai-inspired theme: dark background, bright accents.
-    Monokai,
-    /// A Catppuccin Macchiato theme: dark, with pastel accents.
-    CatpuccinMacchiato,
-    /// The Dracula theme: dark, with purple and pink accents.
-    Dracula,
-    /// The Gruvbox theme: dark, with retro warm colors.
-    Gruvbox,
-    /// The Rose Pine theme: dark, with soft pastels.
-    RosePine,
-    /// The Notebook theme: light, like a paper notebook.
-    Notebook,
-    /// A Catppuccin Latte theme: light, with pastel accents.
-    CatppuccinLatte,
-    /// The Gruvbox Light theme: light, with retro warm colors.
-    GruvboxLight,
-    /// The Rose Pine Dawn theme: light, with soft pastels.
-    RosePineDawn,
-    /// The terminal's own colors: default fg/bg, standard ANSI accents.
-    Terminal,
-}
-
 impl Theme {
-    /// Every built-in theme with its name and palette, in the order the T
-    /// key cycles through them. `palette`, `label`, and `cycle` are all
-    /// derived from this table, so it is the only place to extend.
-    ///
-    /// The dark themes come first and the light ones last, so cycling never
-    /// flashes between a dark and a light theme; `terminal`, which follows
-    /// the terminal's own colors, goes last.
-    pub const ALL: &[(Theme, &'static str, Palette)] = &[
-        (Theme::Base16Ocean, "Base16 Ocean", BASE16_OCEAN),
-        (Theme::Monokai, "Monokai", MONOKAI),
-        (
-            Theme::CatpuccinMacchiato,
-            "Catppuccin Macchiato",
-            CATPPUCCIN_MACCHIATO,
-        ),
-        (Theme::Dracula, "Dracula", DRACULA),
-        (Theme::Gruvbox, "Gruvbox", GRUVBOX),
-        (Theme::RosePine, "Rose Pine", ROSE_PINE),
-        (Theme::Notebook, "Notebook", NOTEBOOK),
-        (Theme::CatppuccinLatte, "Catppuccin Latte", CATPPUCCIN_LATTE),
-        (Theme::GruvboxLight, "Gruvbox Light", GRUVBOX_LIGHT),
-        (Theme::RosePineDawn, "Rose Pine Dawn", ROSE_PINE_DAWN),
-        (Theme::Terminal, "terminal", TERMINAL),
-    ];
-
     /// This theme's entry in [`Theme::ALL`].
     fn entry(self) -> &'static (Theme, &'static str, Palette) {
         Self::ALL

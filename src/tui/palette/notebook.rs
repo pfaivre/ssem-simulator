@@ -2,7 +2,10 @@
 
 use super::{Palette, blend, rgb};
 
-pub const NOTEBOOK: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Notebook";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome
     fg: rgb(0x1F2328),
     bg: rgb(0xF4F4F4),

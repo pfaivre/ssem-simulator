@@ -9,7 +9,10 @@
 
 use super::{Palette, blend, rgb};
 
-pub const CATPPUCCIN_MACCHIATO: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Catppuccin Macchiato";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome (lavender, so the
     // blue stays free for arithmetic, distinct from the memory teal)
     fg: rgb(0xCAD3F5),
