@@ -1,26 +1,21 @@
 //! The color themes of the interface. Every color used by the TUI lives in
 //! the [`Palette`] struct, and each built-in theme in its own file under
-//! this directory (`dark.rs`, `light.rs`, …), so a theme can be tweaked —
+//! this directory (`base16ocean.rs`, `notebook.rs`, …), so a theme can be tweaked —
 //! or a new one added — without touching the rendering code.
 //!
-//! To add a theme: create a file here with a `pub const MY_THEME: Palette`,
-//! add a `Theme` variant (its doc comment becomes the `--theme` help text),
-//! and add one entry to [`Theme::ALL`] — that table is the single place
-//! where labels, palettes, and cycle order are wired together.
+//! To add a theme: create a file here with `pub const PALETTE: Palette` and
+//! `pub const LABEL: &str`, then add one line to the [`themes!`] invocation
+//! below (`MyTheme = mytheme,`) — it declares the module, the [`Theme`]
+//! variant (its doc comment becomes the `--theme` help text), and the
+//! [`Theme::ALL`] entry (label, palette, cycle order) in one place.
 //!
 //! Themes are picked with the `--theme` command-line option, or cycled at
 //! runtime with the T key (through [`Theme::ALL`]).
 //!
-//! The dark and light themes use exact RGB values (written as hex literals
+//! The fixed-color themes use exact RGB values (written as hex literals
 //! via the [`rgb`] helper), so their appearance does not depend on the
 //! terminal's color scheme; the terminal theme defers to the terminal's own
 //! colors instead.
-
-pub mod catppuccinmacchiato;
-pub mod dark;
-pub mod light;
-pub mod monokai;
-pub mod terminal;
 
 use clap::ValueEnum;
 use ratatui::style::Color;
@@ -28,11 +23,75 @@ use serde::{Deserialize, Serialize};
 
 use crate::ssem::Opcode;
 
-pub use catppuccinmacchiato::CATPPUCCIN_MACCHIATO;
-pub use dark::DARK;
-pub use light::LIGHT;
-pub use monokai::MONOKAI;
-pub use terminal::TERMINAL;
+/// Declare the built-in themes in one list. Each entry generates the theme's
+/// module, its [`Theme`] variant (the doc comment becomes the `--theme` help
+/// text), and its entry in [`Theme::ALL`] (from the module's own `LABEL` and
+/// `PALETTE` consts).
+macro_rules! themes {
+    (
+        $(
+            $(#[$meta:meta])*
+            $variant:ident = $module:ident
+        ),* $(,)?
+    ) => {
+        $(
+            pub mod $module;
+        )*
+
+        /// The built-in color themes.
+        ///
+        /// Serialized in kebab-case, so the config file accepts the same
+        /// spellings as the `--theme` command-line option.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+        #[serde(rename_all = "kebab-case")]
+        pub enum Theme {
+            $(
+                $(#[$meta])*
+                $variant,
+            )*
+        }
+
+        impl Theme {
+            /// Every built-in theme with its name and palette, in the order
+            /// the T key cycles through them: the dark themes first and the
+            /// light ones last, so cycling never flashes between a dark and
+            /// a light theme; `terminal`, which follows the terminal's own
+            /// colors, goes last.
+            pub const ALL: &[(Theme, &'static str, Palette)] = &[
+                $( (Theme::$variant, $module::LABEL, $module::PALETTE) ),*
+            ];
+        }
+    };
+}
+
+themes! {
+    /// The Base16 Ocean theme: dark, blue-tinted (the default).
+    #[serde(alias = "dark")]
+    #[value(alias = "dark")]
+    Base16Ocean = base16ocean,
+    /// A Monokai-inspired theme: dark background, bright accents.
+    Monokai = monokai,
+    /// A Catppuccin Macchiato theme: dark, with pastel accents.
+    CatppuccinMacchiato = catppuccinmacchiato,
+    /// The Dracula theme: dark, with purple and pink accents.
+    Dracula = dracula,
+    /// The Gruvbox theme: dark, with retro warm colors.
+    Gruvbox = gruvbox,
+    /// The Rose Pine theme: dark, with soft pastels.
+    RosePine = rosepine,
+    /// The Notebook theme: light, like a paper notebook.
+    #[serde(alias = "light")]
+    #[value(alias = "light")]
+    Notebook = notebook,
+    /// A Catppuccin Latte theme: light, with pastel accents.
+    CatppuccinLatte = catppuccinlatte,
+    /// The Gruvbox Light theme: light, with retro warm colors.
+    GruvboxLight = gruvboxlight,
+    /// The Rose Pine Dawn theme: light, with soft pastels.
+    RosePineDawn = rosepinedawn,
+    /// The terminal's own colors: default fg/bg, standard ANSI accents.
+    Terminal = terminal,
+}
 
 /// Build a color from a hex literal: `rgb(0x6C9EF8)`.
 pub const fn rgb(hex: u32) -> Color {
@@ -41,6 +100,31 @@ pub const fn rgb(hex: u32) -> Color {
         ((hex >> 8) & 0xFF) as u8,
         (hex & 0xFF) as u8,
     )
+}
+
+/// Blend `from` toward `to` by `num / den` (`blend(a, b, 1, 2)` is the
+/// midpoint). Only RGB colors have channels to interpolate; any other pair
+/// collapses to whichever endpoint the blend is at least halfway toward.
+pub const fn blend(from: Color, to: Color, num: u32, den: u32) -> Color {
+    const fn channel(a: u8, b: u8, num: u32, den: u32) -> u8 {
+        let weighted = a as i32 * (den - num) as i32 + b as i32 * num as i32;
+        ((2 * weighted + den as i32) / (2 * den as i32)) as u8
+    }
+    let num = if num > den { den } else { num };
+    match (from, to) {
+        (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => Color::Rgb(
+            channel(r1, r2, num, den),
+            channel(g1, g2, num, den),
+            channel(b1, b2, num, den),
+        ),
+        _ => {
+            if 2 * num >= den {
+                to
+            } else {
+                from
+            }
+        }
+    }
 }
 
 /// All the colors used by the interface, by role.
@@ -93,7 +177,9 @@ pub struct Palette {
     /// Dimmed text: `•` executed marker, source comments, cold heatmap bars,
     /// implicit fall-through edges.
     pub dim: Color,
-    /// Background of the alternating ("zebra") lines of the main body.
+    /// Background of the alternating ("zebra") lines of the main body: `bg`
+    /// blended a faint step (1/16) toward `chrome` — slightly lighter on dark
+    /// themes, slightly darker on light ones.
     pub zebra_bg: Color,
 
     /// Mnemonic and pointer-arrow colors, by operation category. The two
@@ -125,6 +211,14 @@ pub struct Palette {
     pub edge_jump: Color,
     pub edge_skip: Color,
 
+    /// The retained-history fill of the timeline bar, drawn as full blocks
+    /// in this color: `bg` blended halfway to `chrome`, the perceived fill
+    /// of the half-shade glyph (U+2592) the bar drew before.
+    pub timeline_fill: Color,
+    /// The empty track of the timeline bar, drawn as full blocks in this
+    /// color: `bg` blended a quarter of the way to `chrome`, the perceived
+    /// fill of the light-shade glyph (U+2591) the bar drew before.
+    pub timeline_track: Color,
     /// The position marker on the timeline bar.
     pub timeline_marker: Color,
     /// The scrub pop-up (cycle number above the timeline): foreground and
@@ -158,41 +252,7 @@ impl Palette {
     }
 }
 
-/// The built-in color themes.
-///
-/// Serialized in kebab-case, so the config file accepts the same spellings
-/// as the `--theme` command-line option.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Theme {
-    /// For terminals with a dark background (the default).
-    Dark,
-    /// For terminals with a light background.
-    Light,
-    /// A Monokai-inspired theme: dark background, bright accents.
-    Monokai,
-    /// A Catppuccin Macchiato theme: dark, with pastel accents.
-    CatpuccinMacchiato,
-    /// The terminal's own colors: default fg/bg, standard ANSI accents.
-    Terminal,
-}
-
 impl Theme {
-    /// Every built-in theme with its name and palette, in the order the T
-    /// key cycles through them. `palette`, `label`, and `cycle` are all
-    /// derived from this table, so it is the only place to extend.
-    pub const ALL: &[(Theme, &'static str, Palette)] = &[
-        (Theme::Dark, "Dark", DARK),
-        (Theme::Light, "Light", LIGHT),
-        (Theme::Monokai, "Monokai", MONOKAI),
-        (
-            Theme::CatpuccinMacchiato,
-            "Catppuccin Macchiato",
-            CATPPUCCIN_MACCHIATO,
-        ),
-        (Theme::Terminal, "terminal", TERMINAL),
-    ];
-
     /// This theme's entry in [`Theme::ALL`].
     fn entry(self) -> &'static (Theme, &'static str, Palette) {
         Self::ALL
@@ -219,5 +279,51 @@ impl Theme {
             .position(|(t, _, _)| *t == self)
             .unwrap_or(0);
         Self::ALL[(i + 1) % Self::ALL.len()].0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blend_interpolates_rgb_channels() {
+        assert_eq!(blend(rgb(0x000000), rgb(0xFFFFFF), 0, 2), rgb(0x000000));
+        assert_eq!(blend(rgb(0x000000), rgb(0xFFFFFF), 2, 2), rgb(0xFFFFFF));
+        assert_eq!(blend(rgb(0x000000), rgb(0xFFFFFF), 1, 2), rgb(0x808080));
+        assert_eq!(blend(rgb(0x000000), rgb(0xFFFFFF), 1, 4), rgb(0x404040));
+        assert_eq!(blend(rgb(0x2B303B), rgb(0x8CA1B4), 1, 2), rgb(0x5C6978));
+    }
+
+    #[test]
+    fn blend_of_named_colors_collapses_to_the_nearer_endpoint() {
+        assert_eq!(blend(Color::Red, Color::Blue, 1, 4), Color::Red);
+        assert_eq!(blend(Color::Red, Color::Blue, 1, 2), Color::Blue);
+        assert_eq!(blend(Color::Red, Color::Blue, 3, 4), Color::Blue);
+    }
+
+    #[test]
+    fn rgb_themes_derive_zebra_and_timeline_colors_from_bg_and_chrome() {
+        for (theme, _, palette) in Theme::ALL {
+            // Only RGB colors have channels to blend; the terminal theme
+            // uses solid named colors instead (asserted separately below).
+            if let (Color::Rgb(..), Color::Rgb(..)) = (palette.bg, palette.chrome) {
+                assert_eq!(
+                    palette.zebra_bg,
+                    blend(palette.bg, palette.chrome, 1, 16),
+                    "{theme:?}"
+                );
+                assert_eq!(
+                    palette.timeline_fill,
+                    blend(palette.bg, palette.chrome, 1, 2),
+                    "{theme:?}"
+                );
+                assert_eq!(
+                    palette.timeline_track,
+                    blend(palette.bg, palette.chrome, 1, 4),
+                    "{theme:?}"
+                );
+            }
+        }
     }
 }

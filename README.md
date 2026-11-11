@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/readme-header.jpg" alt="ssem-simulator — an interactive simulator of the Manchester Baby, the first stored-program computer">
+</p>
+
 # Small-Scale Experimental Machine (SSEM) simulator
 
 The SSEM, also known as the Manchester Baby was the first electronic stored-program computer.  

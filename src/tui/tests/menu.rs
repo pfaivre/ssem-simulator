@@ -294,7 +294,7 @@ pub(super) fn settings_popup_lists_all_controls() {
         );
     }
     // The current values are shown: default theme, comments on, control flow
-    assert!(all.contains("[Dark]"), "theme value: {all}");
+    assert!(all.contains("[Base16 Ocean]"), "theme value: {all}");
     assert!(all.contains("[ON]"), "comments value: {all}");
     assert!(all.contains("[CONTROL]"), "flow value: {all}");
 }

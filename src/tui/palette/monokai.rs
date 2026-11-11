@@ -3,13 +3,15 @@
 //!
 //! The base colors are Monokai's background/foreground, the accents its
 //! iconic pink/green/yellow/cyan/purple/orange, and dimmed text its comment
-//! gray. The zebra stripe is a subtle tint just above the background (a bit
-//! below Monokai's own line-highlight `#3E3D32`). Adjust them here to change
-//! the theme's appearance.
+//! gray. The zebra stripe is the background blended a faint step toward the
+//! chrome color. Adjust them here to change the theme's appearance.
 
-use super::{Palette, rgb};
+use super::{Palette, blend, rgb};
 
-pub const MONOKAI: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Monokai";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome (a warm gray, so the
     // signature cyan stays free for memory accesses)
     fg: rgb(0xF8F8F2),
@@ -33,7 +35,7 @@ pub const MONOKAI: Palette = Palette {
     highlight: rgb(0xE6DB74),
     next_marker: rgb(0x9B978B),
     dim: rgb(0x75715E),
-    zebra_bg: rgb(0x2c2b26),
+    zebra_bg: blend(rgb(0x272822), rgb(0x9B978B), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in purple, memory accesses in cyan, arithmetic in orange; the pink
@@ -59,7 +61,10 @@ pub const MONOKAI: Palette = Palette {
     edge_skip: rgb(0xF8F8F2),
 
     // Timeline and scrub pop-up (the pop-up text is the background color,
-    // dark on yellow)
+    // dark on yellow; the bar's fill/track are bg blended to chrome at the
+    // fill fraction of the shade glyphs it used to draw)
+    timeline_fill: blend(rgb(0x272822), rgb(0x9B978B), 1, 2),
+    timeline_track: blend(rgb(0x272822), rgb(0x9B978B), 1, 4),
     timeline_marker: rgb(0xE6DB74),
     scrub_popup_fg: rgb(0x272822),
     scrub_popup_bg: rgb(0xE6DB74),

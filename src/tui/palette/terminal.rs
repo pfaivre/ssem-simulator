@@ -4,7 +4,10 @@ use ratatui::style::Color;
 
 use super::Palette;
 
-pub const TERMINAL: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "terminal";
+
+pub const PALETTE: Palette = Palette {
     // Base: the terminal's own default foreground/background
     fg: Color::Reset,
     bg: Color::Reset,
@@ -27,6 +30,8 @@ pub const TERMINAL: Palette = Palette {
     highlight: Color::Yellow,
     next_marker: Color::Blue,
     dim: Color::DarkGray,
+    // Named colors have no fractional blend, so the zebra stripe is the
+    // plain background
     zebra_bg: Color::Reset,
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
@@ -52,7 +57,10 @@ pub const TERMINAL: Palette = Palette {
     edge_jump: Color::Magenta,
     edge_skip: Color::White,
 
-    // Timeline and scrub pop-up
+    // Timeline and scrub pop-up: the retained fill is solid chrome blue,
+    // the empty track the theme's dim gray
+    timeline_fill: Color::Blue,
+    timeline_track: Color::DarkGray,
     timeline_marker: Color::Yellow,
     scrub_popup_fg: Color::Black,
     scrub_popup_bg: Color::Yellow,

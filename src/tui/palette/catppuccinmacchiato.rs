@@ -4,13 +4,15 @@
 //! The base colors are Macchiato's base/text, the accents its lavender,
 //! blue, green, yellow, mauve, teal, sky, and red, and dimmed text its
 //! overlay gray.
-//! The zebra stripe is a subtle tint just above the base (below Macchiato's
-//! own surface highlight `#363A4F`). Adjust them here to change the theme's
-//! appearance.
+//! The zebra stripe is the background blended a faint step toward the chrome
+//! color. Adjust them here to change the theme's appearance.
 
-use super::{Palette, rgb};
+use super::{Palette, blend, rgb};
 
-pub const CATPPUCCIN_MACCHIATO: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Catppuccin Macchiato";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome (lavender, so the
     // blue stays free for arithmetic, distinct from the memory teal)
     fg: rgb(0xCAD3F5),
@@ -34,7 +36,7 @@ pub const CATPPUCCIN_MACCHIATO: Palette = Palette {
     highlight: rgb(0xEED49F),
     next_marker: rgb(0xB7BDF8),
     dim: rgb(0x6E738D),
-    zebra_bg: rgb(0x282b3e),
+    zebra_bg: blend(rgb(0x24273A), rgb(0xB7BDF8), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in mauve, memory accesses in teal, arithmetic in blue (clearly
@@ -60,7 +62,10 @@ pub const CATPPUCCIN_MACCHIATO: Palette = Palette {
     edge_skip: rgb(0xCAD3F5),
 
     // Timeline and scrub pop-up (the pop-up text is the background color,
-    // dark on yellow)
+    // dark on yellow; the bar's fill/track are bg blended to chrome at the
+    // fill fraction of the shade glyphs it used to draw)
+    timeline_fill: blend(rgb(0x24273A), rgb(0xB7BDF8), 1, 2),
+    timeline_track: blend(rgb(0x24273A), rgb(0xB7BDF8), 1, 4),
     timeline_marker: rgb(0xEED49F),
     scrub_popup_fg: rgb(0x24273A),
     scrub_popup_bg: rgb(0xEED49F),

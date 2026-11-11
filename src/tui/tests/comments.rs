@@ -686,3 +686,203 @@ pub(super) fn ctrl_backspace_erases_a_whole_word() {
     press(&mut app, &mut sim, KeyCode::Backspace);
     assert_eq!("hello", app.comment_editor.buffer());
 }
+
+#[test]
+pub(super) fn left_right_arrows_move_the_cursor_and_editing_happens_there() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Word 1: buffer " A = -a", cursor starts at the end
+    double_click(&mut app, &mut sim, 60, 6);
+    assert_eq!(" A = -a", app.comment_editor.buffer());
+    assert_eq!(7, app.comment_editor.cursor());
+
+    // Left moves the cursor left, Right moves it right (clamped at the ends)
+    for _ in 0..3 {
+        press(&mut app, &mut sim, KeyCode::Left);
+    }
+    assert_eq!(4, app.comment_editor.cursor());
+    for _ in 0..10 {
+        press(&mut app, &mut sim, KeyCode::Right);
+    }
+    assert_eq!(7, app.comment_editor.cursor(), "clamped at the end");
+    for _ in 0..10 {
+        press(&mut app, &mut sim, KeyCode::Left);
+    }
+    assert_eq!(0, app.comment_editor.cursor(), "clamped at the start");
+
+    // Typing inserts at the cursor; Backspace deletes before the cursor
+    for _ in 0..4 {
+        press(&mut app, &mut sim, KeyCode::Right);
+    }
+    type_str(&mut app, &mut sim, "Z");
+    assert_eq!(" A =Z -a", app.comment_editor.buffer());
+    assert_eq!(5, app.comment_editor.cursor());
+    for _ in 0..100 {
+        press(&mut app, &mut sim, KeyCode::Left);
+    }
+    assert_eq!(0, app.comment_editor.cursor());
+    // Backspace at the start of the line is a no-op
+    press(&mut app, &mut sim, KeyCode::Backspace);
+    assert_eq!(" A =Z -a", app.comment_editor.buffer());
+    assert_eq!(0, app.comment_editor.cursor());
+    // Backspace mid-line deletes the character before the cursor
+    for _ in 0..5 {
+        press(&mut app, &mut sim, KeyCode::Right);
+    }
+    press(&mut app, &mut sim, KeyCode::Backspace);
+    assert_eq!(" A = -a", app.comment_editor.buffer());
+    assert_eq!(4, app.comment_editor.cursor());
+}
+
+#[test]
+pub(super) fn up_down_edit_the_comment_above_or_below_at_the_same_cursor() {
+    let mut sim = Simulator::new();
+    Arc::make_mut(&mut sim.store.comments)[2] = Some("aaaaaa".into());
+    Arc::make_mut(&mut sim.store.comments)[3] = Some("bb".into());
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Word 2 is on screen row 7; move the cursor two cells left
+    double_click(&mut app, &mut sim, 60, 7);
+    assert!(app.comment_editor.is_open_for(2));
+    press(&mut app, &mut sim, KeyCode::Left);
+    press(&mut app, &mut sim, KeyCode::Left);
+    assert_eq!(4, app.comment_editor.cursor());
+
+    // Down: the edit is committed and the editor opens on word 3, whose
+    // shorter comment clamps the cursor to its end
+    press(&mut app, &mut sim, KeyCode::Down);
+    assert!(app.comment_editor.is_open_for(3));
+    assert_eq!("bb", app.comment_editor.buffer());
+    assert_eq!(2, app.comment_editor.cursor(), "clamped to the line end");
+    assert_eq!(Some("aaaaaa".to_string()), sim.store.comments[2]);
+
+    // Type at that position, then Up: back on word 2, same cursor column
+    type_str(&mut app, &mut sim, "X");
+    assert_eq!("bbX", app.comment_editor.buffer());
+    press(&mut app, &mut sim, KeyCode::Up);
+    assert!(app.comment_editor.is_open_for(2));
+    assert_eq!("aaaaaa", app.comment_editor.buffer());
+    assert_eq!(3, app.comment_editor.cursor());
+    // The word 3 edit was committed by the move
+    assert_eq!(Some("bbX".to_string()), sim.store.comments[3]);
+}
+
+#[test]
+pub(super) fn up_on_the_first_word_and_down_on_the_last_are_noops() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Word 0 is on screen row 5
+    double_click(&mut app, &mut sim, 60, 5);
+    assert!(app.comment_editor.is_open_for(0));
+    press(&mut app, &mut sim, KeyCode::Up);
+    assert!(app.comment_editor.is_open_for(0), "Up on word 0 stays");
+    type_str(&mut app, &mut sim, "top");
+    press(&mut app, &mut sim, KeyCode::Down);
+    assert!(app.comment_editor.is_open_for(1), "Down moves to word 1");
+    assert_eq!(Some("top".to_string()), sim.store.comments[0]);
+
+    // Word 31 is on screen row 36
+    double_click(&mut app, &mut sim, 60, 36);
+    assert!(app.comment_editor.is_open_for(31));
+    press(&mut app, &mut sim, KeyCode::Down);
+    assert!(app.comment_editor.is_open_for(31), "Down on word 31 stays");
+    assert_eq!("", app.comment_editor.buffer());
+}
+
+#[test]
+pub(super) fn the_cursor_is_drawn_mid_text_when_moved_left() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Word 1, buffer " A = -a": move the cursor between "= " and "-a"
+    double_click(&mut app, &mut sim, 60, 6);
+    press(&mut app, &mut sim, KeyCode::Left);
+    press(&mut app, &mut sim, KeyCode::Left);
+    assert_eq!(5, app.comment_editor.cursor());
+
+    let snap = Snapshot::from_sim(&sim);
+    let buffer = render(&mut app, &snap, 100, 40);
+    let col = comment_column(app.flow);
+    let row1: String = row_text(&buffer, 6).chars().skip(col).collect();
+    assert!(row1.starts_with(" ; A = _-a"), "row1: {row1:?}");
+}
+
+#[test]
+pub(super) fn a_long_buffer_keeps_the_cursor_visible_when_moving_left() {
+    let mut sim = sim_with_comments(); // word 1: " A = -a"
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    // Width 70 leaves 10 cells for the comment column
+    let _ = render(&mut app, &snap, 70, 40);
+
+    double_click(&mut app, &mut sim, 60, 6);
+    type_str(&mut app, &mut sim, &"0123456789".repeat(2)); // 27 chars, cursor at 27
+    for _ in 0..5 {
+        press(&mut app, &mut sim, KeyCode::Left);
+    }
+    assert_eq!(22, app.comment_editor.cursor());
+
+    let snap = Snapshot::from_sim(&sim);
+    let buffer = render(&mut app, &snap, 70, 40);
+    let col = comment_column(app.flow);
+    // The window slides so the cursor sits mid-box, with text on both
+    // sides: chars[18..22] + cursor + chars[22..27]
+    let row1: String = row_text(&buffer, 6).chars().skip(col).collect();
+    assert!(row1.starts_with(" ;1234_56789"), "row1: {row1:?}");
+}
+
+#[test]
+pub(super) fn home_end_and_del_edit_at_the_cursor() {
+    let mut sim = sim_with_comments();
+    let mut app = comment_edit_app();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Word 1: buffer " A = -a", cursor at the end
+    double_click(&mut app, &mut sim, 60, 6);
+    assert_eq!(7, app.comment_editor.cursor());
+
+    // Del at the end of the line deletes nothing; End is a no-op there
+    press(&mut app, &mut sim, KeyCode::End);
+    assert_eq!(7, app.comment_editor.cursor());
+    press(&mut app, &mut sim, KeyCode::Delete);
+    assert_eq!(" A = -a", app.comment_editor.buffer());
+    assert_eq!(7, app.comment_editor.cursor());
+
+    // Home jumps to the start; Del there removes the leading space
+    press(&mut app, &mut sim, KeyCode::Home);
+    assert_eq!(0, app.comment_editor.cursor());
+    press(&mut app, &mut sim, KeyCode::Delete);
+    assert_eq!("A = -a", app.comment_editor.buffer());
+    assert_eq!(0, app.comment_editor.cursor());
+
+    // Typing at Home inserts at the start; End + typing appends
+    type_str(&mut app, &mut sim, "x");
+    assert_eq!("xA = -a", app.comment_editor.buffer());
+    press(&mut app, &mut sim, KeyCode::End);
+    assert_eq!(7, app.comment_editor.cursor());
+    type_str(&mut app, &mut sim, "y");
+    assert_eq!("xA = -ay", app.comment_editor.buffer());
+    assert_eq!(8, app.comment_editor.cursor());
+
+    // Del mid-line removes the character under the cursor, cursor stays put
+    press(&mut app, &mut sim, KeyCode::Home);
+    press(&mut app, &mut sim, KeyCode::Right);
+    press(&mut app, &mut sim, KeyCode::Delete); // deletes 'A'
+    assert_eq!("x = -ay", app.comment_editor.buffer());
+    assert_eq!(1, app.comment_editor.cursor());
+
+    // Enter commits the edited comment
+    press(&mut app, &mut sim, KeyCode::Enter);
+    assert_eq!(Some("x = -ay".to_string()), sim.store.comments[1]);
+}

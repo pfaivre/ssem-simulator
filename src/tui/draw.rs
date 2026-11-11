@@ -675,25 +675,13 @@ impl App {
                     } else {
                         self.comment_editor.set_last_rect(Rect::default());
                     }
-                    // The cursor is drawn at the actual editing position:
-                    // right after the last character of the buffer (typing
-                    // appends, Backspace pops, so the insertion point is
-                    // always the end). When the column is narrower than
-                    // the buffer (narrow terminal or the width cap), the
-                    // tail of the buffer is shown so the cursor stays at
-                    // the end of the text instead of mid-buffer.
-                    let raw = self.comment_editor.buffer();
-                    let raw_len = raw.chars().count();
-                    // One cell of the column is kept for the cursor
-                    let box_width = comment_width.saturating_sub(1);
-                    let visible: String = if raw_len > box_width {
-                        raw.chars().skip(raw_len - box_width).collect()
-                    } else {
-                        raw.to_string()
-                    };
-                    let text = format!(" ;{visible}_");
+                    // The cursor is drawn at the editing position; the
+                    // editor windows the buffer so the cursor stays visible
+                    // when the column is narrower than the text.
+                    let visible = self.comment_editor.visible_text(comment_width);
+                    let text = format!(" ;{visible}");
                     // Pad the rest of the column so the highlight covers it fully
-                    let pad = comment_extra.saturating_sub(2 + visible.chars().count() + 1);
+                    let pad = comment_extra.saturating_sub(2 + visible.chars().count());
                     spans.push(Span::styled(
                         format!("{text}{}", " ".repeat(pad)),
                         Style::default()
@@ -807,26 +795,37 @@ impl App {
             snap.cycle_count,
         );
 
-        let chrome = Style::default().fg(self.palette().chrome);
+        let palette = self.palette();
+        let chrome = Style::default().fg(palette.chrome);
+        let fill = Style::default().fg(palette.timeline_fill);
+        let track = Style::default().fg(palette.timeline_track);
         let mut spans = vec![Span::styled(t!("history.label"), chrome)];
         if bar_width > 0 {
-            let segment = |from: usize, to: usize| -> String {
-                (from..to)
-                    .map(|i| if i < filled { '\u{2592}' } else { '\u{2591}' })
-                    .collect()
-            };
-            let marker = marker.unwrap_or(0);
-            spans.push(Span::styled(segment(0, marker), chrome));
-            spans.push(Span::styled(
-                "\u{2588}".to_string(),
-                Style::default()
-                    .fg(self.palette().timeline_marker)
-                    .add_modifier(Modifier::BOLD),
-            ));
-            spans.push(Span::styled(
-                segment(marker + 1, usize::from(bar_width)),
-                chrome,
-            ));
+            // The whole bar is full blocks, colored by position: retained
+            // fill up to `filled`, the bold marker at `marker`, and the empty
+            // track after. Emit one run per color change (boundaries at 0,
+            // filled, marker, marker+1, bar_width), so no range is ever
+            // clamped inverted.
+            let bar_width = usize::from(bar_width);
+            let marker = marker.unwrap_or(0).min(bar_width - 1);
+            let filled = filled.min(bar_width);
+            let marker_style = Style::default()
+                .fg(palette.timeline_marker)
+                .add_modifier(Modifier::BOLD);
+            let mut bounds = vec![0, marker, marker + 1, filled, bar_width];
+            bounds.sort_unstable();
+            bounds.dedup();
+            for w in bounds.windows(2) {
+                let (from, to) = (w[0], w[1]);
+                let style = if from == marker {
+                    marker_style
+                } else if from < filled {
+                    fill
+                } else {
+                    track
+                };
+                spans.push(Span::styled("\u{2588}".repeat(to - from), style));
+            }
         }
         spans.push(Span::styled(
             t!(

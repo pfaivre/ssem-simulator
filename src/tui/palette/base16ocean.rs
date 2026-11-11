@@ -1,8 +1,11 @@
-//! Base 16 Ocean inspired theme
+//! Base16 Ocean theme
 
-use super::{Palette, rgb};
+use super::{Palette, blend, rgb};
 
-pub const DARK: Palette = Palette {
+/// The theme's display name, shown in the top bar.
+pub const LABEL: &str = "Base16 Ocean";
+
+pub const PALETTE: Palette = Palette {
     // Base background, default text color, and chrome
     // (colors.primary foreground/background, colors.normal blue)
     fg: rgb(0xEFF1F5),
@@ -21,13 +24,13 @@ pub const DARK: Palette = Palette {
     key_hint: rgb(0x8CA1B4),
     selection: rgb(0x8CA1B4),
 
-    // Main body (colors.normal green/yellow/blue; zebra is a subtle tint
-    // just above the background)
+    // Main body (colors.normal green/yellow/blue; the zebra is bg blended
+    // a faint step toward chrome)
     value: rgb(0x98C38C),
     highlight: rgb(0xEFCD86),
     next_marker: rgb(0x8CA1B4),
     dim: rgb(0x6C707D),
-    zebra_bg: rgb(0x2f343f),
+    zebra_bg: blend(rgb(0x2B303B), rgb(0x8CA1B4), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in magenta, memory accesses in cyan, arithmetic in blue; red is
@@ -54,7 +57,11 @@ pub const DARK: Palette = Palette {
     edge_skip: rgb(0xEFF1F5),
 
     // Timeline and scrub pop-up (normal yellow; the pop-up text is the
-    // background color, dark on yellow)
+    // background color, dark on yellow). The bar's fill/track are bg
+    // blended to chrome at the fill fraction of the shade glyphs it used
+    // to draw (half-shade, then light-shade)
+    timeline_fill: blend(rgb(0x2B303B), rgb(0x8CA1B4), 1, 2),
+    timeline_track: blend(rgb(0x2B303B), rgb(0x8CA1B4), 1, 4),
     timeline_marker: rgb(0xEFCD86),
     scrub_popup_fg: rgb(0x2B303B),
     scrub_popup_bg: rgb(0xEFCD86),

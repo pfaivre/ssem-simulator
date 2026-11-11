@@ -173,6 +173,9 @@ fn is_mode_key(code: KeyCode) -> bool {
     )
 }
 
+/// How many cycles Ctrl+Left/Ctrl+Right step through the history.
+const FAST_SCRUB_STEP: i64 = 10;
+
 /// The application state for the TUI (UI thread only).
 pub(super) struct App {
     pub(super) bit_representation: usize,
@@ -405,7 +408,7 @@ impl App {
             if self.route_popup_key(key, sim) {
                 return;
             }
-            self.handle_scrub_key(key.code, sim);
+            self.handle_scrub_key(key, sim);
             return;
         }
 
@@ -456,7 +459,7 @@ impl App {
                 sim.check_breakpoints();
             }
             KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End => {
-                self.handle_scrub_key(key.code, sim)
+                self.handle_scrub_key(key, sim)
             }
             KeyCode::Up => {
                 self.store_scroll = self.store_scroll.saturating_sub(1);
@@ -524,11 +527,17 @@ impl App {
         routed
     }
 
-    /// Handle a history-scrubbing key: Left Right Home End.
-    pub(super) fn handle_scrub_key(&mut self, code: KeyCode, sim: &mut Simulator) {
-        match code {
-            KeyCode::Left => self.scrub_relative(-1, sim),
-            KeyCode::Right => self.scrub_relative(1, sim),
+    /// Handle a history-scrubbing key: Left Right Home End. With Ctrl held,
+    /// Left/Right step `FAST_SCRUB_STEP` cycles at a time instead of one.
+    pub(super) fn handle_scrub_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+        let step: i64 = if key.modifiers.contains(KeyModifiers::CONTROL) {
+            FAST_SCRUB_STEP
+        } else {
+            1
+        };
+        match key.code {
+            KeyCode::Left => self.scrub_relative(-step, sim),
+            KeyCode::Right => self.scrub_relative(step, sim),
             KeyCode::Home => {
                 if let Some(target) = sim.history.as_ref().map(History::start)
                     && target != sim.cycle_count
