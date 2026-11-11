@@ -3,8 +3,8 @@
 //!
 //! The base colors are Latte's base/text, the accents its blue, mauve,
 //! teal, green, yellow, red, and sky, and dimmed text its overlay gray.
-//! The zebra stripe is a subtle tint just below the base (Latte's mantle).
-//! Adjust them here to change the theme's appearance.
+//! The zebra stripe is the background blended a faint step toward the chrome
+//! color. Adjust them here to change the theme's appearance.
 
 use super::{Palette, blend, rgb};
 
@@ -27,13 +27,13 @@ pub const CATPPUCCIN_LATTE: Palette = Palette {
     key_hint: rgb(0x6C6F85),
     selection: rgb(0x6C6F85),
 
-    // Main body (on a light background the zebra is a subtle tint just
-    // below the background)
+    // Main body (the zebra is bg blended a faint step toward chrome, so
+    // slightly darker on this light background)
     value: rgb(0x40A02B),
     highlight: rgb(0xDF8E1D),
     next_marker: rgb(0x6C6F85),
     dim: rgb(0x9CA0B0),
-    zebra_bg: rgb(0xE6E9EF),
+    zebra_bg: blend(rgb(0xEFF1F5), rgb(0x6C6F85), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in mauve, memory accesses in teal, arithmetic in blue; red is

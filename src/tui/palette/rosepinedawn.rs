@@ -3,8 +3,8 @@
 //!
 //! The base colors are Dawn's base/text, the accents its iris/foam/pine/
 //! gold/rose/love, and chrome its subtext gray (dimmed text its muted
-//! gray). The zebra stripe is Dawn's highlight-low, just below the base.
-//! Adjust them here to change the theme's appearance.
+//! gray). The zebra stripe is the background blended a faint step toward the
+//! chrome color. Adjust them here to change the theme's appearance.
 
 use super::{Palette, blend, rgb};
 
@@ -26,13 +26,13 @@ pub const ROSE_PINE_DAWN: Palette = Palette {
     key_hint: rgb(0x797593),
     selection: rgb(0x797593),
 
-    // Main body (on a light background the zebra is a subtle tint just
-    // below the background)
+    // Main body (the zebra is bg blended a faint step toward chrome, so
+    // slightly darker on this light background)
     value: rgb(0xD7827E),
     highlight: rgb(0xEA9D34),
     next_marker: rgb(0x797593),
     dim: rgb(0x9893A5),
-    zebra_bg: rgb(0xF4EDE8),
+    zebra_bg: blend(rgb(0xFAF4ED), rgb(0x797593), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in iris, memory accesses in foam, arithmetic in pine; love red is

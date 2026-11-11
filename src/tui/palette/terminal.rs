@@ -27,7 +27,8 @@ pub const TERMINAL: Palette = Palette {
     highlight: Color::Yellow,
     next_marker: Color::Blue,
     dim: Color::DarkGray,
-    zebra_bg: Color::Reset,
+    // Named colors have no fractional blend: 1/16 collapses to the background
+    zebra_bg: blend(Color::Reset, Color::Blue, 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in magenta, memory accesses in cyan, arithmetic in light green; red

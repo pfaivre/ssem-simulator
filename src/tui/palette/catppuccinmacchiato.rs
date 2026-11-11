@@ -4,9 +4,8 @@
 //! The base colors are Macchiato's base/text, the accents its lavender,
 //! blue, green, yellow, mauve, teal, sky, and red, and dimmed text its
 //! overlay gray.
-//! The zebra stripe is a subtle tint just above the base (below Macchiato's
-//! own surface highlight `#363A4F`). Adjust them here to change the theme's
-//! appearance.
+//! The zebra stripe is the background blended a faint step toward the chrome
+//! color. Adjust them here to change the theme's appearance.
 
 use super::{Palette, blend, rgb};
 
@@ -34,7 +33,7 @@ pub const CATPPUCCIN_MACCHIATO: Palette = Palette {
     highlight: rgb(0xEED49F),
     next_marker: rgb(0xB7BDF8),
     dim: rgb(0x6E738D),
-    zebra_bg: rgb(0x282b3e),
+    zebra_bg: blend(rgb(0x24273A), rgb(0xB7BDF8), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in mauve, memory accesses in teal, arithmetic in blue (clearly

@@ -3,8 +3,8 @@
 //!
 //! The base colors are Rose Pine's base/text, the accents its iris/foam/
 //! pine/gold/rose/love, and chrome its subtext gray (dimmed text its muted
-//! gray). The zebra stripe is Rose Pine's surface, just above the base.
-//! Adjust them here to change the theme's appearance.
+//! gray). The zebra stripe is the background blended a faint step toward the
+//! chrome color. Adjust them here to change the theme's appearance.
 
 use super::{Palette, blend, rgb};
 
@@ -32,7 +32,7 @@ pub const ROSE_PINE: Palette = Palette {
     highlight: rgb(0xF6C177),
     next_marker: rgb(0x908CAA),
     dim: rgb(0x6E6A86),
-    zebra_bg: rgb(0x1F1D2E),
+    zebra_bg: blend(rgb(0x191724), rgb(0x908CAA), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in iris, memory accesses in foam, arithmetic in pine; love red is

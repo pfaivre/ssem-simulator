@@ -3,9 +3,8 @@
 //!
 //! The base colors are Monokai's background/foreground, the accents its
 //! iconic pink/green/yellow/cyan/purple/orange, and dimmed text its comment
-//! gray. The zebra stripe is a subtle tint just above the background (a bit
-//! below Monokai's own line-highlight `#3E3D32`). Adjust them here to change
-//! the theme's appearance.
+//! gray. The zebra stripe is the background blended a faint step toward the
+//! chrome color. Adjust them here to change the theme's appearance.
 
 use super::{Palette, blend, rgb};
 
@@ -33,7 +32,7 @@ pub const MONOKAI: Palette = Palette {
     highlight: rgb(0xE6DB74),
     next_marker: rgb(0x9B978B),
     dim: rgb(0x75715E),
-    zebra_bg: rgb(0x2c2b26),
+    zebra_bg: blend(rgb(0x272822), rgb(0x9B978B), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in purple, memory accesses in cyan, arithmetic in orange; the pink

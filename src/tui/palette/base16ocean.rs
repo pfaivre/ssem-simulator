@@ -21,13 +21,13 @@ pub const BASE16_OCEAN: Palette = Palette {
     key_hint: rgb(0x8CA1B4),
     selection: rgb(0x8CA1B4),
 
-    // Main body (colors.normal green/yellow/blue; zebra is a subtle tint
-    // just above the background)
+    // Main body (colors.normal green/yellow/blue; the zebra is bg blended
+    // a faint step toward chrome)
     value: rgb(0x98C38C),
     highlight: rgb(0xEFCD86),
     next_marker: rgb(0x8CA1B4),
     dim: rgb(0x6C707D),
-    zebra_bg: rgb(0x2f343f),
+    zebra_bg: blend(rgb(0x2B303B), rgb(0x8CA1B4), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in magenta, memory accesses in cyan, arithmetic in blue; red is

@@ -3,9 +3,9 @@
 //!
 //! The base colors are Gruvbox's bg0/fg1, the accents its darker light-mode
 //! accent set (the ones readable on a light background), and chrome its
-//! fg4 gray (dimmed text its neutral gray). The zebra stripe is Gruvbox's
-//! bg0_soft, just below the background. Adjust them here to change the
-//! theme's appearance.
+//! fg4 gray (dimmed text its neutral gray). The zebra stripe is the
+//! background blended a faint step toward the chrome color. Adjust them
+//! here to change the theme's appearance.
 
 use super::{Palette, blend, rgb};
 
@@ -27,13 +27,13 @@ pub const GRUVBOX_LIGHT: Palette = Palette {
     key_hint: rgb(0x7C6F64),
     selection: rgb(0x7C6F64),
 
-    // Main body (on a light background the zebra is a subtle tint just
-    // below the background)
+    // Main body (the zebra is bg blended a faint step toward chrome, so
+    // slightly darker on this light background)
     value: rgb(0x79740E),
     highlight: rgb(0xAF3A03),
     next_marker: rgb(0x7C6F64),
     dim: rgb(0x928374),
-    zebra_bg: rgb(0xF2E5BC),
+    zebra_bg: blend(rgb(0xFBF1C7), rgb(0x7C6F64), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in purple, memory accesses in aqua, arithmetic in blue; red is

@@ -130,7 +130,9 @@ pub struct Palette {
     /// Dimmed text: `•` executed marker, source comments, cold heatmap bars,
     /// implicit fall-through edges.
     pub dim: Color,
-    /// Background of the alternating ("zebra") lines of the main body.
+    /// Background of the alternating ("zebra") lines of the main body: `bg`
+    /// blended a faint step (1/16) toward `chrome` — slightly lighter on dark
+    /// themes, slightly darker on light ones.
     pub zebra_bg: Color,
 
     /// Mnemonic and pointer-arrow colors, by operation category. The two
@@ -307,6 +309,17 @@ mod tests {
         assert_eq!(blend(Color::Red, Color::Blue, 1, 4), Color::Red);
         assert_eq!(blend(Color::Red, Color::Blue, 1, 2), Color::Blue);
         assert_eq!(blend(Color::Red, Color::Blue, 3, 4), Color::Blue);
+    }
+
+    #[test]
+    fn zebra_bg_is_a_faint_blend_of_bg_and_chrome() {
+        for (theme, _, palette) in Theme::ALL {
+            assert_eq!(
+                palette.zebra_bg,
+                blend(palette.bg, palette.chrome, 1, 16),
+                "{theme:?}"
+            );
+        }
     }
 
     #[test]

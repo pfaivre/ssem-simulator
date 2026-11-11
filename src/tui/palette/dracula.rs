@@ -3,9 +3,9 @@
 //!
 //! The base colors are Dracula's background/foreground, the accents its
 //! purple/cyan/orange/green/yellow/pink/red, and dimmed text a darker
-//! shade of its comment gray. The zebra stripe is a subtle tint just above
-//! the background (below Dracula's own current-line `#44475A`). Adjust
-//! them here to change the theme's appearance.
+//! shade of its comment gray. The zebra stripe is the background blended a
+//! faint step toward the chrome color. Adjust them here to change the
+//! theme's appearance.
 
 use super::{Palette, blend, rgb};
 
@@ -33,7 +33,7 @@ pub const DRACULA: Palette = Palette {
     highlight: rgb(0xF1FA8C),
     next_marker: rgb(0x6272A4),
     dim: rgb(0x4A5578),
-    zebra_bg: rgb(0x2C2F40),
+    zebra_bg: blend(rgb(0x282A36), rgb(0x6272A4), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in purple, memory accesses in cyan, arithmetic in orange; red is

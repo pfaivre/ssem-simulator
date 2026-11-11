@@ -25,7 +25,7 @@ pub const NOTEBOOK: Palette = Palette {
     highlight: rgb(0xB45309),
     next_marker: rgb(0x3B6FD4),
     dim: rgb(0x8A8F98),
-    zebra_bg: rgb(0xECECEC),
+    zebra_bg: blend(rgb(0xF4F4F4), rgb(0x3B6FD4), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in purple, memory accesses in teal, arithmetic in blue; red is
