@@ -436,17 +436,17 @@ pub(super) fn flow_mode_is_shown_in_the_status_bar() {
     // Default mode: control; the status bar is the bottom row
     let buffer = render(&mut app, &snap, 120, 40);
     let status_row = buffer.area.height - 1;
-    assert!(row_text(&buffer, status_row).contains("FLOW: CONTROL"));
+    assert!(row_text(&buffer, status_row).contains("Flow: Control"));
 
     app.flow = FlowMode::Data;
     let buffer = render(&mut app, &snap, 120, 40);
     let status_row = buffer.area.height - 1;
-    assert!(row_text(&buffer, status_row).contains("FLOW: DATA"));
-    assert!(!row_text(&buffer, status_row).contains("CONTROL"));
+    assert!(row_text(&buffer, status_row).contains("Flow: Data"));
+    assert!(!row_text(&buffer, status_row).contains("Control"));
 
     // Off: no flow label at all
     app.flow = FlowMode::Off;
     let buffer = render(&mut app, &snap, 120, 40);
     let status_row = buffer.area.height - 1;
-    assert!(!row_text(&buffer, status_row).contains("FLOW"));
+    assert!(!row_text(&buffer, status_row).contains("Flow"));
 }

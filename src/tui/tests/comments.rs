@@ -62,7 +62,7 @@ pub(super) fn comments_are_shown_by_default_next_to_each_word() {
         "row2: {row2:?}"
     );
     // The status bar advertises the column
-    assert!(row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
+    assert!(row_text(&buffer, buffer.area.height - 1).contains("Comments"));
 }
 
 #[test]
@@ -83,7 +83,7 @@ pub(super) fn c_key_toggles_the_comment_column() {
     assert!(!app.show_comments);
     let buffer = render(&mut app, &snap, 100, 40);
     assert!(!row_text(&buffer, 6).contains("A = -a"));
-    assert!(!row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
+    assert!(!row_text(&buffer, buffer.area.height - 1).contains("Comments"));
 
     // Uppercase toggles back on
     app.handle_key(
@@ -104,7 +104,7 @@ pub(super) fn no_comments_still_draws_a_minimal_column_when_enabled() {
     let buffer = render(&mut app, &snap, 100, 40);
 
     // The status bar advertises the column...
-    assert!(row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
+    assert!(row_text(&buffer, buffer.area.height - 1).contains("Comments"));
     // ...and every store row shows a dim " ;" gutter as the double-click
     // target for adding the first comment (word 0 is on screen row 5)
     let col = comment_column(app.flow);
@@ -158,12 +158,12 @@ pub(super) fn comment_column_is_cropped_when_the_terminal_is_narrow() {
     // (a single cell past the store text is less than the " ;" prefix)
     let buffer = render(&mut app, &snap, STORE_TEXT_WIDTH as u16 + 1, 40);
     assert!(!row_text(&buffer, 5).contains(';'));
-    assert!(!row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
+    assert!(!row_text(&buffer, buffer.area.height - 1).contains("Comments"));
 
     // Wide enough: the full comment and the status-bar label are drawn
     let buffer = render(&mut app, &snap, (full + 20) as u16, 40);
     assert!(row_text(&buffer, 5).contains("; a comment"));
-    assert!(row_text(&buffer, buffer.area.height - 1).contains("COMMENTS"));
+    assert!(row_text(&buffer, buffer.area.height - 1).contains("Comments"));
 }
 
 #[test]

@@ -200,7 +200,7 @@ pub(super) fn help_popup_title_shows_the_program_version() {
     let all: String = (0..buffer.area.height)
         .map(|y| row_text(&buffer, y))
         .collect();
-    let title = format!("SSEM SIMULATOR v{}", env!("CARGO_PKG_VERSION"));
+    let title = format!("SSEM simulator v{}", env!("CARGO_PKG_VERSION"));
     assert!(all.contains(&title), "version missing from the title");
 }
 
@@ -220,7 +220,7 @@ pub(super) fn help_popup_scrolls_when_the_window_is_too_small() {
     // Small window: the pop-up is clamped, the tail of the text is hidden
     let buffer = render(&mut app, &snap, 100, 20);
     let all = all_text(&buffer);
-    assert!(all.contains("SSEM SIMULATOR"), "title missing");
+    assert!(all.contains("SSEM simulator"), "title missing");
     assert!(
         all.contains("Quit the simulator"),
         "top of the text missing"
@@ -321,7 +321,7 @@ pub(super) fn renders_at_any_terminal_size() {
     // At 30x8 the menu bar is on row 0 and the status bar on the last row
     let buffer = render(&mut app, &snap, 30, 8);
     assert!(row_text(&buffer, 0).contains("Quit"));
-    assert!(row_text(&buffer, 7).contains("STATUS"));
+    assert!(row_text(&buffer, 7).contains("Status"));
 }
 
 #[test]

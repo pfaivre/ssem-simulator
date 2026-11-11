@@ -31,17 +31,17 @@ pub(super) fn status_bar_shows_the_heatmap_mode() {
     let mut app = App::new();
     let buffer = render(&mut app, &snap, 120, 40);
     let status_row = buffer.area.height - 1;
-    assert!(!row_text(&buffer, status_row).contains("HEATMAP"));
+    assert!(!row_text(&buffer, status_row).contains("Heatmap"));
 
     app.heatmap = HeatmapMode::Exec;
     let buffer = render(&mut app, &snap, 120, 40);
     let status_row = buffer.area.height - 1;
-    assert!(row_text(&buffer, status_row).contains("HEATMAP: EXEC"));
+    assert!(row_text(&buffer, status_row).contains("Heatmap: Exec"));
 
     app.heatmap = HeatmapMode::Rw;
     let buffer = render(&mut app, &snap, 120, 40);
     let status_row = buffer.area.height - 1;
-    assert!(row_text(&buffer, status_row).contains("HEATMAP: R/W"));
+    assert!(row_text(&buffer, status_row).contains("Heatmap: r/w"));
 }
 
 #[test]
@@ -124,7 +124,7 @@ pub(super) fn rw_heatmap_is_dropped_when_it_does_not_fit() {
     let needed = store_view_width(HeatmapMode::Rw) as u16;
     let buffer = render(&mut app, &snap, needed - 1, 40);
     let status_row = buffer.area.height - 1;
-    assert!(!row_text(&buffer, status_row).contains("HEATMAP"));
+    assert!(!row_text(&buffer, status_row).contains("Heatmap"));
     let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
     assert_eq!('.', chars[1], "bits right after the pointer, no heatmap");
 
@@ -137,7 +137,7 @@ pub(super) fn rw_heatmap_is_dropped_when_it_does_not_fit() {
     // label sits far right in the bar)
     let buffer = render(&mut app, &snap, 120, 40);
     let status_row = buffer.area.height - 1;
-    assert!(row_text(&buffer, status_row).contains("HEATMAP: R/W"));
+    assert!(row_text(&buffer, status_row).contains("Heatmap: r/w"));
 }
 
 #[test]

@@ -189,7 +189,7 @@ pub(super) fn scrub_without_history_is_noop() {
 #[test]
 pub(super) fn timeline_bar_is_centered_on_wide_terminals() {
     // 200 columns: the bar is capped at 100 cells, so the whole
-    // " HISTORY [bar] 0..99" group (10 + 100 + 7 = 117 cells) is centered
+    // " History [bar] 0..99" group (10 + 100 + 7 = 117 cells) is centered
     // with ratatui's rounding: offset 200/2 - 117/2 = 100 - 58 = 42,
     // bar at 42 + 10
     let timeline = Rect::new(0, 18, 200, 1);
@@ -197,7 +197,7 @@ pub(super) fn timeline_bar_is_centered_on_wide_terminals() {
     assert_eq!(100, bar_width);
     assert_eq!(42 + 10, bar_x);
 
-    // The drawn line matches: "HISTORY" starts one cell after the group's
+    // The drawn line matches: "History" starts one cell after the group's
     // left edge (the prefix's leading space), and the right margin holds
     // the remaining cells
     let mut app = App::new();
@@ -206,7 +206,7 @@ pub(super) fn timeline_bar_is_centered_on_wide_terminals() {
     let row = row_text(&buffer, 18); // the timeline row on a 20-row terminal
     assert_eq!(
         43,
-        row.find("HISTORY").expect("history bar drawn"),
+        row.find("History").expect("history bar drawn"),
         "{row:?}"
     );
     // (chars, not bytes: the bar glyphs are multi-byte)

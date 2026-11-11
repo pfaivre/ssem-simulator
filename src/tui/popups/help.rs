@@ -47,7 +47,7 @@ impl HelpPopup {
         let keymap = keymap();
         let key_column = keymap
             .iter()
-            .map(|(key, _, _)| key.chars().count())
+            .map(|(key, _)| key.chars().count())
             .max()
             .unwrap_or(0)
             + 2;
@@ -66,7 +66,7 @@ impl HelpPopup {
         lines.push(Line::from(""));
 
         // One line per key
-        for (key, _, description) in keymap {
+        for (key, description) in keymap {
             let key_width = key.chars().count();
             let padding = key_column.saturating_sub(key_width);
             let left_pad = padding / 2;

@@ -35,67 +35,30 @@ pub(super) const BIT_REPRESENTATIONS: [(char, char); 5] = [
     ('1', '0'),             // Binary digits
 ];
 
-/// The keymap: (key, legend, help description), localized.
-/// An empty legend means the key does not appear in the bottom bar (e.g. arrow keys).
+/// The keymap: (key, help description), localized.
 /// The locale is fixed at startup, so the table is built once.
-static KEYMAP: LazyLock<Vec<(&'static str, String, String)>> = LazyLock::new(|| {
+static KEYMAP: LazyLock<Vec<(&'static str, String)>> = LazyLock::new(|| {
     vec![
-        ("Ctrl+Q", ts!("keymap.quit.legend"), ts!("keymap.quit.desc")),
-        ("H", ts!("keymap.help.legend"), ts!("keymap.help.desc")),
-        (
-            "Space",
-            ts!("keymap.run_stop.legend"),
-            ts!("keymap.run_stop.desc"),
-        ),
-        ("F10", ts!("keymap.step.legend"), ts!("keymap.step.desc")),
-        (
-            "\u{2190}/\u{2192}",
-            ts!("keymap.back_fwd.legend"),
-            ts!("keymap.back_fwd.desc"),
-        ),
-        (
-            "\u{2191}/\u{2193}",
-            ts!("keymap.scroll.legend"),
-            ts!("keymap.scroll.desc"),
-        ),
-        (
-            "I",
-            ts!("keymap.speed_up.legend"),
-            ts!("keymap.speed_up.desc"),
-        ),
-        (
-            "K",
-            ts!("keymap.speed_down.legend"),
-            ts!("keymap.speed_down.desc"),
-        ),
-        (
-            "D",
-            ts!("keymap.display.legend"),
-            ts!("keymap.display.desc"),
-        ),
-        ("E", ts!("keymap.edit.legend"), ts!("keymap.edit.desc")),
-        (
-            "M",
-            ts!("keymap.heatmap.legend"),
-            ts!("keymap.heatmap.desc"),
-        ),
-        ("F", ts!("keymap.flow.legend"), ts!("keymap.flow.desc")),
-        (
-            "C",
-            ts!("keymap.comments.legend"),
-            ts!("keymap.comments.desc"),
-        ),
-        (
-            "B",
-            ts!("keymap.breakpt.legend"),
-            ts!("keymap.breakpt.desc"),
-        ),
-        ("S", ts!("keymap.save.legend"), ts!("keymap.save.desc")),
-        ("T", ts!("keymap.theme.legend"), ts!("keymap.theme.desc")),
+        ("Ctrl+Q", ts!("keymap.quit.desc")),
+        ("H", ts!("keymap.help.desc")),
+        ("Space", ts!("keymap.run_stop.desc")),
+        ("F10", ts!("keymap.step.desc")),
+        ("\u{2190}/\u{2192}", ts!("keymap.back_fwd.desc")),
+        ("\u{2191}/\u{2193}", ts!("keymap.scroll.desc")),
+        ("I", ts!("keymap.speed_up.desc")),
+        ("K", ts!("keymap.speed_down.desc")),
+        ("D", ts!("keymap.display.desc")),
+        ("E", ts!("keymap.edit.desc")),
+        ("M", ts!("keymap.heatmap.desc")),
+        ("F", ts!("keymap.flow.desc")),
+        ("C", ts!("keymap.comments.desc")),
+        ("B", ts!("keymap.breakpt.desc")),
+        ("S", ts!("keymap.save.desc")),
+        ("T", ts!("keymap.theme.desc")),
     ]
 });
 
-pub(super) fn keymap() -> &'static [(&'static str, String, String)] {
+pub(super) fn keymap() -> &'static [(&'static str, String)] {
     &KEYMAP
 }
 

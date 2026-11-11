@@ -69,12 +69,12 @@ fn screen_text(buffer: &Buffer) -> String {
         .join("\n")
 }
 
-/// The "DIR: ..." text of the save pop-up, if drawn (border stripped)
+/// The "Dir: ..." text of the save pop-up, if drawn (border stripped)
 fn dir_line(buffer: &Buffer) -> String {
     (0..buffer.area.height)
         .map(|row| row_text(buffer, row))
-        .find(|row| row.contains("DIR: "))
-        .and_then(|row| row.find("DIR: ").map(|i| row[i..].to_string()))
+        .find(|row| row.contains("Dir: "))
+        .and_then(|row| row.find("Dir: ").map(|i| row[i..].to_string()))
         .unwrap_or_default()
         .trim_end()
         .trim_end_matches('│')
@@ -102,9 +102,9 @@ pub(super) fn s_key_opens_the_save_popup_and_esc_closes_it() {
     assert!(!app.save_popup.is_open());
     open_save_popup(&mut app, &mut sim);
     let buffer = render(&mut app, &snap, 100, 40);
-    assert!(screen_contains(&buffer, " SAVE "), "pop-up title missing");
-    assert!(screen_contains(&buffer, "FILE:"), "input line missing");
-    assert!(screen_contains(&buffer, "DIR:"), "folder line missing");
+    assert!(screen_contains(&buffer, " Save "), "pop-up title missing");
+    assert!(screen_contains(&buffer, "File:"), "input line missing");
+    assert!(screen_contains(&buffer, "Dir:"), "folder line missing");
     assert!(screen_contains(&buffer, ".asm"));
 
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut sim);
@@ -123,12 +123,12 @@ pub(super) fn enter_with_prefilled_name_saves_asm_into_the_open_file_folder() {
 
     // The pop-up targets the open file's folder, as an absolute path...
     assert_eq!(
-        format!("DIR: {}", dir.canonical().display()),
+        format!("Dir: {}", dir.canonical().display()),
         dir_line(&buffer)
     );
     // ...and the field is prefilled with <name>_edited.<ext>
     assert!(
-        screen_contains(&buffer, "FILE: factorct_edited.asm_"),
+        screen_contains(&buffer, "File: factorct_edited.asm_"),
         "default name missing: {}",
         screen_text(&buffer)
     );
@@ -137,7 +137,7 @@ pub(super) fn enter_with_prefilled_name_saves_asm_into_the_open_file_folder() {
     press(&mut app, &mut sim, KeyCode::Enter);
     let buffer = render(&mut app, &snap, 120, 40);
     assert!(
-        screen_contains(&buffer, "SAVED TO"),
+        screen_contains(&buffer, "Saved to"),
         "no confirmation shown"
     );
     let saved = dir.canonical().join("factorct_edited.asm");
@@ -168,10 +168,10 @@ pub(super) fn enter_with_prefilled_name_saves_snp_and_keeps_extension() {
     let snap = snapshot_with_history(0);
     let buffer = render(&mut app, &snap, 120, 40);
     assert_eq!(
-        format!("DIR: {}", dir.canonical().display()),
+        format!("Dir: {}", dir.canonical().display()),
         dir_line(&buffer)
     );
-    assert!(screen_contains(&buffer, "FILE: nightmare_edited.snp_"));
+    assert!(screen_contains(&buffer, "File: nightmare_edited.snp_"));
 
     press(&mut app, &mut sim, KeyCode::Enter);
     let saved = dir.canonical().join("nightmare_edited.snp");
@@ -192,7 +192,7 @@ pub(super) fn default_name_is_not_doubled_for_an_already_edited_file() {
     let buffer = render(&mut app, &snap, 120, 40);
     // The prefilled name keeps the single _edited suffix
     assert!(
-        screen_contains(&buffer, "FILE: factorct_edited.asm_"),
+        screen_contains(&buffer, "File: factorct_edited.asm_"),
         "default name wrong: {}",
         screen_text(&buffer)
     );
@@ -211,7 +211,7 @@ pub(super) fn unknown_extension_reports_an_error_and_writes_nothing() {
 
     let snap = snapshot_with_history(0);
     let buffer = render(&mut app, &snap, 140, 40);
-    assert!(screen_contains(&buffer, "ERROR:"), "no error shown");
+    assert!(screen_contains(&buffer, "Error:"), "no error shown");
     assert!(screen_contains(&buffer, ".asm or .snp"));
     assert!(
         !dir.canonical().join("state.txt").exists(),
@@ -233,11 +233,11 @@ pub(super) fn only_alphanumeric_dash_underscore_dot_are_accepted() {
     let snap = snapshot_with_history(0);
     let buffer = render(&mut app, &snap, 120, 40);
     assert!(
-        screen_contains(&buffer, "FILE: abcd.e-_"),
+        screen_contains(&buffer, "File: abcd.e-_"),
         "whitelist not applied: {}",
         screen_text(&buffer)
     );
-    assert!(screen_contains(&buffer, "ONLY A-Z 0-9 - _ . ALLOWED"));
+    assert!(screen_contains(&buffer, "Only A-Z 0-9 - _ . allowed"));
 
     // A bare ".." passes the whitelist but cannot escape the folder:
     // writing to <dir>/.. fails with an I/O error shown in the pop-up
@@ -245,7 +245,7 @@ pub(super) fn only_alphanumeric_dash_underscore_dot_are_accepted() {
     type_str(&mut app, &mut sim, "..");
     press(&mut app, &mut sim, KeyCode::Enter);
     let buffer = render(&mut app, &snap, 120, 40);
-    assert!(screen_contains(&buffer, "ERROR:"), "expected a write error");
+    assert!(screen_contains(&buffer, "Error:"), "expected a write error");
     assert!(app.save_popup.is_open());
 }
 
@@ -267,7 +267,7 @@ pub(super) fn keys_go_to_the_popup_not_the_app_while_it_is_open() {
     let snap = snapshot_with_history(0);
     let buffer = render(&mut app, &snap, 100, 40);
     assert!(
-        screen_contains(&buffer, "FILE: q_"),
+        screen_contains(&buffer, "File: q_"),
         "q should be in the field"
     );
 
@@ -283,7 +283,7 @@ pub(super) fn keys_go_to_the_popup_not_the_app_while_it_is_open() {
     press(&mut app, &mut sim, KeyCode::Backspace);
     let buffer = render(&mut app, &snap, 100, 40);
     assert!(
-        screen_contains(&buffer, "FILE: _"),
+        screen_contains(&buffer, "File: _"),
         "backspace should empty the field"
     );
 }
@@ -299,6 +299,6 @@ pub(super) fn save_popup_without_open_file_starts_in_cwd_with_empty_name() {
 
     let cwd = std::env::current_dir().unwrap();
     let canonical = std::fs::canonicalize(&cwd).unwrap();
-    assert_eq!(format!("DIR: {}", canonical.display()), dir_line(&buffer));
-    assert!(screen_contains(&buffer, "FILE: _"), "field should be empty");
+    assert_eq!(format!("Dir: {}", canonical.display()), dir_line(&buffer));
+    assert!(screen_contains(&buffer, "File: _"), "field should be empty");
 }

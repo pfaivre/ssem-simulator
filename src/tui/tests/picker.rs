@@ -364,7 +364,7 @@ pub(super) fn the_mnemonic_list_is_drawn_on_the_side_with_the_current_marked() {
     // The border title names the field and the word, on the right side
     let mut titled = false;
     for row in 0..40u16 {
-        if row_text(&buffer, row).contains("MNEMONIC [03]") {
+        if row_text(&buffer, row).contains("Mnemonic [03]") {
             titled = true;
         }
     }
@@ -425,7 +425,7 @@ pub(super) fn the_data_list_is_drawn_as_a_grid_with_the_current_marked() {
 
     let mut titled = false;
     for row in 0..40u16 {
-        if row_text(&buffer, row).contains("DATA [03]") {
+        if row_text(&buffer, row).contains("Data [03]") {
             titled = true;
         }
     }
@@ -499,7 +499,7 @@ pub(super) fn the_list_is_shifted_left_when_it_would_overflow_the_right_edge() {
     assert_eq!(70 - 36 + 2, col, "first entry at the clamped position");
     // The popup still fits on screen: its last column is the right edge
     let title_row = (0..40u16)
-        .find(|&r| row_text(&buffer, r).contains("MNEMONIC [03]"))
+        .find(|&r| row_text(&buffer, r).contains("Mnemonic [03]"))
         .unwrap();
     let row = row_text(&buffer, title_row);
     assert_eq!('╮', row.chars().nth(69).unwrap(), "row: {row:?}");
