@@ -307,6 +307,24 @@ pub(super) fn no_scrollbar_when_the_whole_body_fits() {
 }
 
 #[test]
+pub(super) fn renders_at_any_terminal_size() {
+    // There is no minimum terminal size: even a tiny window renders the
+    // chrome, with the body cropped by the screen edges
+    let snap = snapshot_with_history(0);
+    let mut app = App::new();
+
+    for (width, height) in [(1u16, 1u16), (10, 4), (30, 8)] {
+        let buffer = render(&mut app, &snap, width, height);
+        assert_eq!(Rect::new(0, 0, width, height), buffer.area);
+    }
+
+    // At 30x8 the menu bar is on row 0 and the status bar on the last row
+    let buffer = render(&mut app, &snap, 30, 8);
+    assert!(row_text(&buffer, 0).contains("Quit"));
+    assert!(row_text(&buffer, 7).contains("STATUS"));
+}
+
+#[test]
 pub(super) fn scrollbar_can_be_pressed_and_dragged_with_the_mouse() {
     let snap = snapshot_with_history(0);
     let mut app = App::new();

@@ -592,19 +592,23 @@ pub(super) fn pointer_arrows_crop_the_right_side_when_narrow() {
     let mut app = App::new();
     app.flow = FlowMode::Data;
 
-    // Too narrow for the store text: the "too small" message is shown
-    let buffer = render(&mut app, &snap, MIN_WIDTH - 1, 40);
-    assert!(row_text(&buffer, 0).contains("Terminal too small"));
+    // Narrower than the store text: the store still renders, cropped at
+    // the right edge (there is no minimum terminal size)
+    let buffer = render(&mut app, &snap, STORE_TEXT_WIDTH as u16 - 1, 40);
+    assert!(row_text(&buffer, 5).contains("00:"));
 
-    // At MIN_WIDTH the store renders; the arrow gutter at the right edge
-    // (cols 59+) is cropped off
-    let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
-    assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+    // One cell past the store text: the store renders; the arrow gutter
+    // at the right edge (cols 59+) is cropped off
+    let buffer = render(&mut app, &snap, STORE_TEXT_WIDTH as u16 + 1, 40);
     assert!(row_text(&buffer, 5).contains("00:"));
 
     // Wide enough: the arrow is fully drawn
-    let buffer = render(&mut app, &snap, MIN_WIDTH + ARROW_EXTRA_WIDTH, 40);
-    assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+    let buffer = render(
+        &mut app,
+        &snap,
+        STORE_TEXT_WIDTH as u16 + 1 + ARROW_EXTRA_WIDTH,
+        40,
+    );
     let row = row_text(&buffer, 5);
     assert_eq!('╯', row.chars().nth(GUTTER_COLUMN).unwrap(), "row: {row:?}");
 }

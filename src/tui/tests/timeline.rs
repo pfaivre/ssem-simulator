@@ -276,13 +276,12 @@ pub(super) fn scrub_popup_hidden_when_not_scrubbing() {
 
 #[test]
 pub(super) fn scrub_popup_stays_on_screen_at_the_bar_ends() {
-    // Narrowest supported terminal (wider with the default pointer
-    // arrows), pop-up at both ends of the bar
+    // Narrow terminal, pop-up at both ends of the bar
     for cycle_count in [0, 99] {
         let mut app = App::new();
         app.scrubbing = true;
         let snap = snapshot_with_history(cycle_count);
-        let buffer = render(&mut app, &snap, MIN_WIDTH + ARROW_EXTRA_WIDTH, 20);
+        let buffer = render(&mut app, &snap, 30, 20);
 
         let row = row_text(&buffer, 17);
         let text = format!(" cycle {cycle_count} ");

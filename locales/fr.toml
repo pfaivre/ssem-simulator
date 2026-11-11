@@ -126,9 +126,6 @@ flow = "FLUX : %{label}"
 comments = "COMMENTAIRES"
 breakpoints = "ARRÊTS : %{count}"
 
-[draw]
-too_small = "Terminal trop petit : %{width}x%{height}, minimum requis %{min_width}x%{min_height}"
-
 [help]
 title = "SIMULATEUR SSEM v%{version}"
 footer_close = "Appuyez sur H pour fermer"

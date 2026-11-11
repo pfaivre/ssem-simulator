@@ -121,9 +121,8 @@ pub(super) fn rw_heatmap_is_dropped_when_it_does_not_fit() {
     // One column short of the heatmap: the store still renders, without
     // the heatmap (it sits left of the bits and would push the store text
     // out of view), and without the status-bar label
-    let needed = MIN_WIDTH + HeatmapMode::Rw.extra_width();
+    let needed = STORE_TEXT_WIDTH as u16 + HeatmapMode::Rw.extra_width();
     let buffer = render(&mut app, &snap, needed - 1, 40);
-    assert!(!row_text(&buffer, 0).contains("Terminal too small"));
     let status_row = buffer.area.height - 1;
     assert!(!row_text(&buffer, status_row).contains("HEATMAP"));
     let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
@@ -131,7 +130,6 @@ pub(super) fn rw_heatmap_is_dropped_when_it_does_not_fit() {
 
     // Wide enough: the r/w bars are drawn
     let buffer = render(&mut app, &snap, needed, 40);
-    assert!(!row_text(&buffer, 0).contains("Terminal too small"));
     let chars: Vec<char> = row_text(&buffer, 10).chars().collect();
     assert_eq!('r', chars[2], "r/w heatmap bars present");
 

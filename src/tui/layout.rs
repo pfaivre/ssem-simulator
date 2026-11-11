@@ -8,12 +8,6 @@ use ratatui::layout::Rect;
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 
-/// Minimum terminal width to display the store in full.
-pub(super) const MIN_WIDTH: u16 = 59;
-
-/// Minimum terminal height (menu bar + content + history bar + status bar).
-pub(super) const MIN_HEIGHT: u16 = 13;
-
 /// Total height of the fixed bars: menu bar + history scrub bar + status bar.
 pub(super) const CHROME_HEIGHT: u16 = 3;
 

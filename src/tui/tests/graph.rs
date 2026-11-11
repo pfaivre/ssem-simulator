@@ -400,22 +400,28 @@ pub(super) fn graph_view_crops_the_right_side_when_narrow() {
     let mut app = App::new();
     app.flow = FlowMode::Control;
 
-    // Too narrow for the store text itself: the "too small" message is shown
-    let buffer = render(&mut app, &snap, MIN_WIDTH - 1, 40);
-    assert!(row_text(&buffer, 0).contains("Terminal too small"));
+    // Narrower than the store text: the store still renders, cropped at
+    // the right edge (there is no minimum terminal size)
+    let buffer = render(&mut app, &snap, STORE_TEXT_WIDTH as u16 - 1, 40);
+    assert!(row_text(&buffer, 6).contains("01:"));
 
-    // At MIN_WIDTH the store renders and only the separator column of the
-    // gutter fits: the ■ of line 10's STP is at the right edge (col 58),
-    // while the jump's lane column (col 61) is cropped off
-    let buffer = render(&mut app, &snap, MIN_WIDTH, 40);
-    assert!(!row_text(&buffer, 0).contains("Terminal too small"));
+    // One cell past the store text: the store renders and only the
+    // separator column of the gutter fits: the ■ of line 10's STP is at
+    // the right edge (col 58), while the jump's lane column (col 61) is
+    // cropped off
+    let buffer = render(&mut app, &snap, STORE_TEXT_WIDTH as u16 + 1, 40);
     let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
     assert!(row_text(&buffer, 6).contains("01:"));
     assert_eq!('■', glyph(15, G_SEP));
 
     // Wide enough for the whole gutter: the 2→10 jump's lane 0 vertical
     // (col 61) is drawn from row 8 to row 14
-    let buffer = render(&mut app, &snap, MIN_WIDTH + GRAPH_EXTRA_WIDTH, 40);
+    let buffer = render(
+        &mut app,
+        &snap,
+        STORE_TEXT_WIDTH as u16 + 1 + GRAPH_EXTRA_WIDTH,
+        40,
+    );
     let glyph = |row: u16, col: usize| row_text(&buffer, row).chars().nth(col).unwrap();
     for row in 8..15 {
         assert_eq!('│', glyph(row, g_vert(0)), "row {row}");
