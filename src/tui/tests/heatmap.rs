@@ -121,7 +121,7 @@ pub(super) fn rw_heatmap_is_dropped_when_it_does_not_fit() {
     // One column short of the heatmap: the store still renders, without
     // the heatmap (it sits left of the bits and would push the store text
     // out of view), and without the status-bar label
-    let needed = STORE_TEXT_WIDTH as u16 + HeatmapMode::Rw.extra_width();
+    let needed = store_view_width(HeatmapMode::Rw) as u16;
     let buffer = render(&mut app, &snap, needed - 1, 40);
     let status_row = buffer.area.height - 1;
     assert!(!row_text(&buffer, status_row).contains("HEATMAP"));

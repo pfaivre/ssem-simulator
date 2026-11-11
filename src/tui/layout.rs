@@ -138,6 +138,13 @@ pub(super) fn scrollbar_scroll_for_thumb_start(body_height: u16, thumb_start: us
     rounding_divide(thumb_start * max_viewport, track).min(max_scroll) as u16
 }
 
+/// Screen width of the store view: the store text plus the heatmap bars
+/// spliced in right after the pointer column — the width a store line
+/// occupies before the flow gutter and the comment column.
+pub(super) fn store_view_width(heatmap: HeatmapMode) -> usize {
+    STORE_TEXT_WIDTH + heatmap.extra_width() as usize
+}
+
 /// Screen column where the mnemonic field of a store row starts: the pointer,
 /// then the heatmap bars (spliced in right after the pointer), then the bits
 /// and the suffix. Mirrors the span order in `draw_main_body`.

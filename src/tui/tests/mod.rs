@@ -21,7 +21,7 @@ use super::graph::{
 };
 use super::layout::{
     CONTENT_HEIGHT, FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, STORE_TEXT_WIDTH,
-    comment_column_width, timeline_bar_geometry, timeline_marker_offset,
+    comment_column_width, store_view_width, timeline_bar_geometry, timeline_marker_offset,
 };
 use super::popups::Popup;
 use super::snapshot::Snapshot;

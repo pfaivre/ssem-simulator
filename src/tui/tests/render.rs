@@ -325,6 +325,53 @@ pub(super) fn renders_at_any_terminal_size() {
 }
 
 #[test]
+pub(super) fn popups_and_mouse_work_at_tiny_terminal_sizes() {
+    // No minimum terminal size: every pop-up, an active scrub, and mouse
+    // handling all work — and never panic — even in a 1x1 window
+    let snap = snapshot_with_history(0);
+    let mut sim = looping_sim(10);
+
+    for (width, height) in [(1u16, 1u16), (5, 3), (10, 4)] {
+        let mut app = App::new();
+        app.help_popup.open();
+        app.breakpoint_popup.open();
+        app.editor_popup.open_for_word(0);
+        app.save_popup.open(None);
+        app.settings_popup.open();
+        app.comment_editor.open_for(0, None);
+        app.picker.open_for_mnemonic(0, 0, 5);
+        app.scrubbing = true;
+        let buffer = render(&mut app, &snap, width, height);
+        assert_eq!(Rect::new(0, 0, width, height), buffer.area);
+
+        // Sweep every cell with clicks, drags, moves, and wheel scrolls
+        for row in 0..height {
+            for column in 0..width {
+                for kind in [
+                    MouseEventKind::Down(MouseButton::Left),
+                    MouseEventKind::Drag(MouseButton::Left),
+                    MouseEventKind::Moved,
+                    MouseEventKind::ScrollUp,
+                    MouseEventKind::ScrollDown,
+                ] {
+                    app.handle_mouse(
+                        MouseEvent {
+                            column,
+                            row,
+                            kind,
+                            modifiers: KeyModifiers::NONE,
+                        },
+                        &mut sim,
+                    );
+                }
+            }
+        }
+        // Whatever state the sweep left the app in, it still renders
+        render(&mut app, &snap, width, height);
+    }
+}
+
+#[test]
 pub(super) fn scrollbar_can_be_pressed_and_dragged_with_the_mouse() {
     let snap = snapshot_with_history(0);
     let mut app = App::new();

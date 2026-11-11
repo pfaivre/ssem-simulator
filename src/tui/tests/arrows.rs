@@ -593,14 +593,21 @@ pub(super) fn pointer_arrows_crop_the_right_side_when_narrow() {
     app.flow = FlowMode::Data;
 
     // Narrower than the store text: the store still renders, cropped at
-    // the right edge (there is no minimum terminal size)
+    // the right edge, with the store rows' arrow gutter off screen (there
+    // is no minimum terminal size; the register connector may still show)
     let buffer = render(&mut app, &snap, STORE_TEXT_WIDTH as u16 - 1, 40);
     assert!(row_text(&buffer, 5).contains("00:"));
+    for row in [4, 5] {
+        assert!(!has_arrow_glyph(&row_text(&buffer, row)), "row {row}");
+    }
 
-    // One cell past the store text: the store renders; the arrow gutter
-    // at the right edge (cols 59+) is cropped off
+    // One cell past the store text: the store renders; only the gutter's
+    // leading space fits at the right edge of the store rows
     let buffer = render(&mut app, &snap, STORE_TEXT_WIDTH as u16 + 1, 40);
     assert!(row_text(&buffer, 5).contains("00:"));
+    for row in [4, 5] {
+        assert!(!has_arrow_glyph(&row_text(&buffer, row)), "row {row}");
+    }
 
     // Wide enough: the arrow is fully drawn
     let buffer = render(
