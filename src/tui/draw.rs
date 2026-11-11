@@ -675,25 +675,30 @@ impl App {
                     } else {
                         self.comment_editor.set_last_rect(Rect::default());
                     }
-                    // The cursor is drawn at the actual editing position:
-                    // right after the last character of the buffer (typing
-                    // appends, Backspace pops, so the insertion point is
-                    // always the end). When the column is narrower than
-                    // the buffer (narrow terminal or the width cap), the
-                    // tail of the buffer is shown so the cursor stays at
-                    // the end of the text instead of mid-buffer.
+                    // The cursor is drawn at the editing position (the
+                    // Left/Right arrows move it within the buffer). The
+                    // window slides over the buffer-plus-cursor line so
+                    // the cursor stays visible when the column is narrower
+                    // than the text (narrow terminal or the width cap).
                     let raw = self.comment_editor.buffer();
-                    let raw_len = raw.chars().count();
-                    // One cell of the column is kept for the cursor
-                    let box_width = comment_width.saturating_sub(1);
-                    let visible: String = if raw_len > box_width {
-                        raw.chars().skip(raw_len - box_width).collect()
-                    } else {
-                        raw.to_string()
-                    };
-                    let text = format!(" ;{visible}_");
+                    let cursor = self.comment_editor.cursor();
+                    let chars: Vec<char> = raw.chars().collect();
+                    // One cell of the column shows the cursor itself
+                    let window = comment_width.max(1);
+                    let virtual_len = chars.len() + 1;
+                    let start = cursor.min(virtual_len.saturating_sub(window));
+                    let end = (start + window).min(virtual_len);
+                    let mut visible = String::new();
+                    for i in start..end {
+                        if i == cursor {
+                            visible.push('_');
+                        } else {
+                            visible.push(chars[if i < cursor { i } else { i - 1 }]);
+                        }
+                    }
+                    let text = format!(" ;{visible}");
                     // Pad the rest of the column so the highlight covers it fully
-                    let pad = comment_extra.saturating_sub(2 + visible.chars().count() + 1);
+                    let pad = comment_extra.saturating_sub(2 + visible.chars().count());
                     spans.push(Span::styled(
                         format!("{text}{}", " ".repeat(pad)),
                         Style::default()

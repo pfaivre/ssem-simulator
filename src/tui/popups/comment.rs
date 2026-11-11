@@ -14,6 +14,9 @@ pub struct CommentEditor {
     pub(super) frame: PopupFrame,
     pub(super) address: usize,
     pub(super) buffer: String,
+    /// Insertion point within the buffer, in chars: 0..=buffer length.
+    /// Left/Right move it; typing inserts at it.
+    pub(super) cursor: usize,
 }
 
 impl CommentEditor {
@@ -22,6 +25,7 @@ impl CommentEditor {
             frame: PopupFrame::new(),
             address: 0,
             buffer: String::new(),
+            cursor: 0,
         }
     }
 
@@ -34,6 +38,25 @@ impl CommentEditor {
     /// The text typed so far.
     pub fn buffer(&self) -> &str {
         &self.buffer
+    }
+
+    /// The insertion point within the buffer, in chars.
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// Number of characters in the buffer.
+    fn len(&self) -> usize {
+        self.buffer.chars().count()
+    }
+
+    /// Byte index in the buffer where the cursor sits (the end of the
+    /// buffer when the cursor is past the last character).
+    fn cursor_byte_index(&self) -> usize {
+        self.buffer
+            .char_indices()
+            .nth(self.cursor)
+            .map_or(self.buffer.len(), |(i, _)| i)
     }
 
     /// Display width the inline editor needs in the comment column: the
@@ -53,11 +76,13 @@ impl CommentEditor {
         self.frame.is_open() && self.address == index
     }
 
-    /// Open on the given word, prefilled with its current comment.
+    /// Open on the given word, prefilled with its current comment. The
+    /// cursor starts at the end of the text.
     pub fn open_for(&mut self, address: usize, current: Option<&str>) {
         self.frame.open = true;
         self.address = address;
         self.buffer = current.unwrap_or_default().to_string();
+        self.cursor = self.len();
     }
 
     /// Handle a key press while the editor is open. Repeats are accepted
@@ -67,12 +92,29 @@ impl CommentEditor {
             return;
         }
         match key.code {
+            KeyCode::Left => {
+                self.cursor = self.cursor.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                self.cursor = (self.cursor + 1).min(self.len());
+            }
+            KeyCode::Home => {
+                self.cursor = 0;
+            }
+            KeyCode::End => {
+                self.cursor = self.len();
+            }
+            KeyCode::Up => self.move_line(sim, -1),
+            KeyCode::Down => self.move_line(sim, 1),
             // Ctrl+Backspace erases the whole word before the cursor
             KeyCode::Backspace if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.delete_word();
             }
             KeyCode::Backspace => {
-                self.buffer.pop();
+                self.delete_before_cursor();
+            }
+            KeyCode::Delete => {
+                self.delete_at_cursor();
             }
             KeyCode::Enter => self.apply(sim),
             KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -90,40 +132,85 @@ impl CommentEditor {
                 // SHIFT; translate them, keep every other printable char
                 // (including `;` and `:`) literal
                 let c = azerty_digit_of(&key).unwrap_or(c);
-                if !c.is_control() && self.buffer.chars().count() < MAX_COMMENT_INPUT {
-                    self.buffer.push(c);
+                if !c.is_control() && self.len() < MAX_COMMENT_INPUT {
+                    self.buffer.insert(self.cursor_byte_index(), c);
+                    self.cursor += 1;
                 }
             }
             _ => {}
         }
     }
 
-    /// Erase the word before the cursor (Ctrl+Backspace): the run of
-    /// trailing whitespace first, then the run of non-whitespace
-    /// characters, so "hello world  |" becomes "hello " in one press.
-    fn delete_word(&mut self) {
-        while self
-            .buffer
-            .chars()
-            .last()
-            .is_some_and(|c| c.is_whitespace())
-        {
-            self.buffer.pop();
+    /// Up/Down: commit the current edit, then open the editor on the word
+    /// above/below, with the cursor at the same position in the line
+    /// (clamped when that line is shorter). At the first/last word the
+    /// key is a no-op.
+    fn move_line(&mut self, sim: &mut Simulator, delta: isize) {
+        let target = self.address as isize + delta;
+        if target < 0 || target as usize >= sim.store.comments.len() {
+            return;
         }
-        while self
-            .buffer
-            .chars()
-            .last()
-            .is_some_and(|c| !c.is_whitespace())
-        {
-            self.buffer.pop();
-        }
+        self.commit(sim);
+        let target = target as usize;
+        let cursor = self.cursor; // captured before open_for resets it to the end
+        let current = sim.store.comments[target].clone();
+        self.open_for(target, current.as_deref());
+        self.cursor = cursor.min(self.len());
     }
 
-    /// Validate the edit: write the buffer to the word's comment and close.
-    /// A blank buffer clears the comment; trailing whitespace is dropped,
-    /// like the loaders do (leading indentation is kept).
-    fn apply(&mut self, sim: &mut Simulator) {
+    /// Delete the character at the cursor (Del), if any; the cursor stays
+    /// put, so Del at the end of the line is a no-op.
+    fn delete_at_cursor(&mut self) {
+        if self.cursor >= self.len() {
+            return;
+        }
+        let byte = self.cursor_byte_index();
+        let end = self.buffer[byte..]
+            .chars()
+            .next()
+            .map_or(byte + 1, |c| byte + c.len_utf8());
+        self.buffer.replace_range(byte..end, "");
+    }
+
+    /// Delete the character before the cursor, if any.
+    fn delete_before_cursor(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let byte = self
+            .buffer
+            .char_indices()
+            .nth(self.cursor - 1)
+            .map_or(0, |(i, _)| i);
+        let end = self.buffer[byte..]
+            .chars()
+            .next()
+            .map_or(byte + 1, |c| byte + c.len_utf8());
+        self.buffer.replace_range(byte..end, "");
+        self.cursor -= 1;
+    }
+
+    /// Erase the word before the cursor (Ctrl+Backspace): the run of
+    /// whitespace ending at the cursor first, then the run of
+    /// non-whitespace characters, so "hello world  |" becomes "hello "
+    /// in one press. Text after the cursor is kept.
+    fn delete_word(&mut self) {
+        let mut head: String = self.buffer.chars().take(self.cursor).collect();
+        while head.chars().last().is_some_and(|c| c.is_whitespace()) {
+            head.pop();
+        }
+        while head.chars().last().is_some_and(|c| !c.is_whitespace()) {
+            head.pop();
+        }
+        let tail: String = self.buffer.chars().skip(self.cursor).collect();
+        self.cursor = head.chars().count();
+        self.buffer = format!("{head}{tail}");
+    }
+
+    /// Write the buffer to the word's comment. A blank buffer clears the
+    /// comment; trailing whitespace is dropped, like the loaders do
+    /// (leading indentation is kept).
+    fn commit(&mut self, sim: &mut Simulator) {
         let text = self.buffer.trim_end();
         let comment = if text.trim().is_empty() {
             None
@@ -131,6 +218,11 @@ impl CommentEditor {
             Some(text.to_string())
         };
         sim.store.set_comment(self.address, comment);
+    }
+
+    /// Validate the edit: write the buffer to the word's comment and close.
+    fn apply(&mut self, sim: &mut Simulator) {
+        self.commit(sim);
         self.close();
     }
 }
@@ -145,6 +237,7 @@ impl Popup for CommentEditor {
     fn close(&mut self) {
         self.frame_mut().close();
         self.buffer.clear();
+        self.cursor = 0;
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
         // Esc cancels (on a press, like every close key)
