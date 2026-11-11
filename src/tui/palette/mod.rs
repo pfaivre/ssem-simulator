@@ -1,6 +1,6 @@
 //! The color themes of the interface. Every color used by the TUI lives in
 //! the [`Palette`] struct, and each built-in theme in its own file under
-//! this directory (`dark.rs`, `light.rs`, …), so a theme can be tweaked —
+//! this directory (`base16ocean.rs`, `notebook.rs`, …), so a theme can be tweaked —
 //! or a new one added — without touching the rendering code.
 //!
 //! To add a theme: create a file here with a `pub const MY_THEME: Palette`,
@@ -11,15 +11,21 @@
 //! Themes are picked with the `--theme` command-line option, or cycled at
 //! runtime with the T key (through [`Theme::ALL`]).
 //!
-//! The dark and light themes use exact RGB values (written as hex literals
+//! The fixed-color themes use exact RGB values (written as hex literals
 //! via the [`rgb`] helper), so their appearance does not depend on the
 //! terminal's color scheme; the terminal theme defers to the terminal's own
 //! colors instead.
 
+pub mod base16ocean;
+pub mod catppuccinlatte;
 pub mod catppuccinmacchiato;
-pub mod dark;
-pub mod light;
+pub mod dracula;
+pub mod gruvbox;
+pub mod gruvboxlight;
 pub mod monokai;
+pub mod notebook;
+pub mod rosepine;
+pub mod rosepinedawn;
 pub mod terminal;
 
 use clap::ValueEnum;
@@ -28,10 +34,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::ssem::Opcode;
 
+pub use base16ocean::BASE16_OCEAN;
+pub use catppuccinlatte::CATPPUCCIN_LATTE;
 pub use catppuccinmacchiato::CATPPUCCIN_MACCHIATO;
-pub use dark::DARK;
-pub use light::LIGHT;
+pub use dracula::DRACULA;
+pub use gruvbox::GRUVBOX;
+pub use gruvboxlight::GRUVBOX_LIGHT;
 pub use monokai::MONOKAI;
+pub use notebook::NOTEBOOK;
+pub use rosepine::ROSE_PINE;
+pub use rosepinedawn::ROSE_PINE_DAWN;
 pub use terminal::TERMINAL;
 
 /// Build a color from a hex literal: `rgb(0x6C9EF8)`.
@@ -41,6 +53,31 @@ pub const fn rgb(hex: u32) -> Color {
         ((hex >> 8) & 0xFF) as u8,
         (hex & 0xFF) as u8,
     )
+}
+
+/// Blend `from` toward `to` by `num / den` (`blend(a, b, 1, 2)` is the
+/// midpoint). Only RGB colors have channels to interpolate; any other pair
+/// collapses to whichever endpoint the blend is at least halfway toward.
+pub const fn blend(from: Color, to: Color, num: u32, den: u32) -> Color {
+    const fn channel(a: u8, b: u8, num: u32, den: u32) -> u8 {
+        let weighted = a as i32 * (den - num) as i32 + b as i32 * num as i32;
+        ((2 * weighted + den as i32) / (2 * den as i32)) as u8
+    }
+    let num = if num > den { den } else { num };
+    match (from, to) {
+        (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => Color::Rgb(
+            channel(r1, r2, num, den),
+            channel(g1, g2, num, den),
+            channel(b1, b2, num, den),
+        ),
+        _ => {
+            if 2 * num >= den {
+                to
+            } else {
+                from
+            }
+        }
+    }
 }
 
 /// All the colors used by the interface, by role.
@@ -125,6 +162,14 @@ pub struct Palette {
     pub edge_jump: Color,
     pub edge_skip: Color,
 
+    /// The retained-history fill of the timeline bar, drawn as full blocks
+    /// in this color: `bg` blended halfway to `chrome`, the perceived fill
+    /// of the half-shade glyph (U+2592) the bar drew before.
+    pub timeline_fill: Color,
+    /// The empty track of the timeline bar, drawn as full blocks in this
+    /// color: `bg` blended a quarter of the way to `chrome`, the perceived
+    /// fill of the light-shade glyph (U+2591) the bar drew before.
+    pub timeline_track: Color,
     /// The position marker on the timeline bar.
     pub timeline_marker: Color,
     /// The scrub pop-up (cycle number above the timeline): foreground and
@@ -165,14 +210,26 @@ impl Palette {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Theme {
-    /// For terminals with a dark background (the default).
-    Dark,
-    /// For terminals with a light background.
-    Light,
+    /// The Base16 Ocean theme: dark, blue-tinted (the default).
+    Base16Ocean,
     /// A Monokai-inspired theme: dark background, bright accents.
     Monokai,
     /// A Catppuccin Macchiato theme: dark, with pastel accents.
     CatpuccinMacchiato,
+    /// The Dracula theme: dark, with purple and pink accents.
+    Dracula,
+    /// The Gruvbox theme: dark, with retro warm colors.
+    Gruvbox,
+    /// The Rose Pine theme: dark, with soft pastels.
+    RosePine,
+    /// The Notebook theme: light, like a paper notebook.
+    Notebook,
+    /// A Catppuccin Latte theme: light, with pastel accents.
+    CatppuccinLatte,
+    /// The Gruvbox Light theme: light, with retro warm colors.
+    GruvboxLight,
+    /// The Rose Pine Dawn theme: light, with soft pastels.
+    RosePineDawn,
     /// The terminal's own colors: default fg/bg, standard ANSI accents.
     Terminal,
 }
@@ -181,15 +238,25 @@ impl Theme {
     /// Every built-in theme with its name and palette, in the order the T
     /// key cycles through them. `palette`, `label`, and `cycle` are all
     /// derived from this table, so it is the only place to extend.
+    ///
+    /// The dark themes come first and the light ones last, so cycling never
+    /// flashes between a dark and a light theme; `terminal`, which follows
+    /// the terminal's own colors, goes last.
     pub const ALL: &[(Theme, &'static str, Palette)] = &[
-        (Theme::Dark, "Dark", DARK),
-        (Theme::Light, "Light", LIGHT),
+        (Theme::Base16Ocean, "Base16 Ocean", BASE16_OCEAN),
         (Theme::Monokai, "Monokai", MONOKAI),
         (
             Theme::CatpuccinMacchiato,
             "Catppuccin Macchiato",
             CATPPUCCIN_MACCHIATO,
         ),
+        (Theme::Dracula, "Dracula", DRACULA),
+        (Theme::Gruvbox, "Gruvbox", GRUVBOX),
+        (Theme::RosePine, "Rose Pine", ROSE_PINE),
+        (Theme::Notebook, "Notebook", NOTEBOOK),
+        (Theme::CatppuccinLatte, "Catppuccin Latte", CATPPUCCIN_LATTE),
+        (Theme::GruvboxLight, "Gruvbox Light", GRUVBOX_LIGHT),
+        (Theme::RosePineDawn, "Rose Pine Dawn", ROSE_PINE_DAWN),
         (Theme::Terminal, "terminal", TERMINAL),
     ];
 
@@ -219,5 +286,46 @@ impl Theme {
             .position(|(t, _, _)| *t == self)
             .unwrap_or(0);
         Self::ALL[(i + 1) % Self::ALL.len()].0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blend_interpolates_rgb_channels() {
+        assert_eq!(blend(rgb(0x000000), rgb(0xFFFFFF), 0, 2), rgb(0x000000));
+        assert_eq!(blend(rgb(0x000000), rgb(0xFFFFFF), 2, 2), rgb(0xFFFFFF));
+        assert_eq!(blend(rgb(0x000000), rgb(0xFFFFFF), 1, 2), rgb(0x808080));
+        assert_eq!(blend(rgb(0x000000), rgb(0xFFFFFF), 1, 4), rgb(0x404040));
+        assert_eq!(blend(rgb(0x2B303B), rgb(0x8CA1B4), 1, 2), rgb(0x5C6978));
+    }
+
+    #[test]
+    fn blend_of_named_colors_collapses_to_the_nearer_endpoint() {
+        assert_eq!(blend(Color::Red, Color::Blue, 1, 4), Color::Red);
+        assert_eq!(blend(Color::Red, Color::Blue, 1, 2), Color::Blue);
+        assert_eq!(blend(Color::Red, Color::Blue, 3, 4), Color::Blue);
+    }
+
+    #[test]
+    fn timeline_colors_are_blends_of_bg_and_chrome() {
+        for (theme, _, palette) in Theme::ALL {
+            assert_eq!(
+                palette.timeline_fill,
+                blend(palette.bg, palette.chrome, 1, 2),
+                "{theme:?}"
+            );
+            // Named colors (the terminal theme) have no channels to blend
+            // a quarter way, so only RGB themes get the exact track blend
+            if let (Color::Rgb(..), Color::Rgb(..)) = (palette.bg, palette.chrome) {
+                assert_eq!(
+                    palette.timeline_track,
+                    blend(palette.bg, palette.chrome, 1, 4),
+                    "{theme:?}"
+                );
+            }
+        }
     }
 }

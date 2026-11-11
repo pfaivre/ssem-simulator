@@ -8,7 +8,7 @@
 //! own surface highlight `#363A4F`). Adjust them here to change the theme's
 //! appearance.
 
-use super::{Palette, rgb};
+use super::{Palette, blend, rgb};
 
 pub const CATPPUCCIN_MACCHIATO: Palette = Palette {
     // Base background, default text color, and chrome (lavender, so the
@@ -60,7 +60,10 @@ pub const CATPPUCCIN_MACCHIATO: Palette = Palette {
     edge_skip: rgb(0xCAD3F5),
 
     // Timeline and scrub pop-up (the pop-up text is the background color,
-    // dark on yellow)
+    // dark on yellow; the bar's fill/track are bg blended to chrome at the
+    // fill fraction of the shade glyphs it used to draw)
+    timeline_fill: blend(rgb(0x24273A), rgb(0xB7BDF8), 1, 2),
+    timeline_track: blend(rgb(0x24273A), rgb(0xB7BDF8), 1, 4),
     timeline_marker: rgb(0xEED49F),
     scrub_popup_fg: rgb(0x24273A),
     scrub_popup_bg: rgb(0xEED49F),

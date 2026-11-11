@@ -2,7 +2,7 @@
 
 use ratatui::style::Color;
 
-use super::Palette;
+use super::{Palette, blend};
 
 pub const TERMINAL: Palette = Palette {
     // Base: the terminal's own default foreground/background
@@ -52,7 +52,11 @@ pub const TERMINAL: Palette = Palette {
     edge_jump: Color::Magenta,
     edge_skip: Color::White,
 
-    // Timeline and scrub pop-up
+    // Timeline and scrub pop-up (named colors have no fractional blends of
+    // the default background and blue: the fill collapses to solid blue,
+    // the track is the theme's dim gray)
+    timeline_fill: blend(Color::Reset, Color::Blue, 1, 2),
+    timeline_track: Color::DarkGray,
     timeline_marker: Color::Yellow,
     scrub_popup_fg: Color::Black,
     scrub_popup_bg: Color::Yellow,

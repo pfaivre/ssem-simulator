@@ -51,8 +51,8 @@ pub(super) fn cli_theme_overrides_the_saved_one() {
         theme: Theme::Monokai,
         ..Config::default()
     };
-    let app = App::from_parts(config, Some(Theme::Light), None);
-    assert_eq!(Theme::Light, app.theme);
+    let app = App::from_parts(config, Some(Theme::Notebook), None);
+    assert_eq!(Theme::Notebook, app.theme);
 }
 
 #[test]
@@ -68,7 +68,7 @@ pub(super) fn modes_are_saved_once_on_close_not_on_key_press() {
     app.handle_key(press(KeyCode::Char('d')), &mut sim);
     assert_eq!(HeatmapMode::Exec, app.heatmap);
     assert!(!app.show_comments);
-    assert_eq!(Theme::Light, app.theme);
+    assert_eq!(Theme::Monokai, app.theme);
     assert_eq!(FlowMode::Data, app.flow);
     assert_eq!(1, app.bit_representation);
     assert!(!path.exists(), "key presses must not write the config file");
@@ -78,7 +78,11 @@ pub(super) fn modes_are_saved_once_on_close_not_on_key_press() {
     let saved: Config = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(HeatmapMode::Exec, saved.heatmap);
     assert!(!saved.comments);
-    assert_eq!(Theme::Light, saved.theme, "dark cycles to light");
+    assert_eq!(
+        Theme::Monokai,
+        saved.theme,
+        "base16-ocean cycles to monokai"
+    );
     assert_eq!(FlowMode::Data, saved.flow, "control cycles to data");
     assert_eq!(1, saved.bit_representation, "D cycles 0 -> 1");
     assert!(app.config_error.is_none());
@@ -166,7 +170,7 @@ pub(super) fn mode_keys_swallow_os_repeat_but_not_human_double_press() {
     // Other mode keys are guarded too, independently per key
     app.handle_key(press(KeyCode::Char('t')), &mut sim);
     app.handle_key(press(KeyCode::Char('t')), &mut sim);
-    assert_eq!(Theme::Light, app.theme, "repeated T press must not cycle");
+    assert_eq!(Theme::Monokai, app.theme, "repeated T press must not cycle");
 }
 
 #[test]

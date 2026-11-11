@@ -42,7 +42,7 @@ pub(super) struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            theme: Theme::Dark,
+            theme: Theme::Base16Ocean,
             flow: FlowMode::Control,
             heatmap: HeatmapMode::Off,
             comments: true,
@@ -177,8 +177,8 @@ mod tests {
 
     #[test]
     fn missing_keys_keep_their_defaults() {
-        let parsed: Config = toml::from_str("theme = \"light\"\n").unwrap();
-        assert_eq!(Theme::Light, parsed.theme);
+        let parsed: Config = toml::from_str("theme = \"notebook\"\n").unwrap();
+        assert_eq!(Theme::Notebook, parsed.theme);
         assert_eq!(FlowMode::Control, parsed.flow);
         assert_eq!(HeatmapMode::Off, parsed.heatmap);
         assert!(parsed.comments);
@@ -198,7 +198,10 @@ mod tests {
         let parsed: Config = toml::from_str("theme = \"catpuccin-macchiato\"\n").unwrap();
         assert_eq!(Theme::CatpuccinMacchiato, parsed.theme);
         let text = toml::to_string_pretty(&Config::default()).unwrap();
-        assert!(text.contains("theme = \"dark\""), "unexpected: {text}");
+        assert!(
+            text.contains("theme = \"base16-ocean\""),
+            "unexpected: {text}"
+        );
         assert!(text.contains("flow = \"control\""), "unexpected: {text}");
         assert!(text.contains("heatmap = \"off\""), "unexpected: {text}");
         assert!(text.contains("comments = true"), "unexpected: {text}");

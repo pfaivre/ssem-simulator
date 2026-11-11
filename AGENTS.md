@@ -108,7 +108,7 @@ Write new code as if it will be audited against these rubrics:
 
 ## Suggestions for later development
 
-- More themes
+- Click on statusbar
 - first start screen
 - Add CMP to data flow chart. Maybe with a label "A >= 0 ?"
 - Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.

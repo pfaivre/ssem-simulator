@@ -7,7 +7,7 @@
 //! below Monokai's own line-highlight `#3E3D32`). Adjust them here to change
 //! the theme's appearance.
 
-use super::{Palette, rgb};
+use super::{Palette, blend, rgb};
 
 pub const MONOKAI: Palette = Palette {
     // Base background, default text color, and chrome (a warm gray, so the
@@ -59,7 +59,10 @@ pub const MONOKAI: Palette = Palette {
     edge_skip: rgb(0xF8F8F2),
 
     // Timeline and scrub pop-up (the pop-up text is the background color,
-    // dark on yellow)
+    // dark on yellow; the bar's fill/track are bg blended to chrome at the
+    // fill fraction of the shade glyphs it used to draw)
+    timeline_fill: blend(rgb(0x272822), rgb(0x9B978B), 1, 2),
+    timeline_track: blend(rgb(0x272822), rgb(0x9B978B), 1, 4),
     timeline_marker: rgb(0xE6DB74),
     scrub_popup_fg: rgb(0x272822),
     scrub_popup_bg: rgb(0xE6DB74),

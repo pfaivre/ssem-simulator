@@ -1,15 +1,15 @@
-//! Cold light theme
+//! Notebook theme: light, like a paper notebook
 
-use super::{Palette, rgb};
+use super::{Palette, blend, rgb};
 
-pub const LIGHT: Palette = Palette {
+pub const NOTEBOOK: Palette = Palette {
     // Base background, default text color, and chrome
     fg: rgb(0x1F2328),
     bg: rgb(0xF4F4F4),
     chrome: rgb(0x3B6FD4),
     status_running: rgb(0x8edc8a),
     status_stopped: rgb(0xF4F4F4),
-    status_rewind: rgb(0xB45309),
+    status_rewind: rgb(0xF2C94C),
     status_fg: rgb(0xF4F4F4),
     hover: rgb(0xA9C2F2),
     hover_fg: rgb(0x1F3A6E),
@@ -52,7 +52,10 @@ pub const LIGHT: Palette = Palette {
     edge_jump: rgb(0xA626A4),
     edge_skip: rgb(0x1F2328),
 
-    // Timeline and scrub pop-up
+    // Timeline and scrub pop-up (the bar's fill/track are bg blended to
+    // chrome at the fill fraction of the shade glyphs it used to draw)
+    timeline_fill: blend(rgb(0xF4F4F4), rgb(0x3B6FD4), 1, 2),
+    timeline_track: blend(rgb(0xF4F4F4), rgb(0x3B6FD4), 1, 4),
     timeline_marker: rgb(0xF2C94C),
     scrub_popup_fg: rgb(0x1F2328),
     scrub_popup_bg: rgb(0xF2C94C),

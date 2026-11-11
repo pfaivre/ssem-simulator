@@ -259,3 +259,39 @@ pub(super) fn scrub_popup_stays_on_screen_at_the_bar_ends() {
         );
     }
 }
+
+#[test]
+pub(super) fn timeline_bar_is_all_full_blocks_with_tainted_colors() {
+    // Half-full history (50 of 100 states retained): every bar cell is a
+    // full block — the retained part in the palette's tainted fill color,
+    // the empty track in the dimmer track color, the marker in the marker
+    // color
+    let mut app = App::new();
+    let snap = Snapshot {
+        history_start: 50,
+        history_len: 50,
+        ..snapshot_with_history(74)
+    };
+    let buffer = render(&mut app, &snap, 80, 20);
+    let row = 18; // the timeline row on a 20-row terminal
+    let (bar_x, bar_width) = timeline_bar_geometry(Rect::new(0, row, 80, 1), 50, 99);
+    let filled = (50 * u64::from(bar_width) / 100) as usize;
+    let marker = timeline_marker_offset(bar_width, 50, 99, 74).unwrap();
+    assert!(
+        filled > 0 && filled < usize::from(bar_width),
+        "test needs a partially filled bar"
+    );
+    let palette = app.palette();
+    for i in 0..usize::from(bar_width) {
+        let cell = &buffer[(bar_x + i as u16, row)];
+        let fg = if i == marker {
+            palette.timeline_marker
+        } else if i < filled {
+            palette.timeline_fill
+        } else {
+            palette.timeline_track
+        };
+        assert_eq!("\u{2588}", cell.symbol(), "symbol of bar cell {i}");
+        assert_eq!(fg, cell.fg, "color of bar cell {i}");
+    }
+}

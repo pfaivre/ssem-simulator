@@ -807,26 +807,32 @@ impl App {
             snap.cycle_count,
         );
 
-        let chrome = Style::default().fg(self.palette().chrome);
+        let palette = self.palette();
+        let chrome = Style::default().fg(palette.chrome);
+        let fill = Style::default().fg(palette.timeline_fill);
+        let track = Style::default().fg(palette.timeline_track);
         let mut spans = vec![Span::styled(t!("history.label"), chrome)];
         if bar_width > 0 {
-            let segment = |from: usize, to: usize| -> String {
-                (from..to)
-                    .map(|i| if i < filled { '\u{2592}' } else { '\u{2591}' })
-                    .collect()
+            // The whole bar is full blocks: the retained part in the tainted
+            // fill color, the empty track in the dimmer track color
+            let push_segment = |spans: &mut Vec<Span>, from: usize, to: usize| {
+                let cut = filled.clamp(from, to);
+                if from < cut {
+                    spans.push(Span::styled("\u{2588}".repeat(cut - from), fill));
+                }
+                if cut < to {
+                    spans.push(Span::styled("\u{2588}".repeat(to - cut), track));
+                }
             };
             let marker = marker.unwrap_or(0);
-            spans.push(Span::styled(segment(0, marker), chrome));
+            push_segment(&mut spans, 0, marker);
             spans.push(Span::styled(
                 "\u{2588}".to_string(),
                 Style::default()
-                    .fg(self.palette().timeline_marker)
+                    .fg(palette.timeline_marker)
                     .add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::styled(
-                segment(marker + 1, usize::from(bar_width)),
-                chrome,
-            ));
+            push_segment(&mut spans, marker + 1, usize::from(bar_width));
         }
         spans.push(Span::styled(
             t!(
