@@ -192,6 +192,33 @@ mod tests {
     }
 
     #[test]
+    fn renamed_themes_load_from_their_old_config_names() {
+        // Pre-rename config files used "dark", "light", and the misspelled
+        // "catpuccin-macchiato"; those values still parse, so an old config
+        // keeps its theme (and every other key) instead of being reset.
+        let parsed: Config = toml::from_str("theme = \"dark\"\nflow = \"data\"\n").unwrap();
+        assert_eq!(Theme::Base16Ocean, parsed.theme);
+        assert_eq!(FlowMode::Data, parsed.flow);
+        let parsed: Config = toml::from_str("theme = \"light\"\n").unwrap();
+        assert_eq!(Theme::Notebook, parsed.theme);
+    }
+
+    #[test]
+    fn saving_writes_the_new_theme_names_not_the_aliases() {
+        // Aliases are load-only: a save must write the current kebab-case
+        // name so the file does not depend on the alias surviving forever.
+        let text = toml::to_string_pretty(&Config {
+            theme: Theme::Base16Ocean,
+            ..Config::default()
+        })
+        .unwrap();
+        assert!(
+            text.contains("theme = \"base16-ocean\""),
+            "unexpected: {text}"
+        );
+    }
+
+    #[test]
     fn theme_names_match_the_cli_value_names() {
         // clap's ValueEnum uses kebab-case, so the config file accepts the
         // same spellings as --theme

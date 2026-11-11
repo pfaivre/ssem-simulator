@@ -66,6 +66,8 @@ macro_rules! themes {
 
 themes! {
     /// The Base16 Ocean theme: dark, blue-tinted (the default).
+    #[serde(alias = "dark")]
+    #[value(alias = "dark")]
     Base16Ocean = base16ocean,
     /// A Monokai-inspired theme: dark background, bright accents.
     Monokai = monokai,
@@ -78,6 +80,8 @@ themes! {
     /// The Rose Pine theme: dark, with soft pastels.
     RosePine = rosepine,
     /// The Notebook theme: light, like a paper notebook.
+    #[serde(alias = "light")]
+    #[value(alias = "light")]
     Notebook = notebook,
     /// A Catppuccin Latte theme: light, with pastel accents.
     CatppuccinLatte = catppuccinlatte,
@@ -299,27 +303,21 @@ mod tests {
     }
 
     #[test]
-    fn zebra_bg_is_a_faint_blend_of_bg_and_chrome() {
+    fn rgb_themes_derive_zebra_and_timeline_colors_from_bg_and_chrome() {
         for (theme, _, palette) in Theme::ALL {
-            assert_eq!(
-                palette.zebra_bg,
-                blend(palette.bg, palette.chrome, 1, 16),
-                "{theme:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn timeline_colors_are_blends_of_bg_and_chrome() {
-        for (theme, _, palette) in Theme::ALL {
-            assert_eq!(
-                palette.timeline_fill,
-                blend(palette.bg, palette.chrome, 1, 2),
-                "{theme:?}"
-            );
-            // Named colors (the terminal theme) have no channels to blend
-            // a quarter way, so only RGB themes get the exact track blend
+            // Only RGB colors have channels to blend; the terminal theme
+            // uses solid named colors instead (asserted separately below).
             if let (Color::Rgb(..), Color::Rgb(..)) = (palette.bg, palette.chrome) {
+                assert_eq!(
+                    palette.zebra_bg,
+                    blend(palette.bg, palette.chrome, 1, 16),
+                    "{theme:?}"
+                );
+                assert_eq!(
+                    palette.timeline_fill,
+                    blend(palette.bg, palette.chrome, 1, 2),
+                    "{theme:?}"
+                );
                 assert_eq!(
                     palette.timeline_track,
                     blend(palette.bg, palette.chrome, 1, 4),

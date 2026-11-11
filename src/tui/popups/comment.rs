@@ -35,14 +35,40 @@ impl CommentEditor {
         self.frame.last_rect = rect;
     }
 
-    /// The text typed so far.
+    /// The text typed so far. Test-only: the draw code projects the buffer
+    /// through [`visible_text`](Self::visible_text) instead.
+    #[cfg(test)]
     pub fn buffer(&self) -> &str {
         &self.buffer
     }
 
     /// The insertion point within the buffer, in chars.
+    #[cfg(test)]
     pub fn cursor(&self) -> usize {
         self.cursor
+    }
+
+    /// The text box shown in the comment column: the buffer with the cursor
+    /// cell ('_') at the insertion point, windowed to `width` cells so the
+    /// cursor stays visible when the column is narrower than the text (narrow
+    /// terminal or the width cap). One cell of the window is the cursor
+    /// itself.
+    pub fn visible_text(&self, width: usize) -> String {
+        let chars: Vec<char> = self.buffer.chars().collect();
+        let window = width.max(1);
+        let virtual_len = chars.len() + 1;
+        let cursor = self.cursor;
+        let start = cursor.min(virtual_len.saturating_sub(window));
+        let end = (start + window).min(virtual_len);
+        let mut visible = String::new();
+        for i in start..end {
+            if i == cursor {
+                visible.push('_');
+            } else {
+                visible.push(chars[if i < cursor { i } else { i - 1 }]);
+            }
+        }
+        visible
     }
 
     /// Number of characters in the buffer.
@@ -50,13 +76,24 @@ impl CommentEditor {
         self.buffer.chars().count()
     }
 
-    /// Byte index in the buffer where the cursor sits (the end of the
-    /// buffer when the cursor is past the last character).
-    fn cursor_byte_index(&self) -> usize {
+    /// Byte index of the char at `char_idx` (the end of the buffer when
+    /// `char_idx` is past the last character).
+    fn byte_index(&self, char_idx: usize) -> usize {
         self.buffer
             .char_indices()
-            .nth(self.cursor)
+            .nth(char_idx)
             .map_or(self.buffer.len(), |(i, _)| i)
+    }
+
+    /// Delete the char at `char_idx`, if any (no-op past the end). The range
+    /// is bounded by the next char's byte index, so it is char-boundary safe
+    /// for multibyte chars.
+    fn delete_char_at(&mut self, char_idx: usize) {
+        if char_idx < self.len() {
+            let start = self.byte_index(char_idx);
+            let end = self.byte_index(char_idx + 1);
+            self.buffer.replace_range(start..end, "");
+        }
     }
 
     /// Display width the inline editor needs in the comment column: the
@@ -133,7 +170,7 @@ impl CommentEditor {
                 // (including `;` and `:`) literal
                 let c = azerty_digit_of(&key).unwrap_or(c);
                 if !c.is_control() && self.len() < MAX_COMMENT_INPUT {
-                    self.buffer.insert(self.cursor_byte_index(), c);
+                    self.buffer.insert(self.byte_index(self.cursor), c);
                     self.cursor += 1;
                 }
             }
@@ -161,33 +198,15 @@ impl CommentEditor {
     /// Delete the character at the cursor (Del), if any; the cursor stays
     /// put, so Del at the end of the line is a no-op.
     fn delete_at_cursor(&mut self) {
-        if self.cursor >= self.len() {
-            return;
-        }
-        let byte = self.cursor_byte_index();
-        let end = self.buffer[byte..]
-            .chars()
-            .next()
-            .map_or(byte + 1, |c| byte + c.len_utf8());
-        self.buffer.replace_range(byte..end, "");
+        self.delete_char_at(self.cursor);
     }
 
     /// Delete the character before the cursor, if any.
     fn delete_before_cursor(&mut self) {
-        if self.cursor == 0 {
-            return;
+        if self.cursor > 0 {
+            self.delete_char_at(self.cursor - 1);
+            self.cursor -= 1;
         }
-        let byte = self
-            .buffer
-            .char_indices()
-            .nth(self.cursor - 1)
-            .map_or(0, |(i, _)| i);
-        let end = self.buffer[byte..]
-            .chars()
-            .next()
-            .map_or(byte + 1, |c| byte + c.len_utf8());
-        self.buffer.replace_range(byte..end, "");
-        self.cursor -= 1;
     }
 
     /// Erase the word before the cursor (Ctrl+Backspace): the run of
@@ -248,4 +267,74 @@ impl Popup for CommentEditor {
         CommentEditor::handle_key(self, key, sim);
     }
     // No `draw`: the text box is drawn inline in the comment column.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn editor(buffer: &str, cursor: usize) -> CommentEditor {
+        let mut e = CommentEditor::new();
+        e.buffer = buffer.to_string();
+        e.cursor = cursor;
+        e
+    }
+
+    #[test]
+    fn visible_text_shows_the_whole_buffer_when_it_fits() {
+        assert_eq!(editor(" A = -a", 7).visible_text(10), " A = -a_");
+    }
+
+    #[test]
+    fn visible_text_puts_the_cursor_mid_text() {
+        assert_eq!(editor(" A = -a", 5).visible_text(10), " A = _-a");
+    }
+
+    #[test]
+    fn visible_text_slides_the_window_to_keep_the_cursor_visible() {
+        let buf = format!(" A = -a{}", "0123456789".repeat(2)); // 27 chars
+        // Cursor at 22, width 10: chars[18..22] + cursor + chars[22..27]
+        assert_eq!(editor(&buf, 22).visible_text(10), "1234_56789");
+        // Cursor at the end: the tail plus the cursor
+        assert_eq!(editor(&buf, 27).visible_text(10), "123456789_");
+    }
+
+    #[test]
+    fn visible_text_edge_cases() {
+        assert_eq!(editor("", 0).visible_text(5), "_");
+        // A zero width still shows the cursor cell (guard on the parameter)
+        assert_eq!(editor("abc", 3).visible_text(0), "_");
+        // Cursor clamped at the start shows the head plus the cursor
+        assert_eq!(editor("abc", 0).visible_text(2), "_a");
+    }
+
+    #[test]
+    fn byte_index_is_correct_for_multibyte_chars() {
+        let e = editor("aéb", 0); // é is 2 bytes: a=0, é=1..3, b=3
+        assert_eq!(e.byte_index(0), 0);
+        assert_eq!(e.byte_index(1), 1);
+        assert_eq!(e.byte_index(2), 3);
+        assert_eq!(e.byte_index(3), 4); // past the end -> buffer length
+    }
+
+    #[test]
+    fn delete_is_char_boundary_safe_for_multibyte_chars() {
+        let mut e = editor("aéb", 3); // cursor at the end
+        e.delete_before_cursor(); // delete 'b'
+        assert_eq!(e.buffer, "aé");
+        assert_eq!(e.cursor, 2);
+        e.delete_before_cursor(); // delete 'é' (multibyte)
+        assert_eq!(e.buffer, "a");
+        assert_eq!(e.cursor, 1);
+
+        let mut e = editor("aéb", 1); // cursor between 'a' and 'é'
+        e.delete_at_cursor(); // delete 'é'
+        assert_eq!(e.buffer, "ab");
+        assert_eq!(e.cursor, 1);
+        e.delete_at_cursor(); // delete 'b'
+        assert_eq!(e.buffer, "a");
+        e.delete_at_cursor(); // at the end: no-op
+        assert_eq!(e.buffer, "a");
+        assert_eq!(e.cursor, 1);
+    }
 }

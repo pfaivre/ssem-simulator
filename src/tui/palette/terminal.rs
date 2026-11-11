@@ -2,7 +2,7 @@
 
 use ratatui::style::Color;
 
-use super::{Palette, blend};
+use super::Palette;
 
 /// The theme's display name, shown in the top bar.
 pub const LABEL: &str = "terminal";
@@ -30,8 +30,9 @@ pub const PALETTE: Palette = Palette {
     highlight: Color::Yellow,
     next_marker: Color::Blue,
     dim: Color::DarkGray,
-    // Named colors have no fractional blend: 1/16 collapses to the background
-    zebra_bg: blend(Color::Reset, Color::Blue, 1, 16),
+    // Named colors have no fractional blend, so the zebra stripe is the
+    // plain background
+    zebra_bg: Color::Reset,
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
     // in magenta, memory accesses in cyan, arithmetic in light green; red
@@ -56,10 +57,9 @@ pub const PALETTE: Palette = Palette {
     edge_jump: Color::Magenta,
     edge_skip: Color::White,
 
-    // Timeline and scrub pop-up (named colors have no fractional blends of
-    // the default background and blue: the fill collapses to solid blue,
-    // the track is the theme's dim gray)
-    timeline_fill: blend(Color::Reset, Color::Blue, 1, 2),
+    // Timeline and scrub pop-up: the retained fill is solid chrome blue,
+    // the empty track the theme's dim gray
+    timeline_fill: Color::Blue,
     timeline_track: Color::DarkGray,
     timeline_marker: Color::Yellow,
     scrub_popup_fg: Color::Black,

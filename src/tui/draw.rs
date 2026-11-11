@@ -675,27 +675,10 @@ impl App {
                     } else {
                         self.comment_editor.set_last_rect(Rect::default());
                     }
-                    // The cursor is drawn at the editing position (the
-                    // Left/Right arrows move it within the buffer). The
-                    // window slides over the buffer-plus-cursor line so
-                    // the cursor stays visible when the column is narrower
-                    // than the text (narrow terminal or the width cap).
-                    let raw = self.comment_editor.buffer();
-                    let cursor = self.comment_editor.cursor();
-                    let chars: Vec<char> = raw.chars().collect();
-                    // One cell of the column shows the cursor itself
-                    let window = comment_width.max(1);
-                    let virtual_len = chars.len() + 1;
-                    let start = cursor.min(virtual_len.saturating_sub(window));
-                    let end = (start + window).min(virtual_len);
-                    let mut visible = String::new();
-                    for i in start..end {
-                        if i == cursor {
-                            visible.push('_');
-                        } else {
-                            visible.push(chars[if i < cursor { i } else { i - 1 }]);
-                        }
-                    }
+                    // The cursor is drawn at the editing position; the
+                    // editor windows the buffer so the cursor stays visible
+                    // when the column is narrower than the text.
+                    let visible = self.comment_editor.visible_text(comment_width);
                     let text = format!(" ;{visible}");
                     // Pad the rest of the column so the highlight covers it fully
                     let pad = comment_extra.saturating_sub(2 + visible.chars().count());
@@ -818,26 +801,31 @@ impl App {
         let track = Style::default().fg(palette.timeline_track);
         let mut spans = vec![Span::styled(t!("history.label"), chrome)];
         if bar_width > 0 {
-            // The whole bar is full blocks: the retained part in the tainted
-            // fill color, the empty track in the dimmer track color
-            let push_segment = |spans: &mut Vec<Span>, from: usize, to: usize| {
-                let cut = filled.clamp(from, to);
-                if from < cut {
-                    spans.push(Span::styled("\u{2588}".repeat(cut - from), fill));
-                }
-                if cut < to {
-                    spans.push(Span::styled("\u{2588}".repeat(to - cut), track));
-                }
-            };
-            let marker = marker.unwrap_or(0);
-            push_segment(&mut spans, 0, marker);
-            spans.push(Span::styled(
-                "\u{2588}".to_string(),
-                Style::default()
-                    .fg(palette.timeline_marker)
-                    .add_modifier(Modifier::BOLD),
-            ));
-            push_segment(&mut spans, marker + 1, usize::from(bar_width));
+            // The whole bar is full blocks, colored by position: retained
+            // fill up to `filled`, the bold marker at `marker`, and the empty
+            // track after. Emit one run per color change (boundaries at 0,
+            // filled, marker, marker+1, bar_width), so no range is ever
+            // clamped inverted.
+            let bar_width = usize::from(bar_width);
+            let marker = marker.unwrap_or(0).min(bar_width - 1);
+            let filled = filled.min(bar_width);
+            let marker_style = Style::default()
+                .fg(palette.timeline_marker)
+                .add_modifier(Modifier::BOLD);
+            let mut bounds = vec![0, marker, marker + 1, filled, bar_width];
+            bounds.sort_unstable();
+            bounds.dedup();
+            for w in bounds.windows(2) {
+                let (from, to) = (w[0], w[1]);
+                let style = if from == marker {
+                    marker_style
+                } else if from < filled {
+                    fill
+                } else {
+                    track
+                };
+                spans.push(Span::styled("\u{2588}".repeat(to - from), style));
+            }
         }
         spans.push(Span::styled(
             t!(
