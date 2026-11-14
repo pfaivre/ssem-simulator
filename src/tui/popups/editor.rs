@@ -356,10 +356,9 @@ impl Popup for EditorPopup {
         &mut self.frame
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        // E or Esc closes the pop-up (on a press, like every close key)
-        if key.kind == KeyEventKind::Press
-            && matches!(key.code, KeyCode::Esc | KeyCode::Char('e' | 'E'))
-        {
+        // E closes the pop-up (on a press, like every close key; Esc is
+        // closed centrally by App::route_popup_key)
+        if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('e' | 'E')) {
             self.close();
             return;
         }

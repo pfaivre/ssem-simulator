@@ -297,10 +297,9 @@ impl Popup for BreakpointPopup {
         &mut self.frame
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        // B or Esc closes the pop-up (on a press, like every close key)
-        if key.kind == KeyEventKind::Press
-            && matches!(key.code, KeyCode::Esc | KeyCode::Char('b' | 'B'))
-        {
+        // B closes the pop-up (on a press, like every close key; Esc is
+        // closed centrally by App::route_popup_key)
+        if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('b' | 'B')) {
             self.close();
             return;
         }

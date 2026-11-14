@@ -232,10 +232,9 @@ impl Popup for HelpPopup {
         &mut self.frame
     }
     fn handle_key(&mut self, key: KeyEvent, _sim: &mut Simulator) {
-        // H toggles the pop-up closed (on a press, like every close key)
-        if key.kind == KeyEventKind::Press
-            && matches!(key.code, KeyCode::Char('h' | 'H') | KeyCode::Esc)
-        {
+        // H toggles the pop-up closed (on a press, like every close key; Esc
+        // is closed centrally by App::route_popup_key)
+        if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('h' | 'H')) {
             self.close();
             return;
         }

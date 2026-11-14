@@ -20,7 +20,7 @@ use super::layout::{
 use super::palette::{Palette, Theme};
 use super::popups::{
     BreakpointPopup, CommentEditor, ConfirmAction, ConfirmButton, ConfirmPopup, EditorPopup,
-    HelpPopup, OpenPopup, PickerPopup, Popup, SavePopup, SettingControl, SettingsPopup,
+    FieldKind, FieldPopup, HelpPopup, PickerPopup, Popup, SettingControl, SettingsPopup,
 };
 use crate::i18n::Language;
 use crate::ssem::history::History;
@@ -158,10 +158,11 @@ pub(super) struct App {
     pub(super) help_popup: HelpPopup,
     pub(super) breakpoint_popup: BreakpointPopup,
     pub(super) editor_popup: EditorPopup,
-    pub(super) save_popup: SavePopup,
+    /// The save pop-up, opened from the menu bar (or the S key).
+    pub(super) save_popup: FieldPopup,
     /// The open pop-up, opened from the menu bar (or the O key) to load a
     /// .asm/.snp file into the machine.
-    pub(super) open_popup: OpenPopup,
+    pub(super) open_popup: FieldPopup,
     /// The confirmation pop-up, opened from the menu bar before a
     /// destructive action (Clear).
     pub(super) confirm_popup: ConfirmPopup,
@@ -265,8 +266,8 @@ impl App {
             help_popup: HelpPopup::new(),
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
-            save_popup: SavePopup::new(),
-            open_popup: OpenPopup::new(),
+            save_popup: FieldPopup::new(FieldKind::Save),
+            open_popup: FieldPopup::new(FieldKind::Open),
             confirm_popup: ConfirmPopup::new(),
             settings_popup: SettingsPopup::new(),
             menu_items: Vec::new(),
@@ -495,7 +496,13 @@ impl App {
         let mut routed = false;
         for popup in self.popups_mut() {
             if popup.is_open() {
-                popup.handle_key(key, sim);
+                // Esc closes any open pop-up on a press; every other key goes
+                // to the pop-up's own handler (including its extra close key)
+                if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
+                    popup.close();
+                } else {
+                    popup.handle_key(key, sim);
+                }
                 routed = true;
                 break;
             }

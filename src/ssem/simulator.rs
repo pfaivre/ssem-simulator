@@ -207,9 +207,10 @@ impl Simulator {
     /// missing/unknown, the file cannot be read, or a line cannot be parsed —
     /// the same error type as the save path, instead of panicking.
     pub fn from_file(filename: &Path) -> std::io::Result<Simulator> {
-        let store = FileFormat::from_path(filename)?.load(filename)?;
-
-        Ok(Self::with_store(store, Some(filename.to_path_buf())))
+        Ok(Self::with_store(
+            Self::load_store(filename)?,
+            Some(filename.to_path_buf()),
+        ))
     }
 
     /// Load a program from `filename` into this simulator, replacing the
@@ -224,7 +225,7 @@ impl Simulator {
     /// Same as [`Simulator::from_file`]; on error the machine is left
     /// untouched.
     pub fn load_file(&mut self, filename: &Path) -> std::io::Result<()> {
-        let store = FileFormat::from_path(filename)?.load(filename)?;
+        let store = Self::load_store(filename)?;
         self.clear();
         self.store = store;
         self.source_path = Some(filename.to_path_buf());
@@ -235,6 +236,13 @@ impl Simulator {
     /// Whether the machine is currently running (not stopped).
     pub fn is_running(&self) -> bool {
         !self.stop_flag
+    }
+
+    /// Load a store from `filename`, in the format given by the file
+    /// extension (`.asm`/`.snp`) — the single load dispatch shared by
+    /// `from_file` and `load_file`.
+    fn load_store(filename: &Path) -> std::io::Result<Store> {
+        FileFormat::from_path(filename)?.load(filename)
     }
 
     /// Write the current machine state to `path`, in the format given by the

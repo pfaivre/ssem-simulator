@@ -259,11 +259,7 @@ impl Popup for CommentEditor {
         self.cursor = 0;
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        // Esc cancels (on a press, like every close key)
-        if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
-            self.close();
-            return;
-        }
+        // Esc cancels centrally (App::route_popup_key)
         CommentEditor::handle_key(self, key, sim);
     }
     // No `draw`: the text box is drawn inline in the comment column.

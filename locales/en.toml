@@ -188,7 +188,7 @@ explanation = "Load a .asm or .snp file into the machine (the current state is r
 file = "File: %{buffer}_"
 footer = "ENTER open · ESC close"
 chars_allowed = "Only A-Z 0-9 - _ . / allowed"
-type_path = "Type a file path"
+type_name = "Type a file path"
 error = "Error: %{error}"
 
 [popup.save]

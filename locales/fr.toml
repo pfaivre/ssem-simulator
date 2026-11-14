@@ -185,7 +185,7 @@ explanation = "Charger un fichier .asm ou .snp dans la machine (l'état actuel e
 file = "Fichier : %{buffer}_"
 footer = "ENTRÉE ouvrir · ÉCHAP fermer"
 chars_allowed = "Seuls A-Z 0-9 - _ . / sont autorisés"
-type_path = "Tapez un chemin de fichier"
+type_name = "Tapez un chemin de fichier"
 error = "Erreur : %{error}"
 
 [popup.save]
