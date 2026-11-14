@@ -13,8 +13,8 @@ use ratatui::layout::{Position, Rect};
 use super::config::Config;
 use super::draw::{comment_column_start, drawn_comment_width, effective_heatmap};
 use super::layout::{
-    CHROME_HEIGHT, CONTENT_HEIGHT, DATA_WIDTH, FlowMode, HeatmapMode, MIN_HEIGHT, MIN_WIDTH,
-    MNEMONIC_WIDTH, STORE_ROW_OFFSET, data_column, mnemonic_column, scrollbar_metrics,
+    CHROME_HEIGHT, CONTENT_HEIGHT, DATA_WIDTH, FlowMode, HeatmapMode, MNEMONIC_WIDTH,
+    STORE_ROW_OFFSET, data_column, mnemonic_column, scrollbar_metrics,
     scrollbar_scroll_for_thumb_start, scrollbar_thumb_start, timeline_bar_geometry,
 };
 use super::palette::{Palette, Theme};
@@ -35,67 +35,30 @@ pub(super) const BIT_REPRESENTATIONS: [(char, char); 5] = [
     ('1', '0'),             // Binary digits
 ];
 
-/// The keymap: (key, legend, help description), localized.
-/// An empty legend means the key does not appear in the bottom bar (e.g. arrow keys).
+/// The keymap: (key, help description), localized.
 /// The locale is fixed at startup, so the table is built once.
-static KEYMAP: LazyLock<Vec<(&'static str, String, String)>> = LazyLock::new(|| {
+static KEYMAP: LazyLock<Vec<(&'static str, String)>> = LazyLock::new(|| {
     vec![
-        ("Ctrl+Q", ts!("keymap.quit.legend"), ts!("keymap.quit.desc")),
-        ("H", ts!("keymap.help.legend"), ts!("keymap.help.desc")),
-        (
-            "Space",
-            ts!("keymap.run_stop.legend"),
-            ts!("keymap.run_stop.desc"),
-        ),
-        ("F10", ts!("keymap.step.legend"), ts!("keymap.step.desc")),
-        (
-            "\u{2190}/\u{2192}",
-            ts!("keymap.back_fwd.legend"),
-            ts!("keymap.back_fwd.desc"),
-        ),
-        (
-            "\u{2191}/\u{2193}",
-            ts!("keymap.scroll.legend"),
-            ts!("keymap.scroll.desc"),
-        ),
-        (
-            "I",
-            ts!("keymap.speed_up.legend"),
-            ts!("keymap.speed_up.desc"),
-        ),
-        (
-            "K",
-            ts!("keymap.speed_down.legend"),
-            ts!("keymap.speed_down.desc"),
-        ),
-        (
-            "D",
-            ts!("keymap.display.legend"),
-            ts!("keymap.display.desc"),
-        ),
-        ("E", ts!("keymap.edit.legend"), ts!("keymap.edit.desc")),
-        (
-            "M",
-            ts!("keymap.heatmap.legend"),
-            ts!("keymap.heatmap.desc"),
-        ),
-        ("F", ts!("keymap.flow.legend"), ts!("keymap.flow.desc")),
-        (
-            "C",
-            ts!("keymap.comments.legend"),
-            ts!("keymap.comments.desc"),
-        ),
-        (
-            "B",
-            ts!("keymap.breakpt.legend"),
-            ts!("keymap.breakpt.desc"),
-        ),
-        ("S", ts!("keymap.save.legend"), ts!("keymap.save.desc")),
-        ("T", ts!("keymap.theme.legend"), ts!("keymap.theme.desc")),
+        ("Ctrl+Q", ts!("keymap.quit.desc")),
+        ("H", ts!("keymap.help.desc")),
+        ("Space", ts!("keymap.run_stop.desc")),
+        ("F10", ts!("keymap.step.desc")),
+        ("\u{2190}/\u{2192}", ts!("keymap.back_fwd.desc")),
+        ("\u{2191}/\u{2193}", ts!("keymap.scroll.desc")),
+        ("I", ts!("keymap.speed_up.desc")),
+        ("K", ts!("keymap.speed_down.desc")),
+        ("D", ts!("keymap.display.desc")),
+        ("E", ts!("keymap.edit.desc")),
+        ("M", ts!("keymap.heatmap.desc")),
+        ("F", ts!("keymap.flow.desc")),
+        ("C", ts!("keymap.comments.desc")),
+        ("B", ts!("keymap.breakpt.desc")),
+        ("S", ts!("keymap.save.desc")),
+        ("T", ts!("keymap.theme.desc")),
     ]
 });
 
-pub(super) fn keymap() -> &'static [(&'static str, String, String)] {
+pub(super) fn keymap() -> &'static [(&'static str, String)] {
     &KEYMAP
 }
 
@@ -842,9 +805,6 @@ impl App {
         comments: &[Option<String>; 32],
     ) -> Option<usize> {
         let area = self.last_area;
-        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
-            return None;
-        }
         let heatmap = effective_heatmap(area.width, self.heatmap);
         let comment_width = drawn_comment_width(
             area.width,
@@ -893,9 +853,6 @@ impl App {
     /// (below the top bar) and is scrolled by `store_scroll` lines.
     fn store_index_at_row(&self, row: u16) -> Option<usize> {
         let area = self.last_area;
-        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
-            return None;
-        }
         let body_top = 1u16;
         let body_height = area.height.saturating_sub(CHROME_HEIGHT);
         if row < body_top || row >= body_top + body_height {
@@ -915,14 +872,12 @@ impl App {
     /// it spans the body rows (between the top bar and the timeline).
     fn scrollbar_hit(&self, column: u16, row: u16) -> bool {
         let area = self.last_area;
-        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
-            return false;
-        }
         let body_height = area.height.saturating_sub(CHROME_HEIGHT);
         if (body_height as usize) >= CONTENT_HEIGHT {
             return false;
         }
-        column == area.right() - 1 && (1..area.height - 2).contains(&row)
+        column == area.right().saturating_sub(1)
+            && (1..area.height.saturating_sub(2)).contains(&row)
     }
 
     /// Set the scroll so the scrollbar thumb's top lands on the given
@@ -949,10 +904,7 @@ impl App {
     fn try_open_editor_at(&mut self, screen_row: u16) {
         // The word editor and the inline comment editor are mutually exclusive
         self.comment_editor.close();
-        // Ignore clicks outside the main body or when the terminal is too small
-        if self.last_area.width < MIN_WIDTH || self.last_area.height < MIN_HEIGHT {
-            return;
-        }
+        // Ignore clicks outside the main body
         let body_top = 1u16;
         let body_height = self.last_area.height.saturating_sub(CHROME_HEIGHT);
         if screen_row < body_top || screen_row >= body_top + body_height {

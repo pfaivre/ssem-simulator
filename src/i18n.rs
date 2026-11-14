@@ -190,8 +190,8 @@ mod tests {
     #[test]
     fn catalogs_answer_in_the_requested_locale() {
         use rust_i18n::t;
-        assert_eq!("STOPPED", t!("status.stopped", locale = "en"));
-        assert_eq!("ARRÊTÉ", t!("status.stopped", locale = "fr"));
+        assert_eq!("Stopped", t!("status.stopped", locale = "en"));
+        assert_eq!("Arrêté", t!("status.stopped", locale = "fr"));
         assert_eq!("Quit", t!("menu.quit", locale = "en"));
         assert_eq!("Quitter", t!("menu.quit", locale = "fr"));
         // Unknown keys fall back to the key itself

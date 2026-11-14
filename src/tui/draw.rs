@@ -16,8 +16,8 @@ use super::app::{App, MenuAction, menu_items};
 use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
 use super::layout::{
     A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, FlowMode, HEATMAP_BAR_WIDTH, HeatmapMode,
-    MAX_COMMENT_WIDTH, MIN_COMMENT_WIDTH, MIN_HEIGHT, MIN_WIDTH, REGISTER_TEXT_WIDTH, RW_BAR_WIDTH,
-    STORE_ROW_OFFSET, STORE_TEXT_WIDTH, comment_column_width, timeline_bar_geometry,
+    MAX_COMMENT_WIDTH, MIN_COMMENT_WIDTH, REGISTER_TEXT_WIDTH, RW_BAR_WIDTH, STORE_ROW_OFFSET,
+    STORE_TEXT_WIDTH, comment_column_width, store_view_width, timeline_bar_geometry,
     timeline_marker_offset,
 };
 use super::palette::Palette;
@@ -42,7 +42,7 @@ pub(super) fn flow_gutter_width(flow: FlowMode) -> u16 {
 /// The heatmap actually drawn at the given terminal width: the requested
 /// one, or Off when the width cannot fit it next to the store text.
 pub(super) fn effective_heatmap(area_width: u16, heatmap: HeatmapMode) -> HeatmapMode {
-    if area_width >= MIN_WIDTH + heatmap.extra_width() {
+    if area_width >= store_view_width(heatmap) as u16 {
         heatmap
     } else {
         HeatmapMode::Off
@@ -52,7 +52,7 @@ pub(super) fn effective_heatmap(area_width: u16, heatmap: HeatmapMode) -> Heatma
 /// Screen column where the comment column starts (its " ;" prefix), after
 /// the store text, the heatmap, and the flow gutter.
 pub(super) fn comment_column_start(heatmap: HeatmapMode, flow: FlowMode) -> usize {
-    STORE_TEXT_WIDTH + heatmap.extra_width() as usize + flow_gutter_width(flow) as usize
+    store_view_width(heatmap) + flow_gutter_width(flow) as usize
 }
 
 /// Width of the comment column actually drawn at the given terminal width:
@@ -231,8 +231,7 @@ impl App {
     pub(super) fn draw(&mut self, f: &mut Frame, snap: &Snapshot) {
         let area = f.area();
         self.last_area = area;
-        // The menu bar items are re-recorded on every draw (empty when the
-        // terminal is too small, so clicks find nothing)
+        // The menu bar items are re-recorded on every draw
         self.menu_items.clear();
 
         // Paint the theme's base colors over the whole frame. Only fg/bg are
@@ -249,20 +248,19 @@ impl App {
         let max_scroll = CONTENT_HEIGHT.saturating_sub(visible_height);
         self.store_scroll = (self.store_scroll as usize).min(max_scroll) as u16;
 
-        // Minimum terminal size: the store text needs MIN_WIDTH and the
-        // chrome MIN_HEIGHT. On top of that, the heatmap (drawn just after
-        // the pointer column) must fit entirely or it is dropped, and the
-        // flow visualization at the right edge is cropped by the terminal
-        // when the window is too narrow.
+        // There is no minimum terminal size: the heatmap (drawn just after
+        // the pointer column) must fit entirely next to the store text or
+        // it is dropped, and the flow visualization and comment column at
+        // the right edge are cropped by the terminal when the window is
+        // narrow.
         let heatmap = effective_heatmap(area.width, self.heatmap);
         // The comment column is cropped to the width left after the store
         // text, the heatmap, and the flow gutter (which stays left of the
-        // comments so the arrows remain visible), instead of being hidden
-        // entirely. Each comment span is " ;" + the text, so it needs 2
-        // cells on top of the comment width. While the inline comment
-        // editor is open, its buffer counts toward the width so the text
-        // box stays visible while typing, and the column is shown even
-        // when no loaded word has a comment yet.
+        // comments so the arrows remain visible). Each comment span is
+        // " ;" + the text, so it needs 2 cells on top of the comment width.
+        // While the inline comment editor is open, its buffer counts toward
+        // the width so the text box stays visible while typing, and the
+        // column is shown even when no loaded word has a comment yet.
         let comment_width = drawn_comment_width(
             area.width,
             heatmap,
@@ -271,20 +269,6 @@ impl App {
             self.comment_editor.edit_width(),
             self.show_comments || self.comment_editor.is_open(),
         );
-        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
-            let msg = t!(
-                "draw.too_small",
-                width = area.width,
-                height = area.height,
-                min_width = MIN_WIDTH,
-                min_height = MIN_HEIGHT
-            );
-            let paragraph = Paragraph::new(msg);
-            f.render_widget(paragraph, area);
-            self.timeline_area = Rect::default();
-            return;
-        }
-
         // Layout: menu bar (1 line), main body (flexible), history scrub bar
         // (1 line), status bar (1 line)
         let chunks = Layout::vertical([
@@ -318,7 +302,7 @@ impl App {
                 },
                 // Anchor the picker just right of the store text (past the
                 // heatmap bars), next to the mnemonic/data fields being edited
-                picker_anchor_col: (STORE_TEXT_WIDTH + heatmap.extra_width() as usize) as u16,
+                picker_anchor_col: store_view_width(heatmap) as u16,
             };
             for popup in self.popups_mut() {
                 if popup.is_open() {

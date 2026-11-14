@@ -1013,7 +1013,7 @@ mod tests {
             value: -42,
             was_met: false,
         };
-        assert_eq!("WORD 05 = -42", bp.description());
+        assert_eq!("Word 05 = -42", bp.description());
     }
 
     #[test]

@@ -200,7 +200,7 @@ pub(super) fn help_popup_title_shows_the_program_version() {
     let all: String = (0..buffer.area.height)
         .map(|y| row_text(&buffer, y))
         .collect();
-    let title = format!("SSEM SIMULATOR v{}", env!("CARGO_PKG_VERSION"));
+    let title = format!("SSEM simulator v{}", env!("CARGO_PKG_VERSION"));
     assert!(all.contains(&title), "version missing from the title");
 }
 
@@ -220,7 +220,7 @@ pub(super) fn help_popup_scrolls_when_the_window_is_too_small() {
     // Small window: the pop-up is clamped, the tail of the text is hidden
     let buffer = render(&mut app, &snap, 100, 20);
     let all = all_text(&buffer);
-    assert!(all.contains("SSEM SIMULATOR"), "title missing");
+    assert!(all.contains("SSEM simulator"), "title missing");
     assert!(
         all.contains("Quit the simulator"),
         "top of the text missing"
@@ -303,6 +303,71 @@ pub(super) fn no_scrollbar_when_the_whole_body_fits() {
             buffer[(79, row)].symbol(),
             "no scrollbar on body row {row}"
         );
+    }
+}
+
+#[test]
+pub(super) fn renders_at_any_terminal_size() {
+    // There is no minimum terminal size: even a tiny window renders the
+    // chrome, with the body cropped by the screen edges
+    let snap = snapshot_with_history(0);
+    let mut app = App::new();
+
+    for (width, height) in [(1u16, 1u16), (10, 4), (30, 8)] {
+        let buffer = render(&mut app, &snap, width, height);
+        assert_eq!(Rect::new(0, 0, width, height), buffer.area);
+    }
+
+    // At 30x8 the menu bar is on row 0 and the status bar on the last row
+    let buffer = render(&mut app, &snap, 30, 8);
+    assert!(row_text(&buffer, 0).contains("Quit"));
+    assert!(row_text(&buffer, 7).contains("Status"));
+}
+
+#[test]
+pub(super) fn popups_and_mouse_work_at_tiny_terminal_sizes() {
+    // No minimum terminal size: every pop-up, an active scrub, and mouse
+    // handling all work — and never panic — even in a 1x1 window
+    let snap = snapshot_with_history(0);
+    let mut sim = looping_sim(10);
+
+    for (width, height) in [(1u16, 1u16), (5, 3), (10, 4)] {
+        let mut app = App::new();
+        app.help_popup.open();
+        app.breakpoint_popup.open();
+        app.editor_popup.open_for_word(0);
+        app.save_popup.open(None);
+        app.settings_popup.open();
+        app.comment_editor.open_for(0, None);
+        app.picker.open_for_mnemonic(0, 0, 5);
+        app.scrubbing = true;
+        let buffer = render(&mut app, &snap, width, height);
+        assert_eq!(Rect::new(0, 0, width, height), buffer.area);
+
+        // Sweep every cell with clicks, drags, moves, and wheel scrolls
+        for row in 0..height {
+            for column in 0..width {
+                for kind in [
+                    MouseEventKind::Down(MouseButton::Left),
+                    MouseEventKind::Drag(MouseButton::Left),
+                    MouseEventKind::Moved,
+                    MouseEventKind::ScrollUp,
+                    MouseEventKind::ScrollDown,
+                ] {
+                    app.handle_mouse(
+                        MouseEvent {
+                            column,
+                            row,
+                            kind,
+                            modifiers: KeyModifiers::NONE,
+                        },
+                        &mut sim,
+                    );
+                }
+            }
+        }
+        // Whatever state the sweep left the app in, it still renders
+        render(&mut app, &snap, width, height);
     }
 }
 

@@ -279,7 +279,7 @@ pub(super) fn settings_popup_lists_all_controls() {
 
     let all = screen_text(&buffer);
     for text in [
-        " SETTINGS ",
+        " Settings ",
         "Machine speed",
         "ips",
         "Heatmap mode",
@@ -295,8 +295,8 @@ pub(super) fn settings_popup_lists_all_controls() {
     }
     // The current values are shown: default theme, comments on, control flow
     assert!(all.contains("[Base16 Ocean]"), "theme value: {all}");
-    assert!(all.contains("[ON]"), "comments value: {all}");
-    assert!(all.contains("[CONTROL]"), "flow value: {all}");
+    assert!(all.contains("[On]"), "comments value: {all}");
+    assert!(all.contains("[Control]"), "flow value: {all}");
 }
 
 #[test]
@@ -518,22 +518,22 @@ pub(super) fn status_bar_shows_left_and_right_groups_on_the_bottom_row() {
         "status bar: {row:?}"
     );
     // Left: status, cycles, last instruction, speed
-    assert!(row.contains("STATUS: STOPPED"), "status: {row:?}");
-    assert!(row.contains("CYCLES: 0"), "cycles: {row:?}");
+    assert!(row.contains("Status: Stopped"), "status: {row:?}");
+    assert!(row.contains("Cycles: 0"), "cycles: {row:?}");
     assert!(row.contains("02 SUB 10"), "last instruction: {row:?}");
-    assert!(row.contains("SPEED:"), "speed: {row:?}");
+    assert!(row.contains("Speed:"), "speed: {row:?}");
     assert!(row.contains("/700 ips"), "target speed: {row:?}");
     // Right: heatmap, flow, comments, breakpoints, flush to the right edge
-    for block in ["HEATMAP: EXEC", "FLOW: DATA", "COMMENTS", "BREAKPOINTS: 1"] {
+    for block in ["Heatmap: Exec", "Flow: Data", "Comments", "Breakpoints: 1"] {
         assert!(row.contains(block), "right side missing {block}: {row:?}");
     }
     assert!(
-        row.trim_end().ends_with("BREAKPOINTS: 1"),
+        row.trim_end().ends_with("Breakpoints: 1"),
         "right group flush to the right edge: {row:?}"
     );
 
     // The menu bar (top row) does not carry the status info anymore
     let top = row_text(&buffer, 0);
-    assert!(!top.contains("STATUS"), "menu bar: {top:?}");
-    assert!(!top.contains("CYCLES"), "menu bar: {top:?}");
+    assert!(!top.contains("Status"), "menu bar: {top:?}");
+    assert!(!top.contains("Cycles"), "menu bar: {top:?}");
 }
