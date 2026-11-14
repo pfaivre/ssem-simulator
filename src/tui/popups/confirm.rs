@@ -92,7 +92,16 @@ impl ConfirmPopup {
         let no = t!("popup.confirm.no");
         let footer = t!("popup.confirm.footer");
 
-        let buttons_line = format!("{yes}  {no}");
+        // The buttons row exactly as drawn below: a leading space, then each
+        // button preceded by two spaces — measured so the pop-up is wide
+        // enough for the row it actually renders
+        let parts = [
+            (yes.as_ref(), ConfirmButton::Yes),
+            (no.as_ref(), ConfirmButton::No),
+        ];
+        let buttons_line = parts.iter().fold(String::from(" "), |line, (text, _)| {
+            format!("{line}  {text}")
+        });
         let content_width = display_width(&question)
             .max(display_width(&buttons_line))
             .max(display_width(&footer));
@@ -116,10 +125,7 @@ impl ConfirmPopup {
         let buttons_row = content.y + 2;
         let mut x = content.x + 1;
         let mut spans = vec![Span::raw(" ")];
-        for (text, button) in [
-            (yes.as_ref(), ConfirmButton::Yes),
-            (no.as_ref(), ConfirmButton::No),
-        ] {
+        for (text, button) in parts {
             spans.push(Span::raw("  "));
             x += 2;
             let w = display_width(text) as u16;
@@ -129,7 +135,13 @@ impl ConfirmPopup {
                 button_style
             };
             spans.push(Span::styled(text.to_string(), style));
-            self.buttons.push((Rect::new(x, buttons_row, w, 1), button));
+            let rect = Rect::new(x, buttons_row, w, 1);
+            // Record the button only where it is actually drawn: at tiny
+            // terminal sizes the pop-up is clamped and the row may be
+            // clipped — a click on a clipped cell must not confirm
+            if content.intersection(rect) == rect {
+                self.buttons.push((rect, button));
+            }
             x += w;
         }
 

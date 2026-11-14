@@ -267,6 +267,32 @@ pub(super) fn menu_clear_confirmation_can_be_canceled() {
 }
 
 #[test]
+pub(super) fn confirm_buttons_are_not_clickable_when_clipped_at_tiny_sizes() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    sim.run(5);
+    sim.store.words[3] = 42;
+    sim.stop_flag = true;
+    let snap = Snapshot::from_sim(&sim);
+    // At 100x4 the pop-up is clamped to the window: the buttons row is not
+    // drawn, so no cell may confirm — clicking anywhere cancels
+    let _ = render(&mut app, &snap, 100, 4);
+    let (col, row) = menu_item_cell(&app, MenuAction::Clear);
+    click(&mut app, &mut sim, col, row);
+    assert!(app.confirm_popup.is_open());
+    let _ = render(&mut app, &snap, 100, 4);
+    for row in 1..4u16 {
+        for col in 0..100u16 {
+            click(&mut app, &mut sim, col, row);
+        }
+    }
+    assert_eq!(
+        42, sim.store.words[3],
+        "no phantom button confirmed the clear"
+    );
+}
+
+#[test]
 pub(super) fn menu_opening_a_popup_closes_the_others() {
     let mut app = App::new();
     let mut sim = Simulator::new();
