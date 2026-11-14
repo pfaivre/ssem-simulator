@@ -80,7 +80,9 @@ pub(super) fn menu_bar_lists_all_actions_on_the_top_row() {
         !top.contains('[') && !top.contains(']'),
         "menu bar: {top:?}"
     );
-    for item in ["Clear", "Save", "Quit", "Run", "Step", "Settings", "Help"] {
+    for item in [
+        "Clear", "Open", "Save", "Quit", "Run", "Step", "Settings", "Help",
+    ] {
         assert!(top.contains(item), "menu bar missing {item}: {top:?}");
     }
 
@@ -158,6 +160,12 @@ pub(super) fn menu_clicks_run_the_actions() {
     click(&mut app, &mut sim, col, row);
     assert_eq!(cycles + 1, sim.cycle_count, "one cycle executed");
     assert!(sim.stop_flag, "step leaves the machine paused");
+
+    // Open opens the open pop-up
+    let (col, row) = menu_item_cell(&app, MenuAction::Open);
+    click(&mut app, &mut sim, col, row);
+    assert!(app.open_popup.is_open(), "open pop-up opened");
+    app.open_popup.close();
 
     // Save opens the save pop-up
     let (col, row) = menu_item_cell(&app, MenuAction::Save);

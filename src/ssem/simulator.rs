@@ -212,6 +212,26 @@ impl Simulator {
         Ok(Self::with_store(store, Some(filename.to_path_buf())))
     }
 
+    /// Load a program from `filename` into this simulator, replacing the
+    /// current machine state: the store comes from the file, and the
+    /// registers, cycle count, heatmap counters and breakpoints are reset
+    /// (as by [`Simulator::clear`]). The history, when enabled, restarts at
+    /// the loaded state. `source_path` is set, so a later save proposes the
+    /// loaded file's folder.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Simulator::from_file`]; on error the machine is left
+    /// untouched.
+    pub fn load_file(&mut self, filename: &Path) -> std::io::Result<()> {
+        let store = FileFormat::from_path(filename)?.load(filename)?;
+        self.clear();
+        self.store = store;
+        self.source_path = Some(filename.to_path_buf());
+        self.restart_history();
+        Ok(())
+    }
+
     /// Whether the machine is currently running (not stopped).
     pub fn is_running(&self) -> bool {
         !self.stop_flag
@@ -495,7 +515,7 @@ impl fmt::Display for Simulator {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use super::{Breakpoint, Opcode, Simulator};
 
@@ -1410,6 +1430,60 @@ mod tests {
         assert!(sim.exec_counts.iter().all(|&c| c == 0));
         assert!(sim.read_counts.iter().all(|&c| c == 0));
         assert!(sim.write_counts.iter().all(|&c| c == 0));
+    }
+
+    #[test]
+    fn load_file_replaces_the_state_and_keeps_the_history() {
+        let mut sim = history_test_program();
+        sim.enable_history(100);
+        sim.run(3);
+        sim.breakpoints.push(Breakpoint::CiValue {
+            address: 2,
+            was_met: false,
+        });
+        assert_eq!(3, sim.cycle_count);
+
+        sim.load_file(Path::new("samples/factorct.asm")).unwrap();
+
+        let reference = Simulator::from_file(Path::new("samples/factorct.asm")).unwrap();
+        assert_eq!(reference.store.words, sim.store.words, "store from file");
+        assert_eq!(
+            reference.store.comments, sim.store.comments,
+            "comments from file"
+        );
+        assert_eq!(Some(PathBuf::from("samples/factorct.asm")), sim.source_path);
+        assert_eq!(0, sim.cycle_count, "cycle count reset");
+        assert_eq!(0, sim.a);
+        assert_eq!(0, sim.ci);
+        assert!(sim.stop_flag, "the loaded machine starts paused");
+        assert!(sim.breakpoints.is_empty(), "breakpoints dropped");
+        assert!(sim.exec_counts.iter().all(|&c| c == 0));
+
+        // The history keeps its capacity and restarts at the loaded state
+        let h = sim.history.as_ref().expect("history kept");
+        assert_eq!(100, h.capacity());
+        assert_eq!(1, h.len());
+        assert_eq!(0, h.start());
+        assert_eq!(0, h.head());
+        assert_eq!(sim.store.words, h.get(0).unwrap().store);
+    }
+
+    #[test]
+    fn load_file_error_leaves_the_machine_untouched() {
+        let mut sim = history_test_program();
+        sim.run(2);
+        sim.store.words[3] = 42;
+        let before = sim.store.words;
+
+        assert!(
+            sim.load_file(Path::new("samples/does_not_exist.asm"))
+                .is_err()
+        );
+        assert!(sim.load_file(Path::new("samples/virpet.txt")).is_err());
+
+        assert_eq!(before, sim.store.words, "store unchanged");
+        assert_eq!(2, sim.cycle_count, "cycle count unchanged");
+        assert_eq!(None, sim.source_path, "source path unchanged");
     }
 
     #[test]

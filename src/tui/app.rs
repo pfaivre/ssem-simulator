@@ -20,7 +20,7 @@ use super::layout::{
 use super::palette::{Palette, Theme};
 use super::popups::{
     BreakpointPopup, CommentEditor, ConfirmAction, ConfirmButton, ConfirmPopup, EditorPopup,
-    HelpPopup, PickerPopup, Popup, SavePopup, SettingControl, SettingsPopup,
+    HelpPopup, OpenPopup, PickerPopup, Popup, SavePopup, SettingControl, SettingsPopup,
 };
 use crate::i18n::Language;
 use crate::ssem::history::History;
@@ -54,6 +54,7 @@ static KEYMAP: LazyLock<Vec<(&'static str, String)>> = LazyLock::new(|| {
         ("C", ts!("keymap.comments.desc")),
         ("B", ts!("keymap.breakpt.desc")),
         ("S", ts!("keymap.save.desc")),
+        ("O", ts!("keymap.open.desc")),
         ("T", ts!("keymap.theme.desc")),
     ]
 });
@@ -66,6 +67,7 @@ pub(super) fn keymap() -> &'static [(&'static str, String)] {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum MenuAction {
     Clear,
+    Open,
     Save,
     Quit,
     RunStop,
@@ -80,6 +82,7 @@ static MENU_ITEMS: LazyLock<Vec<(String, MenuAction)>> = LazyLock::new(|| {
     vec![
         (ts!("menu.quit"), MenuAction::Quit),
         (ts!("menu.clear"), MenuAction::Clear),
+        (ts!("menu.open"), MenuAction::Open),
         (ts!("menu.save"), MenuAction::Save),
         (ts!("menu.run_stop"), MenuAction::RunStop),
         (ts!("menu.step"), MenuAction::Step),
@@ -156,6 +159,9 @@ pub(super) struct App {
     pub(super) breakpoint_popup: BreakpointPopup,
     pub(super) editor_popup: EditorPopup,
     pub(super) save_popup: SavePopup,
+    /// The open pop-up, opened from the menu bar (or the O key) to load a
+    /// .asm/.snp file into the machine.
+    pub(super) open_popup: OpenPopup,
     /// The confirmation pop-up, opened from the menu bar before a
     /// destructive action (Clear).
     pub(super) confirm_popup: ConfirmPopup,
@@ -260,6 +266,7 @@ impl App {
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
             save_popup: SavePopup::new(),
+            open_popup: OpenPopup::new(),
             confirm_popup: ConfirmPopup::new(),
             settings_popup: SettingsPopup::new(),
             menu_items: Vec::new(),
@@ -315,12 +322,13 @@ impl App {
     /// All pop-ups in one fixed order. This is the single list of pop-ups:
     /// every key, mouse, close and draw site iterates it, so adding a pop-up
     /// means adding one field here and one entry in this array.
-    pub(super) fn popups_mut(&mut self) -> [&mut dyn Popup; 8] {
+    pub(super) fn popups_mut(&mut self) -> [&mut dyn Popup; 9] {
         [
             &mut self.help_popup,
             &mut self.breakpoint_popup,
             &mut self.editor_popup,
             &mut self.save_popup,
+            &mut self.open_popup,
             &mut self.confirm_popup,
             &mut self.settings_popup,
             &mut self.comment_editor,
@@ -329,12 +337,13 @@ impl App {
     }
 
     /// Shared-borrow counterpart of `popups_mut`.
-    fn popups_ref(&self) -> [&dyn Popup; 8] {
+    fn popups_ref(&self) -> [&dyn Popup; 9] {
         [
             &self.help_popup,
             &self.breakpoint_popup,
             &self.editor_popup,
             &self.save_popup,
+            &self.open_popup,
             &self.confirm_popup,
             &self.settings_popup,
             &self.comment_editor,
@@ -417,6 +426,7 @@ impl App {
                             self.editor_popup.open();
                         }
                         's' => self.save_popup.open(sim.source_path.as_deref()),
+                        'o' => self.open_popup.open(sim.source_path.as_deref()),
                         'h' => self.help_popup.open(),
                         _ => {}
                     }
@@ -971,6 +981,7 @@ impl App {
         match action {
             // Destructive: ask first, the confirm pop-up runs the clear
             MenuAction::Clear => self.confirm_popup.open(ConfirmAction::Clear),
+            MenuAction::Open => self.open_popup.open(sim.source_path.as_deref()),
             MenuAction::Save => self.save_popup.open(sim.source_path.as_deref()),
             MenuAction::Quit => self.should_quit = true,
             MenuAction::RunStop => sim.stop_flag = !sim.stop_flag,

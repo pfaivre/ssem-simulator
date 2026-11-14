@@ -28,6 +28,7 @@ warning = "Attention : %{message}"
 [menu]
 quit = "Quitter"
 clear = "Effacer"
+open = "Ouvrir"
 save = "Sauver"
 run_stop = "Marche/Arrêt"
 run = "Marche"
@@ -80,6 +81,9 @@ desc = "Ouvrir la fenêtre des points d'arrêt"
 
 [keymap.save]
 desc = "Sauvegarder l'état de la machine dans un fichier"
+
+[keymap.open]
+desc = "Charger un fichier .asm ou .snp dans la machine"
 
 [keymap.theme]
 desc = "Changer de thème de couleurs"
@@ -174,6 +178,15 @@ applied_a = "A = %{value}"
 applied_word = "Mot %{address} = %{word}  (%{opcode} %{data})"
 preview_value = "→ %{word}"
 preview_instr = "→ %{word}  (%{opcode} %{data})"
+
+[popup.open]
+title = " Ouvrir "
+explanation = "Charger un fichier .asm ou .snp dans la machine (l'état actuel est remplacé)"
+file = "Fichier : %{buffer}_"
+footer = "ENTRÉE ouvrir · ÉCHAP fermer"
+chars_allowed = "Seuls A-Z 0-9 - _ . / sont autorisés"
+type_path = "Tapez un chemin de fichier"
+error = "Erreur : %{error}"
 
 [popup.save]
 title = " Sauver "

@@ -7,6 +7,7 @@ mod config;
 mod graph;
 mod heatmap;
 mod menu;
+mod open;
 mod picker;
 mod popups;
 mod render;
