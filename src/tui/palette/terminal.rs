@@ -67,6 +67,7 @@ pub const PALETTE: Palette = Palette {
 
     // Pop-ups
     breakpoint_border: Color::Red,
+    confirm_border: Color::Red,
     editor_border: Color::Yellow,
     save_border: Color::LightBlue,
     preview: Color::Green,

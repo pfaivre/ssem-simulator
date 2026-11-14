@@ -19,8 +19,8 @@ use super::layout::{
 };
 use super::palette::{Palette, Theme};
 use super::popups::{
-    BreakpointPopup, CommentEditor, EditorPopup, HelpPopup, PickerPopup, Popup, SavePopup,
-    SettingControl, SettingsPopup,
+    BreakpointPopup, CommentEditor, ConfirmAction, ConfirmButton, ConfirmPopup, EditorPopup,
+    HelpPopup, PickerPopup, Popup, SavePopup, SettingControl, SettingsPopup,
 };
 use crate::i18n::Language;
 use crate::ssem::history::History;
@@ -156,6 +156,9 @@ pub(super) struct App {
     pub(super) breakpoint_popup: BreakpointPopup,
     pub(super) editor_popup: EditorPopup,
     pub(super) save_popup: SavePopup,
+    /// The confirmation pop-up, opened from the menu bar before a
+    /// destructive action (Clear).
+    pub(super) confirm_popup: ConfirmPopup,
     /// The settings pop-up, opened from the menu bar (machine speed, heatmap
     /// mode, flow mode, comments, store bits display, theme).
     pub(super) settings_popup: SettingsPopup,
@@ -257,6 +260,7 @@ impl App {
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
             save_popup: SavePopup::new(),
+            confirm_popup: ConfirmPopup::new(),
             settings_popup: SettingsPopup::new(),
             menu_items: Vec::new(),
             menu_hover: None,
@@ -311,12 +315,13 @@ impl App {
     /// All pop-ups in one fixed order. This is the single list of pop-ups:
     /// every key, mouse, close and draw site iterates it, so adding a pop-up
     /// means adding one field here and one entry in this array.
-    pub(super) fn popups_mut(&mut self) -> [&mut dyn Popup; 7] {
+    pub(super) fn popups_mut(&mut self) -> [&mut dyn Popup; 8] {
         [
             &mut self.help_popup,
             &mut self.breakpoint_popup,
             &mut self.editor_popup,
             &mut self.save_popup,
+            &mut self.confirm_popup,
             &mut self.settings_popup,
             &mut self.comment_editor,
             &mut self.picker,
@@ -324,12 +329,13 @@ impl App {
     }
 
     /// Shared-borrow counterpart of `popups_mut`.
-    fn popups_ref(&self) -> [&dyn Popup; 7] {
+    fn popups_ref(&self) -> [&dyn Popup; 8] {
         [
             &self.help_popup,
             &self.breakpoint_popup,
             &self.editor_popup,
             &self.save_popup,
+            &self.confirm_popup,
             &self.settings_popup,
             &self.comment_editor,
             &self.picker,
@@ -597,6 +603,12 @@ impl App {
                 None
             };
             self.settings_popup.set_hover(settings_hover);
+            let confirm_hover = if self.confirm_popup.is_open() {
+                self.confirm_popup.button_at(mouse.column, mouse.row)
+            } else {
+                None
+            };
+            self.confirm_popup.set_hover(confirm_hover);
         }
 
         // The menu bar (the top row): clicking an item runs its action
@@ -647,6 +659,19 @@ impl App {
                 // The picker is closed now: forget the last click so the
                 // next click cannot chain into a double-click with the one
                 // that opened the picker
+                self.last_click = None;
+            }
+            return;
+        }
+
+        // While the confirm pop-up is open, it is modal too: a click on Yes
+        // runs the pending action, any other click cancels and closes it
+        if self.confirm_popup.is_open() {
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                match self.confirm_popup.button_at(mouse.column, mouse.row) {
+                    Some(ConfirmButton::Yes) => self.confirm_popup.confirm(sim),
+                    Some(ConfirmButton::No) | None => self.confirm_popup.close(),
+                }
                 self.last_click = None;
             }
             return;
@@ -944,7 +969,8 @@ impl App {
         };
         self.close_all_popups();
         match action {
-            MenuAction::Clear => sim.clear(),
+            // Destructive: ask first, the confirm pop-up runs the clear
+            MenuAction::Clear => self.confirm_popup.open(ConfirmAction::Clear),
             MenuAction::Save => self.save_popup.open(sim.source_path.as_deref()),
             MenuAction::Quit => self.should_quit = true,
             MenuAction::RunStop => sim.stop_flag = !sim.stop_flag,

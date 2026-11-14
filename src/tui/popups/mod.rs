@@ -220,6 +220,7 @@ pub(super) trait Popup {
 
 mod breakpoint;
 mod comment;
+mod confirm;
 mod editor;
 mod help;
 mod picker;
@@ -228,6 +229,7 @@ mod settings;
 
 pub use breakpoint::BreakpointPopup;
 pub use comment::CommentEditor;
+pub use confirm::{ConfirmAction, ConfirmButton, ConfirmPopup};
 pub use editor::EditorPopup;
 pub use help::HelpPopup;
 pub use picker::PickerPopup;

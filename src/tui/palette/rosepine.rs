@@ -72,6 +72,7 @@ pub const PALETTE: Palette = Palette {
     // Pop-ups (love for the breakpoint "stop", gold for the editor, pine
     // for save; the preview is the value rose)
     breakpoint_border: rgb(0xEB6F92),
+    confirm_border: rgb(0xEB6F92),
     editor_border: rgb(0xF6C177),
     save_border: rgb(0x31748F),
     preview: rgb(0xEBBCBA),

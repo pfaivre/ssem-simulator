@@ -138,6 +138,13 @@ graph_halt = "■   arrêt"
 type_number = "Tapez un nombre"
 address_range = "L'adresse doit être entre 0 et 31"
 
+[popup.confirm]
+title = " Confirmer "
+question_clear = "Effacer la machine ? La mémoire, les registres, l'historique et les points d'arrêt sont remis à zéro."
+yes = "[Oui]"
+no = "[Non]"
+footer = "ENTRÉE/Y confirmer · N/ÉCHAP annuler"
+
 [popup.breakpoints]
 title = " Points d'arrêt "
 explanation = "Mettre la machine en pause quand une condition est remplie"
