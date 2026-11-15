@@ -2,8 +2,6 @@
 //! store words, heatmaps, flow arrows/graph), timeline (history scrub bar),
 //! status bar, and the pop-ups (including the scrub pop-up).
 
-use std::borrow::Cow;
-
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -13,17 +11,16 @@ use ratatui::widgets::{Clear, Paragraph, Scrollbar, ScrollbarOrientation, Scroll
 use rust_i18n::t;
 
 use super::app::{App, MenuAction, menu_items};
+use super::arrow::{PointerArrow, assignment_label};
 use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
 use super::layout::{
     A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, FlowMode, HEATMAP_BAR_WIDTH, HeatmapMode,
-    MAX_COMMENT_WIDTH, MIN_COMMENT_WIDTH, REGISTER_TEXT_WIDTH, RW_BAR_WIDTH, STORE_ROW_OFFSET,
-    STORE_TEXT_WIDTH, comment_column_width, store_view_width, timeline_bar_geometry,
-    timeline_marker_offset,
+    MAX_COMMENT_WIDTH, MIN_COMMENT_WIDTH, RW_BAR_WIDTH, STORE_ROW_OFFSET, STORE_TEXT_WIDTH,
+    comment_column_width, store_view_width, timeline_bar_geometry, timeline_marker_offset,
 };
-use super::palette::Palette;
 use super::popups::{ConfirmAction, Popup, PopupDrawCtx, SettingsView};
 use super::snapshot::Snapshot;
-use crate::ssem::{Opcode, Store};
+use crate::ssem::Store;
 
 /// Extra width required when pointer arrows are shown
 /// (separator + horizontal segment + arrowhead + gutter column).
@@ -79,14 +76,6 @@ pub(super) fn drawn_comment_width(
         .max(edit_width.min(MAX_COMMENT_WIDTH))
         .max(MIN_COMMENT_WIDTH)
         .min(available)
-}
-
-/// A pointer arrow: where it starts and ends (in content rows of the main
-/// body) and its color.
-struct PointerArrow {
-    source: usize,
-    target: usize,
-    color: Color,
 }
 
 impl App {
@@ -165,65 +154,6 @@ impl App {
                     Span::raw(" "),
                 ]
             }
-        }
-    }
-
-    /// The pointer arrow for the last executed instruction, following its
-    /// data flow:
-    ///
-    /// - STO: from the accumulator to the destination word
-    /// - LDN: from the source word to the accumulator
-    /// - SUB/SUB2: like LDN, in a different color
-    /// - JMP: from the word holding the target value to CI (a copy)
-    /// - JRP: like JMP, in the same jump color (the value is added to CI)
-    ///
-    /// The arrow takes the operation's category color, shared with the
-    /// mnemonic and the graph edge: the memory color for LDN/STO, the jump
-    /// color for JMP/JRP, the arithmetic color for SUB/SUB2. The arrow
-    /// follows the executed instruction
-    /// rather than CI: after a jump, CI holds the target value, so the word
-    /// at CI is neither the last nor the next instruction to execute (CI is
-    /// incremented before each fetch). Returns `None` when no instruction
-    /// has executed yet, or when the instruction moves no store data (CMP
-    /// and STP ignore their data field).
-    fn current_arrow(palette: &Palette, snap: &Snapshot) -> Option<PointerArrow> {
-        let li = snap.last_instruction?;
-        let word_row = STORE_ROW_OFFSET + li.data as usize;
-        let (source, target) = match li.opcode {
-            Opcode::STO => (A_ROW, word_row),
-            Opcode::LDN | Opcode::SUB | Opcode::SUB2 => (word_row, A_ROW),
-            Opcode::JMP | Opcode::JRP => (word_row, CI_ROW),
-            // CMP and STP ignore their data field
-            _ => return None,
-        };
-        Some(PointerArrow {
-            source,
-            target,
-            color: palette.opcode(li.opcode),
-        })
-    }
-
-    /// The assignment made by the last executed instruction, as a margin
-    /// label on the arrow's top line: "CI += -3", "A = 128", "[23] = 54".
-    ///
-    /// Loads, stores, and JMP are absolute (`=`, showing the new value);
-    /// arithmetic combinations (SUB, JRP) are relative (`+=`, with the
-    /// negated operand for SUB). CMP and STP move no data, so they get no
-    /// label — like the arrow, which `current_arrow` withholds for them.
-    fn assignment_label(snap: &Snapshot) -> Option<String> {
-        let li = snap.last_instruction?;
-        // `data` comes from `decode_word`, so it is masked to 0..=31 and
-        // indexing the store is safe
-        let operand = snap.store[li.data as usize];
-        match li.opcode {
-            Opcode::STO => Some(format!("[{:02}] = {}", li.data, snap.a)),
-            Opcode::LDN => Some(format!("A = {}", snap.a)),
-            Opcode::SUB | Opcode::SUB2 => Some(format!("A += {}", operand.wrapping_neg())),
-            Opcode::JMP => Some(format!("CI = {}", snap.ci)),
-            Opcode::JRP => Some(format!("CI += {operand}")),
-            // CMP and STP move no data; NUM never reaches the display
-            // (`Store::decode_word` always yields a real opcode)
-            Opcode::CMP | Opcode::STP | Opcode::NUM => None,
         }
     }
 
@@ -340,19 +270,12 @@ impl App {
             .then(|| self.confirm_popup.action());
         for (label, action) in menu_items() {
             let action = *action;
-            // The run/stop item's label reflects the machine state
-            let label: Cow<str> = if action == MenuAction::RunStop {
-                Cow::Owned(if snap.stop_flag {
-                    ts!("menu.run")
-                } else {
-                    ts!("menu.stop")
-                })
-            } else {
-                Cow::Borrowed(label.as_str())
-            };
-            // No brackets: the button is the label padded with one cell
-            // on each side in the block color
-            let text = format!(" {label} ");
+            // Run/Stop's icon and label reflect the machine state
+            let (icon, label) = action.button(label, snap.stop_flag);
+            // No brackets: the button is its icon (if any) and label padded
+            // with one cell on each side in the block color
+            let icon_prefix = icon.map_or(String::new(), |icon| format!("{icon} "));
+            let text = format!(" {icon_prefix}{label} ");
             let is_active = matches!(action, MenuAction::Settings if self.settings_popup.is_open())
                 || matches!(action, MenuAction::Help if self.help_popup.is_open())
                 || matches!(action, MenuAction::Clear if confirm_action == Some(ConfirmAction::Clear))
@@ -401,7 +324,7 @@ impl App {
         // Pointer arrow: gutter cells appended after a line's text, following
         // the data flow of the last executed instruction
         let arrow = if self.flow == FlowMode::Data {
-            Self::current_arrow(self.palette(), snap)
+            PointerArrow::new(self.palette(), snap)
         } else {
             None
         };
@@ -414,13 +337,9 @@ impl App {
         let arrow_top = arrow.as_ref().map(|a| a.source.min(a.target));
         let label_span = arrow
             .as_ref()
-            .zip(Self::assignment_label(snap))
+            .zip(assignment_label(snap))
             .map(|(a, text)| Span::styled(format!(" {text}"), Style::default().fg(a.color)));
 
-        // Gutter cells for the rows whose text spans the full store width
-        // (store words, and the blank row the arrow's vertical may cross).
-        // The register rows' cells (CI, accumulator) are built separately,
-        // since their text is shorter and the arrow must connect back to it.
         let heatmap_extra = heatmap.extra_width() as usize;
         // Total width of the comment span (" ;" + the comment text), 0 when off
         let comment_extra = if comment_width > 0 {
@@ -432,76 +351,11 @@ impl App {
         // dim " ;" gutter on every store row, as a visible double-click
         // target to add the first comment
         let no_comments = snap.comments.iter().all(Option::is_none);
-        let mut gutter: Vec<Option<Span<'static>>> = vec![None; CONTENT_HEIGHT];
-        if let Some(arrow) = &arrow {
-            let style = Style::default().fg(arrow.color);
-            let (top, bottom) = (
-                arrow.source.min(arrow.target),
-                arrow.source.max(arrow.target),
-            );
-            // The corner leaving the source line turns toward the target;
-            // the corner at the target line turns toward the arrowhead
-            let (src_corner, dst_corner) = if arrow.target > arrow.source {
-                ('\u{256e}', '\u{256f}') // ╮ ╯
-            } else {
-                ('\u{256f}', '\u{256e}') // ╯ ╮
-            };
-            if !matches!(arrow.source, CI_ROW | A_ROW) {
-                gutter[arrow.source] = Some(Span::styled(format!(" ──{src_corner}"), style));
-            }
-            for cell in gutter.iter_mut().take(bottom).skip(top + 1) {
-                *cell = Some(Span::styled("   \u{2502}".to_string(), style));
-            }
-            if !matches!(arrow.target, CI_ROW | A_ROW) {
-                gutter[arrow.target] = Some(Span::styled(
-                    format!(" \u{25c0}\u{2500}{dst_corner}"),
-                    style,
-                ));
-            }
-        }
-
-        // A register row's (CI, accumulator) gutter cell: a run of dashes
-        // connects the arrow back to the register's text. When the arrow's
-        // vertical crosses a register row that is not an endpoint (an arrow
-        // to CI crosses the accumulator), that row carries the vertical.
-        let register_gutter = |row: usize| -> Option<Span<'static>> {
-            let arrow = arrow.as_ref()?;
-            let style = Style::default().fg(arrow.color);
-            // Cells between the register's text and the store gutter
-            // (the gutter sits right after the store text and the heatmap)
-            let pad = STORE_TEXT_WIDTH - REGISTER_TEXT_WIDTH;
-            if arrow.source == row {
-                // The arrow leaves the register (STO)
-                let corner = if arrow.target > arrow.source {
-                    '\u{256e}'
-                } else {
-                    '\u{256f}'
-                };
-                Some(Span::styled(
-                    format!(" {}{corner}", "\u{2500}".repeat(pad + 2)),
-                    style,
-                ))
-            } else if arrow.target == row {
-                // The arrow arrives at the register (LDN/SUB to A, JMP/JRP to CI)
-                let corner = if arrow.target > arrow.source {
-                    '\u{256f}'
-                } else {
-                    '\u{256e}'
-                };
-                Some(Span::styled(
-                    format!(" \u{25c0}{}{corner}", "\u{2500}".repeat(pad + 1)),
-                    style,
-                ))
-            } else if arrow.source.min(arrow.target) < row && row < arrow.source.max(arrow.target) {
-                // The arrow's vertical crosses this register row
-                Some(Span::styled(
-                    format!("{}   \u{2502}", " ".repeat(pad)),
-                    style,
-                ))
-            } else {
-                None
-            }
-        };
+        // Gutter cells for the rows whose text spans the full store width;
+        // the register rows' cells come from the arrow's register_gutter
+        let gutter: Vec<Option<Span<'static>>> = arrow
+            .as_ref()
+            .map_or_else(|| vec![None; CONTENT_HEIGHT], PointerArrow::store_gutter);
 
         // Row 1: CI
         let ci_bits = self.format_bits(snap.ci);
@@ -518,8 +372,8 @@ impl App {
             Span::styled(format!("{heatmap_spacer} {ci_bits}"), ci_style),
             Span::raw(format!(" CI: {:>11}", snap.ci)),
         ];
-        if let Some(cell) = &register_gutter(CI_ROW) {
-            ci_spans.push(cell.clone());
+        if let Some(cell) = arrow.as_ref().and_then(|a| a.register_gutter(CI_ROW)) {
+            ci_spans.push(cell);
         }
         if arrow_top == Some(CI_ROW)
             && let Some(span) = &label_span
@@ -543,8 +397,8 @@ impl App {
             Span::styled(format!("{heatmap_spacer} {a_bits}"), a_style),
             Span::raw(format!(" A : {:>11}", snap.a)),
         ];
-        if let Some(cell) = &register_gutter(A_ROW) {
-            a_spans.push(cell.clone());
+        if let Some(cell) = arrow.as_ref().and_then(|a| a.register_gutter(A_ROW)) {
+            a_spans.push(cell);
         }
         if arrow_top == Some(A_ROW)
             && let Some(span) = &label_span

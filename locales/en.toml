@@ -5,7 +5,8 @@
 #
 # Not translated on purpose: opcode mnemonics (JMP, LDN, ...), the NUM
 # keyword of .asm/.snp files, the register names CI and A, file extensions,
-# config-file keys, and the comments stored in .asm files.
+# config-file keys, the comments stored in .asm files, menu-button icons,
+# and the data-flow margin labels (A >= 0, CI += 3, ...).
 
 [cli]
 about = "Advanced simulator of the Small-Scale Experimental Machine from 1948."

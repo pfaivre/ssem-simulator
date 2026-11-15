@@ -537,10 +537,78 @@ pub(super) fn assignment_label_jrp_is_relative_on_the_ci_line() {
 }
 
 #[test]
-pub(super) fn no_assignment_label_without_an_arrow() {
-    // CMP and STP move no data: no arrow, so no label either
+pub(super) fn pointer_arrow_cmp_points_from_accumulator_to_ci() {
+    // CMP at line 1, not taken (A is non-negative): the arrow runs
+    // from the accumulator up to CI, in the test color, labeled "A >= 0"
     let mut store = [0; 32];
     store[1] = Store::parse_word("CMP").unwrap();
+    let mut snap = pointer_snapshot(1, store);
+    snap.a = 7;
+
+    let mut app = App::new();
+    app.flow = FlowMode::Data;
+    let buffer = render(&mut app, &snap, 80, 40);
+
+    // The arrow arrives at CI (row 2): arrowhead connected to the register's
+    // text by dashes, corner at the gutter column
+    let ci_row = row_text(&buffer, 2);
+    assert_eq!('◀', ci_row.chars().nth(50).unwrap(), "CI row: {ci_row:?}");
+    assert_eq!(
+        '╮',
+        ci_row.chars().nth(GUTTER_COLUMN).unwrap(),
+        "CI row: {ci_row:?}"
+    );
+    assert_eq!(
+        app.palette().op_test,
+        buffer[(50, 2)].fg,
+        "the arrowhead takes the test color"
+    );
+
+    // The arrow leaves the accumulator (row 3): dashes to the gutter corner
+    let a_row = row_text(&buffer, 3);
+    assert_eq!(
+        '╯',
+        a_row.chars().nth(GUTTER_COLUMN).unwrap(),
+        "A row: {a_row:?}"
+    );
+
+    // Both endpoints are registers: no vertical segment on any other row
+    for row in 4..37 {
+        let text = row_text(&buffer, row);
+        assert!(!text.contains('│'), "row {row}: {text:?}");
+    }
+
+    // The label rides on the arrow's top line (CI): fall-through outcome
+    let label = margin_label(&buffer, 2);
+    assert!(label.starts_with(" A >= 0"), "CI row label: {label:?}");
+}
+
+#[test]
+pub(super) fn cmp_label_shows_the_skip_when_the_accumulator_is_negative() {
+    // CMP at line 1 with a negative accumulator: the skip was taken. The
+    // label keys on A's sign — the predicate the machine applies — so it
+    // stays consistent with the accumulator shown on the next row even if
+    // CI is edited by hand afterwards
+    let mut store = [0; 32];
+    store[1] = Store::parse_word("CMP").unwrap();
+    let mut snap = pointer_snapshot(1, store);
+    snap.a = -1;
+
+    let mut app = App::new();
+    app.flow = FlowMode::Data;
+    let buffer = render(&mut app, &snap, 80, 40);
+    let label = margin_label(&buffer, 2);
+    assert!(
+        label.starts_with(" A < 0 → CI += 1"),
+        "CI row label: {label:?}"
+    );
+}
+
+#[test]
+pub(super) fn no_assignment_label_without_an_arrow() {
+    // STP moves no data: no arrow, so no label either
+    let mut store = [0; 32];
+    store[1] = Store::parse_word("STP").unwrap();
     let snap = pointer_snapshot(1, store);
 
     let mut app = App::new();

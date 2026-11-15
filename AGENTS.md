@@ -104,11 +104,11 @@ Write new code as if it will be audited against these rubrics:
   in English. Tests enforce catalog parity and that every key used in code
   exists.
 - Not translated: opcode mnemonics, the `NUM` file keyword, register names
-  `CI`/`A`, file extensions, config keys, `.asm` comments.
+  `CI`/`A`, file extensions, config keys, `.asm` comments, menu-button icons,
+  and the data-flow margin labels (`A >= 0`, `CI += 3`, ...).
 
 ## Suggestions for later development
 
-- Click on statusbar
-- first start screen
-- Add CMP to data flow chart. Maybe with a label "A >= 0 ?"
+- Click on statusbar: make the status bar items clickable (e.g. for cycling through graphs, etc.)
+- first start screen: the first time that app is started, a special pop-up explains the bases of the SSEM and how this app works
 - Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.
