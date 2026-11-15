@@ -231,14 +231,15 @@ impl Popup for HelpPopup {
     fn frame_mut(&mut self) -> &mut PopupFrame {
         &mut self.frame
     }
-    fn handle_key(&mut self, key: KeyEvent, _sim: &mut Simulator) {
+    fn handle_key(&mut self, key: KeyEvent, _sim: &mut Simulator) -> PopupEvent {
         // H toggles the pop-up closed (on a press, like every close key; Esc
         // is closed centrally by App::route_popup_key)
         if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('h' | 'H')) {
             self.close();
-            return;
+            return PopupEvent::None;
         }
         HelpPopup::handle_key(self, key);
+        PopupEvent::None
     }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
         HelpPopup::draw(self, f, ctx);

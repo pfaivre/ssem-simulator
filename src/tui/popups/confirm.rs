@@ -52,15 +52,12 @@ impl ConfirmPopup {
         self.action
     }
 
-    /// Run the pending action and close the pop-up, returning it so the
-    /// caller can apply any app-level effect (Quit sets App's quit flag).
-    pub fn confirm(&mut self, sim: &mut Simulator) -> ConfirmAction {
+    /// Close the pop-up and report the pending action as confirmed; `App`
+    /// applies it (Clear runs on the simulator, Quit sets its quit flag).
+    fn confirm(&mut self) -> PopupEvent {
         let action = self.action;
-        if action == ConfirmAction::Clear {
-            sim.clear();
-        }
         self.close();
-        action
+        PopupEvent::Confirmed(action)
     }
 
     /// The button drawn under the given screen cell, if any.
@@ -76,23 +73,23 @@ impl ConfirmPopup {
         self.hover = hover;
     }
 
-    /// Handle a key press; returns the action if it was confirmed.
-    pub fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> Option<ConfirmAction> {
+    /// Handle a key press; returns `Confirmed` when the user confirms.
+    pub fn handle_key(&mut self, key: KeyEvent, _sim: &mut Simulator) -> PopupEvent {
         if key.kind != KeyEventKind::Press {
-            return None;
+            return PopupEvent::None;
         }
         match key.code {
             // Esc closes centrally (App::route_popup_key)
-            KeyCode::Enter => Some(self.confirm(sim)),
+            KeyCode::Enter => self.confirm(),
             KeyCode::Char(c) => match c.to_ascii_lowercase() {
-                'y' => Some(self.confirm(sim)),
+                'y' => self.confirm(),
                 'n' => {
                     self.close();
-                    None
+                    PopupEvent::None
                 }
-                _ => None,
+                _ => PopupEvent::None,
             },
-            _ => None,
+            _ => PopupEvent::None,
         }
     }
 
@@ -188,10 +185,24 @@ impl Popup for ConfirmPopup {
     fn handles_own_clicks(&self) -> bool {
         true
     }
-    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        // The confirmed action (if any) is picked up by App, which handles
-        // this pop-up itself in route_popup_key
-        let _ = ConfirmPopup::handle_key(self, key, sim);
+    fn is_modal(&self) -> bool {
+        true
+    }
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> PopupEvent {
+        ConfirmPopup::handle_key(self, key, sim)
+    }
+    fn handle_click(&mut self, column: u16, row: u16, _sim: &mut Simulator) -> PopupEvent {
+        // A click on Yes confirms; any other click cancels and closes
+        match self.button_at(column, row) {
+            Some(ConfirmButton::Yes) => self.confirm(),
+            Some(ConfirmButton::No) | None => {
+                self.close();
+                PopupEvent::None
+            }
+        }
+    }
+    fn handle_move(&mut self, column: u16, row: u16) {
+        self.set_hover(self.button_at(column, row));
     }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
         ConfirmPopup::draw(self, f, ctx);

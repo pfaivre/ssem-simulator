@@ -253,8 +253,31 @@ impl Popup for SettingsPopup {
     fn handles_own_clicks(&self) -> bool {
         true
     }
-    // No `handle_key`: the settings keys mutate `App`'s view-mode fields, so
-    // `App` handles them directly (the trait default is a no-op here).
+    fn guards_mode_keys(&self) -> bool {
+        // The settings keys are the view-mode keys (T/F/M/C/D): a held key
+        // must not cycle the modes
+        true
+    }
+    fn handle_key(&mut self, key: KeyEvent, _sim: &mut Simulator) -> PopupEvent {
+        // The same key→control map as the main keymap; App applies it
+        match control_for_key(key.code) {
+            Some(control) => PopupEvent::Setting(control),
+            None => PopupEvent::None,
+        }
+    }
+    fn handle_click(&mut self, column: u16, row: u16, _sim: &mut Simulator) -> PopupEvent {
+        if let Some(control) = self.control_at(column, row) {
+            return PopupEvent::Setting(control);
+        }
+        // A click outside the pop-up closes it; inside, it is just consumed
+        if !self.contains(column, row) {
+            self.close();
+        }
+        PopupEvent::None
+    }
+    fn handle_move(&mut self, column: u16, row: u16) {
+        self.set_hover(self.control_at(column, row));
+    }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
         SettingsPopup::draw(self, f, ctx);
     }
