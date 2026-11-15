@@ -13,8 +13,8 @@ fn state(ci: i32) -> MachineState {
 
 #[test]
 fn machine_state_size_is_stable() {
-    // MAX_CAPACITY's documented memory budget assumes this size; keep it
-    // in sync with the real one.
+    // The history footprint scales with this size; keep it in sync with
+    // the real one.
     assert_eq!(148, std::mem::size_of::<MachineState>());
 }
 

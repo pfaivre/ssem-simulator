@@ -8,10 +8,10 @@ use super::simulator::LastInstruction;
 
 /// Upper bound on history capacity. Each `MachineState` is 148 bytes
 /// (two `i32`, `[i32; 32]`, and the last instruction), so this cap keeps
-/// the ring buffer under ~1.5 GB — about 4 hours of history at the
-/// typical 700 instructions per second. The buffer is allocated lazily
-/// (see `History::record`), so a large requested capacity costs nothing
-/// until the machine actually runs that many cycles.
+/// the ring buffer within a few gigabytes at most — about 4 hours of
+/// history at the typical 700 instructions per second. The buffer is
+/// allocated lazily (see `History::record`), so a large requested
+/// capacity costs nothing until the machine actually runs that many cycles.
 pub const MAX_CAPACITY: usize = 10_000_000;
 
 /// The machine's architectural state at one cycle.
@@ -95,7 +95,9 @@ impl History {
         if self.count == 0 || cycle < self.start() || cycle > self.head {
             return None;
         }
-        self.states.get((cycle % self.capacity) as usize)
+        // Every retained cycle's slot is allocated: record grows the
+        // vector past its slot before writing, and it never shrinks.
+        Some(&self.states[(cycle % self.capacity) as usize])
     }
 
     /// Record the state at `cycle`: appends at the tip, or drops the stale
@@ -113,10 +115,9 @@ impl History {
         let slot = (cycle % self.capacity) as usize;
         if slot >= self.states.len() {
             // Grow the backing vector on demand, geometrically but capped
-            // at the ring capacity so the allocation never exceeds it (a
-            // bare push would let the Vec overshoot up to 2x). Growth
-            // happens only at these ~log2(capacity) boundaries, so it
-            // amortizes to O(1) per cycle.
+            // at the ring capacity so it never retains more entries than
+            // the ring holds. Growth happens only at these ~log2(capacity)
+            // boundaries, so it amortizes to O(1) per cycle.
             let new_len = (self.states.len() * 2)
                 .max(slot + 1)
                 .min(self.capacity as usize);
