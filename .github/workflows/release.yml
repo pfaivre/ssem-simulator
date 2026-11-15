@@ -50,10 +50,11 @@ jobs:
       pull-requests: read
 
     steps:
-    # Full history and tags: the changelog below diffs against the previous tag
+    # Full history and tags: the release notes diff against the previous v* tag
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        persist-credentials: false
 
     - name: Download packaged zips
       uses: actions/download-artifact@v4
@@ -61,44 +62,13 @@ jobs:
         path: dist
         merge-multiple: true
 
-    # GitHub's generate_release_notes only lists merged PRs, so releases of
-    # direct pushes end up with just a "Full Changelog" link. Build the bullet
-    # list ourselves over the first-parent history between the previous tag
-    # and this one: merged PRs as one bullet with the PR title, direct pushes
-    # as one bullet with the commit subject.
+    # generate_release_notes only lists merged PRs, so build the bullet list
+    # ourselves to include direct pushes too.
     - name: Generate release notes
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-      run: |
-        prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
-        if [ -n "$prev_tag" ]; then
-          range="$prev_tag..HEAD"
-          compare="$prev_tag...HEAD"
-        else
-          range="HEAD"
-          compare=""
-        fi
-        {
-          echo "## Changes"
-          echo
-          git log --first-parent --pretty=format:'%H%x1f%P%x1f%s' "$range" |
-            while IFS=$'\x1f' read -r hash parents subject; do
-              nparents=$(echo "$parents" | wc -w)
-              n=$(printf '%s' "$subject" | grep -oE '#[0-9]+' | head -n1 | tr -d '#')
-              if [ "$nparents" -gt 1 ] && [ -n "$n" ]; then
-                title=$(gh pr view "$n" --json title --jq '.title' 2>/dev/null || true)
-                echo "- ${title:-$subject} (#$n)"
-              else
-                echo "- $subject"
-              fi
-            done
-          echo
-          if [ -n "$compare" ]; then
-            echo
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$compare"
-          fi
-        } > release_notes.md
+      run: ./scripts/generate-release-notes.sh release_notes.md
 
     - name: Publish GitHub release
       uses: softprops/action-gh-release@v2
