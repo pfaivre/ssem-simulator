@@ -47,16 +47,31 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read
 
     steps:
+    # Full history and tags: the release notes diff against the previous v* tag
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
     - name: Download packaged zips
       uses: actions/download-artifact@v4
       with:
         path: dist
         merge-multiple: true
 
+    # generate_release_notes only lists merged PRs, so build the bullet list
+    # ourselves to include direct pushes too.
+    - name: Generate release notes
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: ./scripts/generate-release-notes.sh release_notes.md
+
     - name: Publish GitHub release
       uses: softprops/action-gh-release@v2
       with:
         files: dist/*.zip
-        generate_release_notes: true
+        body_path: release_notes.md
