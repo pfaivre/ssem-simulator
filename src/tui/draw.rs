@@ -332,6 +332,12 @@ impl App {
 
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut x = area.x;
+        // The confirm pop-up highlights the menu item whose action it guards
+        // (Clear or Quit), not always Clear
+        let confirm_action = self
+            .confirm_popup
+            .is_open()
+            .then(|| self.confirm_popup.action());
         for (label, action) in menu_items() {
             let action = *action;
             // The run/stop item's label reflects the machine state
@@ -347,12 +353,6 @@ impl App {
             // No brackets: the button is the label padded with one cell
             // on each side in the block color
             let text = format!(" {label} ");
-            // The confirm pop-up highlights the menu item whose action it
-            // guards (Clear or Quit), not always Clear
-            let confirm_action = self
-                .confirm_popup
-                .is_open()
-                .then(|| self.confirm_popup.action());
             let is_active = matches!(action, MenuAction::Settings if self.settings_popup.is_open())
                 || matches!(action, MenuAction::Help if self.help_popup.is_open())
                 || matches!(action, MenuAction::Clear if confirm_action == Some(ConfirmAction::Clear))

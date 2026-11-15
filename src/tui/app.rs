@@ -426,8 +426,14 @@ impl App {
                             self.comment_editor.close();
                             self.editor_popup.open();
                         }
-                        's' => Self::open_file_popup(&mut self.save_popup, sim),
-                        'o' => Self::open_file_popup(&mut self.open_popup, sim),
+                        's' => {
+                            sim.stop_flag = true; // pause while the save pop-up is up
+                            self.save_popup.open(sim.source_path.as_deref());
+                        }
+                        'o' => {
+                            sim.stop_flag = true; // pause while the open pop-up is up
+                            self.open_popup.open(sim.source_path.as_deref());
+                        }
                         'h' => self.help_popup.open(),
                         _ => {}
                     }
@@ -476,14 +482,14 @@ impl App {
     /// that guards mode keys is open, those keys must not auto-repeat (a
     /// held key would cycle the modes), so they are swallowed here.
     ///
-    /// The picker is modal: when it closes, the last click is forgotten so
-    /// the next click cannot chain into a double-click with the one that
-    /// opened the picker.
+    /// A modal pop-up (the picker, the confirm pop-up) that closes on a key
+    /// forgets the last click, so the next click cannot chain into a
+    /// double-click with the one that opened it.
     fn route_popup_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> bool {
-        let picker_was_open = self.picker.is_open();
         let Some(index) = self.popups_ref().iter().position(|p| p.is_open()) else {
             return false;
         };
+        let was_modal = self.popups_ref()[index].is_modal();
 
         // Esc closes the open pop-up on a press
         if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
@@ -499,7 +505,7 @@ impl App {
             }
         }
 
-        if picker_was_open && !self.picker.is_open() {
+        if was_modal && !self.popups_ref()[index].is_open() {
             self.last_click = None;
         }
         true
@@ -960,8 +966,14 @@ impl App {
         match action {
             // Destructive: ask first, the confirm pop-up runs the action
             MenuAction::Clear => self.open_confirm_popup(ConfirmAction::Clear, sim),
-            MenuAction::Open => Self::open_file_popup(&mut self.open_popup, sim),
-            MenuAction::Save => Self::open_file_popup(&mut self.save_popup, sim),
+            MenuAction::Open => {
+                sim.stop_flag = true; // pause while the open pop-up is up
+                self.open_popup.open(sim.source_path.as_deref());
+            }
+            MenuAction::Save => {
+                sim.stop_flag = true; // pause while the save pop-up is up
+                self.save_popup.open(sim.source_path.as_deref());
+            }
             MenuAction::Quit => self.open_confirm_popup(ConfirmAction::Quit, sim),
             MenuAction::RunStop => sim.stop_flag = !sim.stop_flag,
             MenuAction::Step => {
@@ -988,14 +1000,6 @@ impl App {
         for popup in self.popups_mut() {
             popup.close();
         }
-    }
-
-    /// Open the save or open pop-up, pausing the machine while it is up:
-    /// saving or loading a file is a whole-machine operation, so the
-    /// machine must not run behind the pop-up.
-    fn open_file_popup(popup: &mut FieldPopup, sim: &mut Simulator) {
-        sim.stop_flag = true;
-        popup.open(sim.source_path.as_deref());
     }
 
     /// Open the confirmation pop-up guarding a destructive action, pausing

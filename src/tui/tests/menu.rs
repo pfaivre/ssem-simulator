@@ -453,6 +453,33 @@ pub(super) fn space_runs_and_stops_and_ctrl_q_quits() {
 }
 
 #[test]
+pub(super) fn closing_a_modal_popup_with_a_key_forgets_the_last_click() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // A single click on a store row, then Ctrl+Q opens the confirm pop-up
+    // with a key, then Esc closes it
+    click(&mut app, &mut sim, 10, 5);
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL),
+        &mut sim,
+    );
+    assert!(app.confirm_popup.is_open());
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut sim);
+    assert!(!app.confirm_popup.is_open());
+
+    // A second click on the same cell within the double-click threshold is a
+    // fresh single click, not a double-click: no editor pops open
+    click(&mut app, &mut sim, 10, 5);
+    assert!(
+        !app.editor_popup.is_open(),
+        "two single clicks around a canceled pop-up must not count as a double-click"
+    );
+}
+
+#[test]
 pub(super) fn menu_hover_tracks_the_item_under_the_mouse() {
     // The hover highlight itself is a theme color and intentionally not
     // asserted; this checks the hit-testing and the hover state.

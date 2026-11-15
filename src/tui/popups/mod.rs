@@ -201,7 +201,9 @@ pub(super) enum PopupEvent {
 /// every key, mouse, close and draw site. Adding a pop-up = one field + one
 /// entry in that array + an impl of this trait. The chrome methods default
 /// to the pop-up's embedded [`PopupFrame`], so an impl only writes the two
-/// frame accessors plus its real `handle_key`/`draw`.
+/// frame accessors plus the handlers it needs: `handle_key`/`draw`, and
+/// `handle_click`/`handle_move` (with `is_modal`/`guards_mode_keys`) for
+/// pop-ups with clickable controls or key guards.
 pub(super) trait Popup {
     fn frame(&self) -> &PopupFrame;
     fn frame_mut(&mut self) -> &mut PopupFrame;
