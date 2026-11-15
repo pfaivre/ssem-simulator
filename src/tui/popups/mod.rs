@@ -222,18 +222,18 @@ mod breakpoint;
 mod comment;
 mod confirm;
 mod editor;
+mod field;
 mod help;
 mod picker;
-mod save;
 mod settings;
 
 pub use breakpoint::BreakpointPopup;
 pub use comment::CommentEditor;
 pub use confirm::{ConfirmAction, ConfirmButton, ConfirmPopup};
 pub use editor::EditorPopup;
+pub use field::{FieldKind, FieldPopup};
 pub use help::HelpPopup;
 pub use picker::PickerPopup;
-pub use save::SavePopup;
 pub use settings::{SettingControl, SettingsPopup, SettingsView};
 
 // Reached into directly by the shared test module.
@@ -242,9 +242,9 @@ use breakpoint::InputField;
 #[cfg(test)]
 use editor::{EditField, EditTarget};
 #[cfg(test)]
-pub use picker::PickerKind;
+use field::default_save_name;
 #[cfg(test)]
-use save::default_save_name;
+pub use picker::PickerKind;
 
 #[cfg(test)]
 mod tests;

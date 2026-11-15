@@ -31,6 +31,7 @@ warning = "Warning: %{message}"
 [menu]
 quit = "Quit"
 clear = "Clear"
+open = "Open"
 save = "Save"
 run_stop = "Run/Stop"
 run = "Run "
@@ -83,6 +84,9 @@ desc = "Open the breakpoint pop-up"
 
 [keymap.save]
 desc = "Save the machine state to a .asm/.snp file"
+
+[keymap.open]
+desc = "Open a .asm/.snp file into the machine"
 
 [keymap.theme]
 desc = "Cycle through the color themes"
@@ -177,6 +181,15 @@ applied_a = "A = %{value}"
 applied_word = "Word %{address} = %{word}  (%{opcode} %{data})"
 preview_value = "→ %{word}"
 preview_instr = "→ %{word}  (%{opcode} %{data})"
+
+[popup.open]
+title = " Open "
+explanation = "Load a .asm or .snp file into the machine (the current state is replaced)"
+file = "File: %{buffer}_"
+footer = "ENTER open · ESC close"
+chars_allowed = "Only A-Z 0-9 - _ . / allowed"
+type_name = "Type a file path"
+error = "Error: %{error}"
 
 [popup.save]
 title = " Save "

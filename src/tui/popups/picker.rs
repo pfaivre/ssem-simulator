@@ -265,11 +265,7 @@ impl Popup for PickerPopup {
         true
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        // Esc cancels, on press and repeat (the picker is modal)
-        if key.code == KeyCode::Esc {
-            self.close();
-            return;
-        }
+        // Esc cancels centrally (App::route_popup_key)
         PickerPopup::handle_key(self, key, sim);
     }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {

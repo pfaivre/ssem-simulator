@@ -71,7 +71,7 @@ impl ConfirmPopup {
             return;
         }
         match key.code {
-            KeyCode::Esc => self.close(),
+            // Esc closes centrally (App::route_popup_key)
             KeyCode::Enter => self.confirm(sim),
             KeyCode::Char(c) => match c.to_ascii_lowercase() {
                 'y' => self.confirm(sim),
