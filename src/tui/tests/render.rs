@@ -1,3 +1,4 @@
+use super::super::popups::ConfirmAction;
 use super::*;
 
 /// Screen column where a store line's mnemonic starts:
@@ -337,6 +338,7 @@ pub(super) fn popups_and_mouse_work_at_tiny_terminal_sizes() {
         app.breakpoint_popup.open();
         app.editor_popup.open_for_word(0);
         app.save_popup.open(None);
+        app.confirm_popup.open(ConfirmAction::Clear);
         app.settings_popup.open();
         app.comment_editor.open_for(0, None);
         app.picker.open_for_mnemonic(0, 0, 5);

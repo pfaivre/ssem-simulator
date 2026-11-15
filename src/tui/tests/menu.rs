@@ -1,7 +1,7 @@
 //! Tests for the menu bar (the top row), the settings pop-up it opens, and
 //! the status bar (the bottom row).
 
-use super::super::popups::SettingControl;
+use super::super::popups::{ConfirmButton, SettingControl};
 use super::*;
 use crate::ssem::simulator::Breakpoint;
 
@@ -105,10 +105,19 @@ pub(super) fn menu_clicks_run_the_actions() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    // Clear zeroes the store, drops the comments, resets the heatmaps,
-    // resets the cycle count and restarts the history at cycle 0
+    // Clear asks for confirmation first: the pop-up opens and nothing is
+    // cleared yet; confirming with Enter clears — the store is zeroed, the
+    // comments dropped, the heatmaps reset, the cycle count reset and the
+    // history restarted at cycle 0
     let (col, row) = menu_item_cell(&app, MenuAction::Clear);
     click(&mut app, &mut sim, col, row);
+    assert!(app.confirm_popup.is_open(), "confirm pop-up opened");
+    assert_ne!(0, sim.cycle_count, "nothing cleared before confirmation");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut sim);
+    assert!(
+        !app.confirm_popup.is_open(),
+        "pop-up closed after confirming"
+    );
     assert_eq!(0, sim.cycle_count, "cycle count reset");
     assert!(sim.store.words.iter().all(|&w| w == 0), "store cleared");
     assert!(
@@ -176,6 +185,111 @@ pub(super) fn menu_clicks_run_the_actions() {
     let (col, row) = menu_item_cell(&app, MenuAction::Quit);
     click(&mut app, &mut sim, col, row);
     assert!(app.should_quit);
+}
+
+/// The center cell of the confirm pop-up's `button` (the app must have been
+/// drawn once, so the button rects are recorded).
+fn confirm_button_cell(app: &App, button: ConfirmButton) -> (u16, u16) {
+    for row in 0..40u16 {
+        for col in 0..100u16 {
+            if app.confirm_popup.button_at(col, row) == Some(button) {
+                return (col, row);
+            }
+        }
+    }
+    panic!("confirm button {button:?} not found on screen");
+}
+
+#[test]
+pub(super) fn menu_clear_confirmation_can_be_canceled() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    sim.enable_history(100);
+    sim.run(5);
+    sim.store.words[3] = 42;
+    sim.stop_flag = true;
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+    let (col, row) = menu_item_cell(&app, MenuAction::Clear);
+
+    // The pop-up shows the question and the two buttons
+    click(&mut app, &mut sim, col, row);
+    let buffer = render(&mut app, &snap, 100, 40);
+    let all = screen_text(&buffer);
+    assert!(all.contains(" Confirm "), "title: {all}");
+    assert!(all.contains("Clear the machine?"), "question: {all}");
+    assert!(
+        all.contains("[Yes]") && all.contains("[No]"),
+        "buttons: {all}"
+    );
+
+    // Esc cancels: the pop-up closes and the machine is untouched
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut sim);
+    assert!(!app.confirm_popup.is_open());
+    assert_eq!(42, sim.store.words[3]);
+    assert_eq!(5, sim.cycle_count);
+
+    // N cancels too
+    click(&mut app, &mut sim, col, row);
+    press(&mut app, &mut sim, 'n');
+    assert!(!app.confirm_popup.is_open());
+    assert_eq!(42, sim.store.words[3]);
+
+    // A click outside the pop-up cancels it
+    click(&mut app, &mut sim, col, row);
+    click(&mut app, &mut sim, 0, 10);
+    assert!(!app.confirm_popup.is_open());
+    assert_eq!(42, sim.store.words[3]);
+
+    // The No button cancels
+    click(&mut app, &mut sim, col, row);
+    let _ = render(&mut app, &snap, 100, 40);
+    let (bcol, brow) = confirm_button_cell(&app, ConfirmButton::No);
+    click(&mut app, &mut sim, bcol, brow);
+    assert!(!app.confirm_popup.is_open());
+    assert_eq!(42, sim.store.words[3]);
+
+    // Y confirms and clears
+    click(&mut app, &mut sim, col, row);
+    press(&mut app, &mut sim, 'y');
+    assert!(!app.confirm_popup.is_open());
+    assert!(sim.store.words.iter().all(|&w| w == 0), "store cleared");
+    assert_eq!(0, sim.cycle_count);
+
+    // The Yes button confirms too
+    sim.store.words[3] = 42;
+    click(&mut app, &mut sim, col, row);
+    let _ = render(&mut app, &snap, 100, 40);
+    let (bcol, brow) = confirm_button_cell(&app, ConfirmButton::Yes);
+    click(&mut app, &mut sim, bcol, brow);
+    assert!(!app.confirm_popup.is_open());
+    assert_eq!(0, sim.store.words[3], "store cleared via the Yes button");
+}
+
+#[test]
+pub(super) fn confirm_buttons_are_not_clickable_when_clipped_at_tiny_sizes() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    sim.run(5);
+    sim.store.words[3] = 42;
+    sim.stop_flag = true;
+    let snap = Snapshot::from_sim(&sim);
+    // At 100x4 the pop-up is clamped to the window: the buttons row is not
+    // drawn, so no cell may confirm — clicking anywhere cancels
+    let _ = render(&mut app, &snap, 100, 4);
+    let (col, row) = menu_item_cell(&app, MenuAction::Clear);
+    click(&mut app, &mut sim, col, row);
+    assert!(app.confirm_popup.is_open());
+    let _ = render(&mut app, &snap, 100, 4);
+    for row in 1..4u16 {
+        for col in 0..100u16 {
+            click(&mut app, &mut sim, col, row);
+        }
+    }
+    assert_eq!(
+        42, sim.store.words[3],
+        "no phantom button confirmed the clear"
+    );
 }
 
 #[test]

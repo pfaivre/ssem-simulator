@@ -65,6 +65,7 @@ pub const PALETTE: Palette = Palette {
 
     // Pop-ups
     breakpoint_border: rgb(0xD1242F),
+    confirm_border: rgb(0xD1242F),
     editor_border: rgb(0xC77400),
     save_border: rgb(0x0969DA),
     preview: rgb(0x2E7D32),

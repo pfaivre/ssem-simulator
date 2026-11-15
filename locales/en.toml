@@ -141,6 +141,13 @@ graph_halt = "■   halt"
 type_number = "Type a number"
 address_range = "Address must be 0 to 31"
 
+[popup.confirm]
+title = " Confirm "
+question_clear = "Clear the machine? Store, registers, history and breakpoints are reset."
+yes = "[Yes]"
+no = "[No]"
+footer = "ENTER/Y confirm · N/ESC cancel"
+
 [popup.breakpoints]
 title = " Breakpoints "
 explanation = "Pause the machine when a condition is met"

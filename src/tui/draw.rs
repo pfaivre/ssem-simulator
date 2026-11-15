@@ -348,7 +348,8 @@ impl App {
             // on each side in the block color
             let text = format!(" {label} ");
             let is_active = matches!(action, MenuAction::Settings if self.settings_popup.is_open())
-                || matches!(action, MenuAction::Help if self.help_popup.is_open());
+                || matches!(action, MenuAction::Help if self.help_popup.is_open())
+                || matches!(action, MenuAction::Clear if self.confirm_popup.is_open());
             let style = if self.menu_hover == Some(action) || is_active {
                 hovered
             } else {
