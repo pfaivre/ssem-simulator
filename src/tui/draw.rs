@@ -21,7 +21,7 @@ use super::layout::{
     timeline_marker_offset,
 };
 use super::palette::Palette;
-use super::popups::{Popup, PopupDrawCtx, SettingsView};
+use super::popups::{ConfirmAction, Popup, PopupDrawCtx, SettingsView};
 use super::snapshot::Snapshot;
 use crate::ssem::{Opcode, Store};
 
@@ -347,9 +347,16 @@ impl App {
             // No brackets: the button is the label padded with one cell
             // on each side in the block color
             let text = format!(" {label} ");
+            // The confirm pop-up highlights the menu item whose action it
+            // guards (Clear or Quit), not always Clear
+            let confirm_action = self
+                .confirm_popup
+                .is_open()
+                .then(|| self.confirm_popup.action());
             let is_active = matches!(action, MenuAction::Settings if self.settings_popup.is_open())
                 || matches!(action, MenuAction::Help if self.help_popup.is_open())
-                || matches!(action, MenuAction::Clear if self.confirm_popup.is_open())
+                || matches!(action, MenuAction::Clear if confirm_action == Some(ConfirmAction::Clear))
+                || matches!(action, MenuAction::Quit if confirm_action == Some(ConfirmAction::Quit))
                 || matches!(action, MenuAction::Open if self.open_popup.is_open())
                 || matches!(action, MenuAction::Save if self.save_popup.is_open());
             let style = if self.menu_hover == Some(action) || is_active {

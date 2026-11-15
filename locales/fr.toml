@@ -144,7 +144,8 @@ address_range = "L'adresse doit être entre 0 et 31"
 
 [popup.confirm]
 title = " Confirmer "
-question_clear = "Effacer la machine ? La mémoire, les registres, l'historique et les points d'arrêt sont remis à zéro."
+question_clear = "Effacer la machine ?"
+question_quit = "Quitter l'application ?"
 yes = "[Oui]"
 no = "[Non]"
 footer = "ENTRÉE/Y confirmer · N/ÉCHAP annuler"

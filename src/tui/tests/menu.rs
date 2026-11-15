@@ -189,10 +189,13 @@ pub(super) fn menu_clicks_run_the_actions() {
     click(&mut app, &mut sim, col, row);
     assert!(!app.help_popup.is_open(), "second click toggles it closed");
 
-    // Quit sets the quit flag
+    // Quit asks for confirmation first; confirming sets the quit flag
     let (col, row) = menu_item_cell(&app, MenuAction::Quit);
     click(&mut app, &mut sim, col, row);
-    assert!(app.should_quit);
+    assert!(app.confirm_popup.is_open(), "quit asks for confirmation");
+    assert!(!app.should_quit, "not quitting before confirmation");
+    press(&mut app, &mut sim, 'y');
+    assert!(app.should_quit, "confirmed quit sets the quit flag");
 }
 
 /// The center cell of the confirm pop-up's `button` (the app must have been
@@ -319,6 +322,92 @@ pub(super) fn menu_opening_a_popup_closes_the_others() {
 }
 
 #[test]
+pub(super) fn menu_open_and_save_pause_a_running_machine() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    sim.stop_flag = false; // running
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    let (col, row) = menu_item_cell(&app, MenuAction::Open);
+    click(&mut app, &mut sim, col, row);
+    assert!(app.open_popup.is_open(), "open pop-up opened");
+    assert!(sim.stop_flag, "menu Open pauses the machine");
+    app.open_popup.close();
+
+    sim.stop_flag = false; // running again
+    let (col, row) = menu_item_cell(&app, MenuAction::Save);
+    click(&mut app, &mut sim, col, row);
+    assert!(app.save_popup.is_open(), "save pop-up opened");
+    assert!(sim.stop_flag, "menu Save pauses the machine");
+}
+
+#[test]
+pub(super) fn opening_the_confirm_popup_pauses_a_running_machine() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    sim.stop_flag = false; // running
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    let (col, row) = menu_item_cell(&app, MenuAction::Clear);
+    click(&mut app, &mut sim, col, row);
+    assert!(app.confirm_popup.is_open(), "confirm pop-up opened");
+    assert!(sim.stop_flag, "the confirm pop-up pauses the machine");
+}
+
+#[test]
+pub(super) fn quit_confirmation_can_be_canceled_and_shows_the_question() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Menu Quit opens the confirmation, which shows its question
+    let (col, row) = menu_item_cell(&app, MenuAction::Quit);
+    click(&mut app, &mut sim, col, row);
+    assert!(app.confirm_popup.is_open());
+    let buffer = render(&mut app, &snap, 100, 40);
+    assert!(
+        screen_text(&buffer).contains("Quit the app?"),
+        "quit question shown"
+    );
+
+    // Esc cancels
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut sim);
+    assert!(!app.confirm_popup.is_open());
+    assert!(!app.should_quit, "canceled quit does not quit");
+
+    // Ctrl+Q then N cancels too
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL),
+        &mut sim,
+    );
+    assert!(app.confirm_popup.is_open());
+    press(&mut app, &mut sim, 'n');
+    assert!(!app.should_quit, "N cancels the quit");
+
+    // A click outside the Yes button cancels
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL),
+        &mut sim,
+    );
+    click(&mut app, &mut sim, 0, 10);
+    assert!(!app.confirm_popup.is_open());
+    assert!(!app.should_quit, "a click outside Yes cancels the quit");
+
+    // The Yes button confirms and quits
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL),
+        &mut sim,
+    );
+    let _ = render(&mut app, &snap, 100, 40);
+    let (bcol, brow) = confirm_button_cell(&app, ConfirmButton::Yes);
+    click(&mut app, &mut sim, bcol, brow);
+    assert!(app.should_quit, "the Yes button quits");
+}
+
+#[test]
 pub(super) fn space_runs_and_stops_and_ctrl_q_quits() {
     let mut app = App::new();
     let mut sim = Simulator::new();
@@ -340,7 +429,7 @@ pub(super) fn space_runs_and_stops_and_ctrl_q_quits() {
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut sim);
     assert!(!app.should_quit, "Esc must not quit");
 
-    // Ctrl+Q quits (Ctrl+other letters are ignored, not plain-letter actions)
+    // Ctrl+other letters are ignored, not plain-letter actions
     app.handle_key(
         KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL),
         &mut sim,
@@ -349,11 +438,18 @@ pub(super) fn space_runs_and_stops_and_ctrl_q_quits() {
         700, sim.speed,
         "Ctrl+I must not trigger the plain I (speed up) action"
     );
+
+    // Ctrl+Q asks for confirmation before quitting, and pauses the machine
+    sim.stop_flag = false; // running
     app.handle_key(
         KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL),
         &mut sim,
     );
-    assert!(app.should_quit, "Ctrl+Q quits");
+    assert!(app.confirm_popup.is_open(), "Ctrl+Q asks for confirmation");
+    assert!(!app.should_quit, "not quitting before confirmation");
+    assert!(sim.stop_flag, "the confirm pop-up pauses the machine");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &mut sim);
+    assert!(app.should_quit, "confirmed Ctrl+Q quits");
 }
 
 #[test]
@@ -388,6 +484,49 @@ pub(super) fn menu_hover_tracks_the_item_under_the_mouse() {
     assert_eq!(
         None, app.menu_hover,
         "leaving the menu bar clears the hover"
+    );
+}
+
+#[test]
+pub(super) fn confirm_popup_highlights_the_menu_item_of_its_action() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // The Quit confirmation highlights the Quit item, not Clear
+    let (qcol, qrow) = menu_item_cell(&app, MenuAction::Quit);
+    click(&mut app, &mut sim, qcol, qrow);
+    assert!(app.confirm_popup.is_open());
+    let buffer = render(&mut app, &snap, 100, 40);
+    assert_eq!(
+        app.palette().hover,
+        buffer[(qcol, qrow)].bg,
+        "the Quit item must be highlighted"
+    );
+    let (ccol, crow) = menu_item_cell(&app, MenuAction::Clear);
+    assert_ne!(
+        app.palette().hover,
+        buffer[(ccol, crow)].bg,
+        "the Clear item must not be highlighted during a quit confirmation"
+    );
+
+    // The Clear confirmation highlights the Clear item, not Quit
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &mut sim);
+    let (ccol, crow) = menu_item_cell(&app, MenuAction::Clear);
+    click(&mut app, &mut sim, ccol, crow);
+    assert!(app.confirm_popup.is_open());
+    let buffer = render(&mut app, &snap, 100, 40);
+    assert_eq!(
+        app.palette().hover,
+        buffer[(ccol, crow)].bg,
+        "the Clear item must be highlighted"
+    );
+    let (qcol, qrow) = menu_item_cell(&app, MenuAction::Quit);
+    assert_ne!(
+        app.palette().hover,
+        buffer[(qcol, qrow)].bg,
+        "the Quit item must not be highlighted during a clear confirmation"
     );
 }
 

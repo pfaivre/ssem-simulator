@@ -414,7 +414,7 @@ impl App {
             KeyCode::Char(c) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     if c.eq_ignore_ascii_case(&'q') {
-                        self.should_quit = true;
+                        self.open_confirm_popup(ConfirmAction::Quit, sim);
                     }
                 } else if let Some(control) = control_for_key(key.code) {
                     self.perform_setting(control, sim);
@@ -426,8 +426,8 @@ impl App {
                             self.comment_editor.close();
                             self.editor_popup.open();
                         }
-                        's' => self.save_popup.open(sim.source_path.as_deref()),
-                        'o' => self.open_popup.open(sim.source_path.as_deref()),
+                        's' => Self::open_file_popup(&mut self.save_popup, sim),
+                        'o' => Self::open_file_popup(&mut self.open_popup, sim),
                         'h' => self.help_popup.open(),
                         _ => {}
                     }
@@ -488,6 +488,22 @@ impl App {
                 // Swallowed OS key-repeat of a view-mode key
             } else {
                 self.handle_settings_key(key, sim);
+            }
+            return true;
+        }
+
+        // The confirm pop-up is handled here rather than through the
+        // registry, like the settings pop-up: confirming a Quit sets App's
+        // quit flag, which lives on App, not on the pop-up.
+        if self.confirm_popup.is_open() {
+            let confirmed = if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
+                self.confirm_popup.close();
+                None
+            } else {
+                self.confirm_popup.handle_key(key, sim)
+            };
+            if let Some(action) = confirmed {
+                self.apply_confirmed(action);
             }
             return true;
         }
@@ -686,7 +702,10 @@ impl App {
         if self.confirm_popup.is_open() {
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 match self.confirm_popup.button_at(mouse.column, mouse.row) {
-                    Some(ConfirmButton::Yes) => self.confirm_popup.confirm(sim),
+                    Some(ConfirmButton::Yes) => {
+                        let action = self.confirm_popup.confirm(sim);
+                        self.apply_confirmed(action);
+                    }
                     Some(ConfirmButton::No) | None => self.confirm_popup.close(),
                 }
                 self.last_click = None;
@@ -986,11 +1005,11 @@ impl App {
         };
         self.close_all_popups();
         match action {
-            // Destructive: ask first, the confirm pop-up runs the clear
-            MenuAction::Clear => self.confirm_popup.open(ConfirmAction::Clear),
-            MenuAction::Open => self.open_popup.open(sim.source_path.as_deref()),
-            MenuAction::Save => self.save_popup.open(sim.source_path.as_deref()),
-            MenuAction::Quit => self.should_quit = true,
+            // Destructive: ask first, the confirm pop-up runs the action
+            MenuAction::Clear => self.open_confirm_popup(ConfirmAction::Clear, sim),
+            MenuAction::Open => Self::open_file_popup(&mut self.open_popup, sim),
+            MenuAction::Save => Self::open_file_popup(&mut self.save_popup, sim),
+            MenuAction::Quit => self.open_confirm_popup(ConfirmAction::Quit, sim),
             MenuAction::RunStop => sim.stop_flag = !sim.stop_flag,
             MenuAction::Step => {
                 // Same as the F10 key: pause, then execute one instruction
@@ -1015,6 +1034,29 @@ impl App {
     fn close_all_popups(&mut self) {
         for popup in self.popups_mut() {
             popup.close();
+        }
+    }
+
+    /// Open the save or open pop-up, pausing the machine while it is up:
+    /// saving or loading a file is a whole-machine operation, so the
+    /// machine must not run behind the pop-up.
+    fn open_file_popup(popup: &mut FieldPopup, sim: &mut Simulator) {
+        sim.stop_flag = true;
+        popup.open(sim.source_path.as_deref());
+    }
+
+    /// Open the confirmation pop-up guarding a destructive action, pausing
+    /// the machine while it is up.
+    fn open_confirm_popup(&mut self, action: ConfirmAction, sim: &mut Simulator) {
+        sim.stop_flag = true;
+        self.confirm_popup.open(action);
+    }
+
+    /// Apply the app-level effect of a confirmed action. The simulator-level
+    /// effect (Clear) already ran inside `ConfirmPopup::confirm`.
+    fn apply_confirmed(&mut self, action: ConfirmAction) {
+        if action == ConfirmAction::Quit {
+            self.should_quit = true;
         }
     }
 

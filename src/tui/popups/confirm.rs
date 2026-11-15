@@ -6,6 +6,8 @@ use rust_i18n::t;
 pub enum ConfirmAction {
     /// Clear the machine (store, registers, history, breakpoints).
     Clear,
+    /// Quit the application.
+    Quit,
 }
 
 /// A button of the confirmation pop-up.
@@ -45,12 +47,20 @@ impl ConfirmPopup {
         self.hover = None;
     }
 
-    /// Run the pending action and close the pop-up.
-    pub fn confirm(&mut self, sim: &mut Simulator) {
-        match self.action {
-            ConfirmAction::Clear => sim.clear(),
+    /// The action the pop-up currently guards.
+    pub fn action(&self) -> ConfirmAction {
+        self.action
+    }
+
+    /// Run the pending action and close the pop-up, returning it so the
+    /// caller can apply any app-level effect (Quit sets App's quit flag).
+    pub fn confirm(&mut self, sim: &mut Simulator) -> ConfirmAction {
+        let action = self.action;
+        if action == ConfirmAction::Clear {
+            sim.clear();
         }
         self.close();
+        action
     }
 
     /// The button drawn under the given screen cell, if any.
@@ -66,19 +76,23 @@ impl ConfirmPopup {
         self.hover = hover;
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+    /// Handle a key press; returns the action if it was confirmed.
+    pub fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> Option<ConfirmAction> {
         if key.kind != KeyEventKind::Press {
-            return;
+            return None;
         }
         match key.code {
             // Esc closes centrally (App::route_popup_key)
-            KeyCode::Enter => self.confirm(sim),
+            KeyCode::Enter => Some(self.confirm(sim)),
             KeyCode::Char(c) => match c.to_ascii_lowercase() {
-                'y' => self.confirm(sim),
-                'n' => self.close(),
-                _ => {}
+                'y' => Some(self.confirm(sim)),
+                'n' => {
+                    self.close();
+                    None
+                }
+                _ => None,
             },
-            _ => {}
+            _ => None,
         }
     }
 
@@ -87,6 +101,7 @@ impl ConfirmPopup {
         let palette = ctx.palette;
         let question = match self.action {
             ConfirmAction::Clear => t!("popup.confirm.question_clear"),
+            ConfirmAction::Quit => t!("popup.confirm.question_quit"),
         };
         let yes = t!("popup.confirm.yes");
         let no = t!("popup.confirm.no");
@@ -174,7 +189,9 @@ impl Popup for ConfirmPopup {
         true
     }
     fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        ConfirmPopup::handle_key(self, key, sim);
+        // The confirmed action (if any) is picked up by App, which handles
+        // this pop-up itself in route_popup_key
+        let _ = ConfirmPopup::handle_key(self, key, sim);
     }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
         ConfirmPopup::draw(self, f, ctx);

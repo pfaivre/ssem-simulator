@@ -48,6 +48,17 @@ pub(super) fn o_key_opens_the_open_popup_and_esc_closes_it() {
 }
 
 #[test]
+pub(super) fn opening_the_open_popup_pauses_a_running_machine() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    sim.stop_flag = false; // running
+
+    press(&mut app, &mut sim, KeyCode::Char('o'));
+    assert!(app.open_popup.is_open());
+    assert!(sim.stop_flag, "the open pop-up pauses the machine");
+}
+
+#[test]
 pub(super) fn open_popup_prefills_the_source_path() {
     let mut app = App::new();
     let mut sim = Simulator::from_file(Path::new("samples/factorct.asm")).unwrap();
