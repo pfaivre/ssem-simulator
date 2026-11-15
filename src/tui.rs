@@ -51,6 +51,7 @@
 //! machine-thread behavior goes in `runner.rs`.
 
 mod app;
+mod arrow;
 mod config;
 mod draw;
 mod graph;

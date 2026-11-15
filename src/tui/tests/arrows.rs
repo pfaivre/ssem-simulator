@@ -538,7 +538,7 @@ pub(super) fn assignment_label_jrp_is_relative_on_the_ci_line() {
 
 #[test]
 pub(super) fn pointer_arrow_cmp_points_from_accumulator_to_ci() {
-    // CMP at line 1, not taken (CI still on the CMP line): the arrow runs
+    // CMP at line 1, not taken (A is non-negative): the arrow runs
     // from the accumulator up to CI, in the test color, labeled "A >= 0"
     let mut store = [0; 32];
     store[1] = Store::parse_word("CMP").unwrap();
@@ -585,28 +585,17 @@ pub(super) fn pointer_arrow_cmp_points_from_accumulator_to_ci() {
 
 #[test]
 pub(super) fn cmp_label_shows_the_skip_when_the_accumulator_is_negative() {
+    // CMP at line 1 with a negative accumulator: the skip was taken. The
+    // label keys on A's sign — the predicate the machine applies — so it
+    // stays consistent with the accumulator shown on the next row even if
+    // CI is edited by hand afterwards
     let mut store = [0; 32];
     store[1] = Store::parse_word("CMP").unwrap();
-    store[31] = Store::parse_word("CMP").unwrap();
+    let mut snap = pointer_snapshot(1, store);
+    snap.a = -1;
 
     let mut app = App::new();
     app.flow = FlowMode::Data;
-
-    // CMP at line 1 taken: CI moved one line past the CMP, A is negative
-    let mut snap = pointer_snapshot(1, store);
-    snap.a = -1;
-    snap.ci = 2;
-    let buffer = render(&mut app, &snap, 80, 40);
-    let label = margin_label(&buffer, 2);
-    assert!(
-        label.starts_with(" A < 0 → CI += 1"),
-        "CI row label: {label:?}"
-    );
-
-    // The 31→0 wrap counts as taken too: CMP at line 31, CI wrapped to 0
-    let mut snap = pointer_snapshot(31, store);
-    snap.a = -1;
-    snap.ci = 0;
     let buffer = render(&mut app, &snap, 80, 40);
     let label = margin_label(&buffer, 2);
     assert!(

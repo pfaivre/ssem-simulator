@@ -85,9 +85,13 @@ pub(super) fn menu_bar_lists_all_actions_on_the_top_row() {
     ] {
         assert!(top.contains(item), "menu bar missing {item}: {top:?}");
     }
-    // The Run/Stop and Step buttons carry their icons
+    // The Run/Stop and Step buttons carry their icons — and only they:
+    // each icon glyph appears exactly once on the bar
     assert!(top.contains("▸ Run"), "menu bar: {top:?}");
     assert!(top.contains("» Step"), "menu bar: {top:?}");
+    assert_eq!(1, top.chars().filter(|&c| c == '▸').count(), "{top:?}");
+    assert_eq!(1, top.chars().filter(|&c| c == '»').count(), "{top:?}");
+    assert_eq!(0, top.chars().filter(|&c| c == '■').count(), "{top:?}");
 
     // While the machine runs, the Run/Stop item reads "Stop" with its icon
     let mut snap = snapshot_with_history(0);
@@ -96,6 +100,8 @@ pub(super) fn menu_bar_lists_all_actions_on_the_top_row() {
     let top = row_text(&buffer, 0);
     assert!(top.contains("■ Stop"), "menu bar: {top:?}");
     assert!(!top.contains("Run"), "menu bar: {top:?}");
+    assert_eq!(1, top.chars().filter(|&c| c == '■').count(), "{top:?}");
+    assert_eq!(0, top.chars().filter(|&c| c == '▸').count(), "{top:?}");
 }
 
 #[test]

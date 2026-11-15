@@ -1,6 +1,7 @@
 //! The application state (UI thread only) and its input handling:
 //! keyboard, mouse, history scrubbing, speed display.
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
@@ -77,15 +78,20 @@ pub(super) enum MenuAction {
 }
 
 impl MenuAction {
-    /// The icon drawn in front of the button's label, if any. Icons are
-    /// symbols, not translated text; Run/Stop's icon follows the machine
-    /// state (play when stopped, stop when running).
-    pub(super) fn icon(self, stop_flag: bool) -> Option<&'static str> {
+    /// The menu bar button's presentation: an optional icon drawn in front
+    /// of the label. Icons are symbols, not translated text. Run/Stop's
+    /// icon and label both follow the machine state (play/"Run" when
+    /// stopped, stop/"Stop" when running).
+    pub(super) fn button<'a>(
+        self,
+        label: &'a str,
+        stop_flag: bool,
+    ) -> (Option<&'static str>, Cow<'a, str>) {
         match self {
-            MenuAction::RunStop if stop_flag => Some("▸"),
-            MenuAction::RunStop => Some("■"),
-            MenuAction::Step => Some("»"),
-            _ => None,
+            MenuAction::RunStop if stop_flag => (Some("▸"), Cow::Owned(ts!("menu.run"))),
+            MenuAction::RunStop => (Some("■"), Cow::Owned(ts!("menu.stop"))),
+            MenuAction::Step => (Some("»"), Cow::Borrowed(label)),
+            _ => (None, Cow::Borrowed(label)),
         }
     }
 }

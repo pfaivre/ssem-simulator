@@ -104,7 +104,8 @@ Write new code as if it will be audited against these rubrics:
   in English. Tests enforce catalog parity and that every key used in code
   exists.
 - Not translated: opcode mnemonics, the `NUM` file keyword, register names
-  `CI`/`A`, file extensions, config keys, `.asm` comments.
+  `CI`/`A`, file extensions, config keys, `.asm` comments, menu-button icons,
+  and the data-flow margin labels (`A >= 0`, `CI += 3`, ...).
 
 ## Suggestions for later development
 
