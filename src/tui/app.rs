@@ -357,6 +357,15 @@ impl App {
         ]
     }
 
+    /// Whether a modal pop-up (picker, confirm) is currently open. While
+    /// one is, it owns the mouse: menu-bar clicks go to it, and every
+    /// other event is swallowed.
+    fn any_modal_popup_open(&self) -> bool {
+        self.popups_ref()
+            .iter()
+            .any(|p| p.is_open() && p.is_modal())
+    }
+
     /// Shared-borrow counterpart of `popups_mut`.
     fn popups_ref(&self) -> [&dyn Popup; 9] {
         [
@@ -653,9 +662,12 @@ impl App {
             }
         }
 
-        // The menu bar (the top row): clicking an item runs its action
+        // The menu bar (the top row): clicking an item runs its action —
+        // unless a modal pop-up is open, in which case the click belongs
+        // to the pop-up (routed below) and the menu stays inert
         if mouse.row == 0
             && matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+            && !self.any_modal_popup_open()
             && let Some(action) = self.menu_action_at(mouse.column, mouse.row)
         {
             self.run_menu_action(action, sim);
@@ -693,11 +705,7 @@ impl App {
                 self.last_click = None;
                 return;
             }
-        } else if self
-            .popups_ref()
-            .iter()
-            .any(|p| p.is_open() && p.is_modal())
-        {
+        } else if self.any_modal_popup_open() {
             // A modal pop-up (picker, confirm) swallows every other mouse
             // event while it is open
             return;

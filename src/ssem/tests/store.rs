@@ -273,6 +273,43 @@ fn from_asm_file_non_contiguous_lines() {
 }
 
 #[test]
+fn from_asm_file_duplicate_index_is_rejected() {
+    let file = temp_file("duplicate_index.asm", "00 JMP 0\n01 STP\n00 NUM 5\n");
+    let err = Store::from_asm_file(file.path()).unwrap_err();
+    assert!(err.to_string().contains("expected index '2'"), "err: {err}");
+}
+
+#[test]
+fn from_asm_file_duplicate_first_index_is_rejected() {
+    // A second index-0 line used to slip through and silently overwrite
+    // word 0
+    let file = temp_file("duplicate_first.asm", "00 JMP 0\n00 NUM 5\n");
+    let err = Store::from_asm_file(file.path()).unwrap_err();
+    assert!(err.to_string().contains("expected index '1'"), "err: {err}");
+}
+
+#[test]
+fn from_asm_file_trailing_tokens_are_rejected() {
+    let file = temp_file("trailing_tokens.asm", "00 JMP 0 garbage\n");
+    let err = Store::from_asm_file(file.path()).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("invalid instruction '00 JMP 0 garbage'"),
+        "err: {err}"
+    );
+}
+
+#[test]
+fn from_snp_file_duplicate_index_is_rejected() {
+    let file = temp_file(
+        "duplicate.snp",
+        "0000: 00000000000000000000000000000000\n0000: 11111111111111111111111111111111\n",
+    );
+    let err = Store::from_snp_file(file.path()).unwrap_err();
+    assert!(err.to_string().contains("expected index '1'"), "err: {err}");
+}
+
+#[test]
 fn from_asm_file_index_out_of_store() {
     let mut content = String::new();
     for i in 0..32 {
@@ -603,6 +640,27 @@ fn save_rejects_missing_or_unknown_extensions() {
 
     let no_ext = temp_file("save", "");
     assert!(store.save(no_ext.path()).is_err());
+}
+
+#[test]
+fn save_writes_atomically_and_leaves_no_temporary_file() {
+    let store = mixed_store();
+    let file = temp_file("atomic_save.snp", "");
+    store.save(file.path()).unwrap();
+    // The file is complete right after save returns...
+    assert!(
+        std::fs::read_to_string(file.path())
+            .unwrap()
+            .starts_with("0000: ")
+    );
+    // ...and the temporary file used for the atomic write is gone
+    let leftovers: Vec<String> = std::fs::read_dir(std::env::temp_dir())
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("ssem_tests_atomic_save.snp.") && name.ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "leftover temp files: {leftovers:?}");
 }
 
 #[test]

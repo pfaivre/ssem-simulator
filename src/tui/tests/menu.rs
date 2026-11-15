@@ -489,6 +489,30 @@ pub(super) fn closing_a_modal_popup_with_a_key_forgets_the_last_click() {
 }
 
 #[test]
+pub(super) fn menu_bar_clicks_are_swallowed_while_a_modal_popup_is_open() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    let snap = Snapshot::from_sim(&sim);
+    let _ = render(&mut app, &snap, 100, 40);
+
+    // Ctrl+Q opens the quit confirmation, a modal pop-up
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL),
+        &mut sim,
+    );
+    assert!(app.confirm_popup.is_open());
+
+    // A click on the Run/Stop menu item must not run the menu action (the
+    // modal pop-up owns the click; its own outside-click handling may still
+    // cancel it). Opening the confirm already paused the machine, so a
+    // Run/Stop click would show up as stop_flag going false.
+    let (col, row) = menu_item_cell(&app, MenuAction::RunStop);
+    click(&mut app, &mut sim, col, row);
+    assert!(sim.stop_flag, "Run/Stop must not toggle while modal");
+    assert!(!app.should_quit, "Quit must not fire without confirming");
+}
+
+#[test]
 pub(super) fn menu_hover_tracks_the_item_under_the_mouse() {
     // The hover highlight itself is a theme color and intentionally not
     // asserted; this checks the hit-testing and the hover state.

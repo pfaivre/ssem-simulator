@@ -103,7 +103,7 @@ fn parse_indexed_file(
     let mut words = [0_i32; SSEM_STORE_WORDS];
     let mut comments = std::array::from_fn(|_| None);
 
-    let mut last_index: i32 = 0;
+    let mut last_index: Option<i32> = None;
 
     for line in reader.lines() {
         let line = line.map_err(|e| read_error(filename, e))?;
@@ -129,15 +129,27 @@ fn parse_indexed_file(
 
         let (index, word) = parse_line(instruction, &line)?;
 
-        // Ensure lines are contiguous and without duplicates
-        if index > 0 && index != last_index + 1 {
-            return Err(parse_error(ts!(
-                "error.expected_index",
-                line = line,
-                expected = last_index + 1
-            )));
+        // Ensure lines are contiguous and without duplicates: each index
+        // must be exactly one past the previous one. A repeated index
+        // fails this too, including a second index-0 line.
+        match last_index {
+            Some(last) if index != last + 1 => {
+                return Err(parse_error(ts!(
+                    "error.expected_index",
+                    line = line,
+                    expected = last + 1
+                )));
+            }
+            None if index > 1 => {
+                return Err(parse_error(ts!(
+                    "error.expected_index",
+                    line = line,
+                    expected = 1
+                )));
+            }
+            _ => {}
         }
-        last_index = index;
+        last_index = Some(index);
 
         // Ensure the index is within the store (this also rejects negatives,
         // which the contiguity check above lets through)
@@ -235,9 +247,10 @@ impl Store {
     /// read or a line cannot be parsed, instead of panicking.
     pub fn from_asm_file(filename: &Path) -> std::io::Result<Store> {
         parse_indexed_file(filename, |instruction, _line| {
-            // Extracting tokens "<index> <opcode> <operand>"
+            // Extracting tokens "<index> <opcode> <operand>"; anything
+            // beyond the operand is rejected, not silently ignored
             let i: Vec<&str> = instruction.split_ascii_whitespace().collect();
-            if i.len() < 2 {
+            if i.len() < 2 || i.len() > 3 {
                 return Err(parse_error(ts!(
                     "error.invalid_instruction",
                     instruction = instruction
@@ -514,7 +527,7 @@ impl Store {
     /// unknown, and the underlying I/O error when the write fails.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         let content = FileFormat::from_path(path)?.dump(self);
-        std::fs::write(path, content)
+        crate::atomic_write::write_atomic(path, &content)
     }
 
     fn _check(&self) {

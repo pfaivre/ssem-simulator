@@ -244,7 +244,7 @@ impl Simulator {
             self.a,
             self.cycle_count
         );
-        std::fs::write(path, format!("{header}{body}"))
+        crate::atomic_write::write_atomic(path, &format!("{header}{body}"))
     }
 
     /// Enable execution history, retaining up to `capacity` past states.

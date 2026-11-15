@@ -59,7 +59,7 @@ impl Config {
             fs::create_dir_all(dir)?;
         }
         let text = toml::to_string_pretty(self).map_err(io::Error::other)?;
-        fs::write(path, text)
+        crate::atomic_write::write_atomic(path, &text)
     }
 }
 

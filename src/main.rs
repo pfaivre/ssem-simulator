@@ -17,6 +17,7 @@ macro_rules! ts {
     };
 }
 
+mod atomic_write;
 mod config_path;
 pub mod i18n;
 pub mod ssem;
