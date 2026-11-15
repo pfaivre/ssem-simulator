@@ -132,10 +132,9 @@ impl BreakpointPopup {
 
             // CI condition only takes an address
             if self.kind == BreakpointKind::Ci {
-                let bp = Breakpoint::CiValue {
+                let bp = Breakpoint::new(BreakpointCondition::CiValue {
                     address: self.address as i32,
-                    was_met: false,
-                };
+                });
                 self.add(bp, breakpoints);
                 return;
             }
@@ -145,11 +144,10 @@ impl BreakpointPopup {
         }
 
         // Value field: add a WordValue breakpoint
-        let bp = Breakpoint::WordValue {
+        let bp = Breakpoint::new(BreakpointCondition::WordValue {
             address: self.address,
             value: number,
-            was_met: false,
-        };
+        });
         self.add(bp, breakpoints);
     }
 
