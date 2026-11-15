@@ -108,7 +108,6 @@ Write new code as if it will be audited against these rubrics:
 
 ## Suggestions for later development
 
-- Click on statusbar
-- first start screen
-- Add CMP to data flow chart. Maybe with a label "A >= 0 ?"
+- Click on statusbar: make the status bar items clickable (e.g. for cycling through graphs, etc.)
+- first start screen: the first time that app is started, a special pop-up explains the bases of the SSEM and how this app works
 - Fix the pop-up digit input. May work only in QWERTY and AZERTY keyboards.

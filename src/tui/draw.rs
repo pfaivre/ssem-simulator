@@ -176,16 +176,16 @@ impl App {
     /// - SUB/SUB2: like LDN, in a different color
     /// - JMP: from the word holding the target value to CI (a copy)
     /// - JRP: like JMP, in the same jump color (the value is added to CI)
+    /// - CMP: from the accumulator to CI (its sign decides whether CI skips)
     ///
     /// The arrow takes the operation's category color, shared with the
     /// mnemonic and the graph edge: the memory color for LDN/STO, the jump
-    /// color for JMP/JRP, the arithmetic color for SUB/SUB2. The arrow
-    /// follows the executed instruction
+    /// color for JMP/JRP, the arithmetic color for SUB/SUB2, the test color
+    /// for CMP. The arrow follows the executed instruction
     /// rather than CI: after a jump, CI holds the target value, so the word
     /// at CI is neither the last nor the next instruction to execute (CI is
     /// incremented before each fetch). Returns `None` when no instruction
-    /// has executed yet, or when the instruction moves no store data (CMP
-    /// and STP ignore their data field).
+    /// has executed yet, or for STP, which moves no data.
     fn current_arrow(palette: &Palette, snap: &Snapshot) -> Option<PointerArrow> {
         let li = snap.last_instruction?;
         let word_row = STORE_ROW_OFFSET + li.data as usize;
@@ -193,7 +193,8 @@ impl App {
             Opcode::STO => (A_ROW, word_row),
             Opcode::LDN | Opcode::SUB | Opcode::SUB2 => (word_row, A_ROW),
             Opcode::JMP | Opcode::JRP => (word_row, CI_ROW),
-            // CMP and STP ignore their data field
+            Opcode::CMP => (A_ROW, CI_ROW),
+            // STP ignores its data field and moves no data
             _ => return None,
         };
         Some(PointerArrow {
@@ -208,8 +209,9 @@ impl App {
     ///
     /// Loads, stores, and JMP are absolute (`=`, showing the new value);
     /// arithmetic combinations (SUB, JRP) are relative (`+=`, with the
-    /// negated operand for SUB). CMP and STP move no data, so they get no
-    /// label — like the arrow, which `current_arrow` withholds for them.
+    /// negated operand for SUB). CMP moves no store data, but its outcome
+    /// is labeled: whether A's sign made CI skip the next line. STP moves
+    /// no data and gets no label.
     fn assignment_label(snap: &Snapshot) -> Option<String> {
         let li = snap.last_instruction?;
         // `data` comes from `decode_word`, so it is masked to 0..=31 and
@@ -221,9 +223,19 @@ impl App {
             Opcode::SUB | Opcode::SUB2 => Some(format!("A += {}", operand.wrapping_neg())),
             Opcode::JMP => Some(format!("CI = {}", snap.ci)),
             Opcode::JRP => Some(format!("CI += {operand}")),
-            // CMP and STP move no data; NUM never reaches the display
+            Opcode::CMP => {
+                // CI is incremented before each fetch, so a CMP at line `i`
+                // leaves CI at `i` (fall-through) or `i + 1` (skip taken)
+                let skip_taken = (snap.ci.wrapping_sub(li.address) & Store::INDEX_MASK) == 1;
+                Some(if skip_taken {
+                    "A < 0 → CI += 1".to_string()
+                } else {
+                    "A >= 0".to_string()
+                })
+            }
+            // STP moves no data; NUM never reaches the display
             // (`Store::decode_word` always yields a real opcode)
-            Opcode::CMP | Opcode::STP | Opcode::NUM => None,
+            Opcode::STP | Opcode::NUM => None,
         }
     }
 
