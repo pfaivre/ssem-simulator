@@ -13,7 +13,7 @@ use crate::ssem::Opcode;
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, Simulator};
 
-use super::app::{BIT_REPRESENTATIONS, keymap};
+use super::app::{BIT_REPRESENTATIONS, control_for_key, keymap};
 use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH};
 use super::palette::{Palette, Theme};
 use super::snapshot::Snapshot;
@@ -179,12 +179,31 @@ pub(super) struct PopupDrawCtx<'a> {
     pub picker_anchor_col: u16,
 }
 
+/// What a pop-up did in response to an input event, for `App` to apply.
+///
+/// Pop-ups mutate the simulator directly where they operate on it (save,
+/// load, edit); the effects on `App`-owned state — view-mode settings, the
+/// quit flag — come back as events, so `App` stays the only place that
+/// touches its own fields in response to pop-up input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PopupEvent {
+    /// Nothing happened.
+    None,
+    /// A settings control was activated (settings pop-up).
+    Setting(SettingControl),
+    /// The user confirmed the pop-up's action (confirm pop-up); `App`
+    /// applies it to the machine (Clear) or to itself (Quit).
+    Confirmed(ConfirmAction),
+}
+
 /// The operations every pop-up shares, so `App` can hold all of them in one
 /// ordered registry (`App::popups_mut`) instead of re-listing the pop-ups at
 /// every key, mouse, close and draw site. Adding a pop-up = one field + one
 /// entry in that array + an impl of this trait. The chrome methods default
 /// to the pop-up's embedded [`PopupFrame`], so an impl only writes the two
-/// frame accessors plus its real `handle_key`/`draw`.
+/// frame accessors plus the handlers it needs: `handle_key`/`draw`, and
+/// `handle_click`/`handle_move` (with `is_modal`/`guards_mode_keys`) for
+/// pop-ups with clickable controls or key guards.
 pub(super) trait Popup {
     fn frame(&self) -> &PopupFrame;
     fn frame_mut(&mut self) -> &mut PopupFrame;
@@ -199,17 +218,39 @@ pub(super) trait Popup {
     fn contains(&self, column: u16, row: u16) -> bool {
         self.frame().contains(column, row)
     }
-    /// Pop-ups with their own clickable controls (settings, picker) handle
-    /// mouse clicks themselves in `App::handle_mouse` and are excluded from
-    /// the generic click-outside-to-close logic.
+    /// Pop-ups with their own clickable controls (settings, picker, confirm)
+    /// handle mouse clicks themselves through `handle_click`; for the others
+    /// a click inside is consumed and a click outside closes them.
     fn handles_own_clicks(&self) -> bool {
         false
     }
+    /// Whether the pop-up is modal: while it is open, every mouse event is
+    /// swallowed (the picker and the confirm pop-up).
+    fn is_modal(&self) -> bool {
+        false
+    }
+    /// Whether view-mode keys (T/F/M/C/D) must not auto-repeat while this
+    /// pop-up is open — a held key would otherwise cycle the modes. Only
+    /// the settings pop-up needs it (its keys are the view-mode keys).
+    fn guards_mode_keys(&self) -> bool {
+        false
+    }
     /// Route a key event to the pop-up while it is open, including its close
-    /// key. `SettingsPopup` is the exception: its keys are handled in `App`
-    /// because it mutates `App`'s view-mode fields, so its impl is a no-op.
-    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+    /// key, and return what it did. Esc is closed centrally by
+    /// `App::route_popup_key`.
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> PopupEvent {
         let _ = (key, sim);
+        PopupEvent::None
+    }
+    /// Handle a left click while the pop-up is open. Only called for pop-ups
+    /// with `handles_own_clicks`.
+    fn handle_click(&mut self, column: u16, row: u16, sim: &mut Simulator) -> PopupEvent {
+        let _ = (column, row, sim);
+        PopupEvent::None
+    }
+    /// Update the hover highlight on a mouse move while the pop-up is open.
+    fn handle_move(&mut self, column: u16, row: u16) {
+        let _ = (column, row);
     }
     /// Draw the pop-up as an overlay. The inline comment editor is drawn by
     /// the main body, not as an overlay, so its impl is a no-op.
@@ -229,7 +270,7 @@ mod settings;
 
 pub use breakpoint::BreakpointPopup;
 pub use comment::CommentEditor;
-pub use confirm::{ConfirmAction, ConfirmButton, ConfirmPopup};
+pub use confirm::{ConfirmAction, ConfirmPopup};
 pub use editor::EditorPopup;
 pub use field::{FieldKind, FieldPopup};
 pub use help::HelpPopup;
@@ -239,6 +280,8 @@ pub use settings::{SettingControl, SettingsPopup, SettingsView};
 // Reached into directly by the shared test module.
 #[cfg(test)]
 use breakpoint::InputField;
+#[cfg(test)]
+pub use confirm::ConfirmButton;
 #[cfg(test)]
 use editor::{EditField, EditTarget};
 #[cfg(test)]

@@ -258,9 +258,10 @@ impl Popup for CommentEditor {
         self.buffer.clear();
         self.cursor = 0;
     }
-    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> PopupEvent {
         // Esc cancels centrally (App::route_popup_key)
         CommentEditor::handle_key(self, key, sim);
+        PopupEvent::None
     }
     // No `draw`: the text box is drawn inline in the comment column.
 }

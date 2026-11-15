@@ -296,14 +296,15 @@ impl Popup for BreakpointPopup {
     fn frame_mut(&mut self) -> &mut PopupFrame {
         &mut self.frame
     }
-    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> PopupEvent {
         // B closes the pop-up (on a press, like every close key; Esc is
         // closed centrally by App::route_popup_key)
         if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('b' | 'B')) {
             self.close();
-            return;
+            return PopupEvent::None;
         }
         BreakpointPopup::handle_key(self, key, &mut sim.breakpoints);
+        PopupEvent::None
     }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
         BreakpointPopup::draw(self, f, ctx);

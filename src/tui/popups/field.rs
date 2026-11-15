@@ -246,8 +246,9 @@ impl Popup for FieldPopup {
     fn frame_mut(&mut self) -> &mut PopupFrame {
         &mut self.frame
     }
-    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> PopupEvent {
         FieldPopup::handle_key(self, key, sim);
+        PopupEvent::None
     }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
         FieldPopup::draw(self, f, ctx);

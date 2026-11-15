@@ -147,7 +147,8 @@ address_range = "Address must be 0 to 31"
 
 [popup.confirm]
 title = " Confirm "
-question_clear = "Clear the machine? Store, registers, history and breakpoints are reset."
+question_clear = "Clear the machine?"
+question_quit = "Quit the app?"
 yes = "[Yes]"
 no = "[No]"
 footer = "ENTER/Y confirm · N/ESC cancel"

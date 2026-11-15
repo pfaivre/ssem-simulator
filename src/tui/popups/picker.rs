@@ -264,9 +264,22 @@ impl Popup for PickerPopup {
     fn handles_own_clicks(&self) -> bool {
         true
     }
-    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+    fn is_modal(&self) -> bool {
+        true
+    }
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> PopupEvent {
         // Esc cancels centrally (App::route_popup_key)
         PickerPopup::handle_key(self, key, sim);
+        PopupEvent::None
+    }
+    fn handle_click(&mut self, column: u16, row: u16, sim: &mut Simulator) -> PopupEvent {
+        // A click on an entry applies the choice; any other click closes
+        // the picker without changes
+        match self.entry_at(column, row) {
+            Some(entry) => self.select_and_apply(entry, sim),
+            None => self.close(),
+        }
+        PopupEvent::None
     }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
         PickerPopup::draw(self, f, ctx);

@@ -19,8 +19,8 @@ use super::layout::{
 };
 use super::palette::{Palette, Theme};
 use super::popups::{
-    BreakpointPopup, CommentEditor, ConfirmAction, ConfirmButton, ConfirmPopup, EditorPopup,
-    FieldKind, FieldPopup, HelpPopup, PickerPopup, Popup, SettingControl, SettingsPopup,
+    BreakpointPopup, CommentEditor, ConfirmAction, ConfirmPopup, EditorPopup, FieldKind,
+    FieldPopup, HelpPopup, PickerPopup, Popup, PopupEvent, SettingControl, SettingsPopup,
 };
 use crate::i18n::Language;
 use crate::ssem::history::History;
@@ -113,7 +113,7 @@ const MODE_KEY_REPEAT_GUARD: Duration = Duration::from_millis(50);
 /// map shared by the main keymap and the settings pop-up. `+`/`=`/`-` adjust
 /// the speed like I/K. Modifiers are not considered: Ctrl+letter is not a
 /// plain-letter action in the main keymap.
-fn control_for_key(code: KeyCode) -> Option<SettingControl> {
+pub(super) fn control_for_key(code: KeyCode) -> Option<SettingControl> {
     let KeyCode::Char(c) = code else {
         return None;
     };
@@ -414,7 +414,7 @@ impl App {
             KeyCode::Char(c) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     if c.eq_ignore_ascii_case(&'q') {
-                        self.should_quit = true;
+                        self.open_confirm_popup(ConfirmAction::Quit, sim);
                     }
                 } else if let Some(control) = control_for_key(key.code) {
                     self.perform_setting(control, sim);
@@ -426,8 +426,14 @@ impl App {
                             self.comment_editor.close();
                             self.editor_popup.open();
                         }
-                        's' => self.save_popup.open(sim.source_path.as_deref()),
-                        'o' => self.open_popup.open(sim.source_path.as_deref()),
+                        's' => {
+                            sim.stop_flag = true; // pause while the save pop-up is up
+                            self.save_popup.open(sim.source_path.as_deref());
+                        }
+                        'o' => {
+                            sim.stop_flag = true; // pause while the open pop-up is up
+                            self.open_popup.open(sim.source_path.as_deref());
+                        }
                         'h' => self.help_popup.open(),
                         _ => {}
                     }
@@ -466,51 +472,57 @@ impl App {
         accepted
     }
 
-    /// Route a key to the open pop-up, if any, and return whether a pop-up
-    /// consumed it (at most one pop-up is open at a time, so the registry
-    /// order only fixes which one wins if several ever were).
+    /// Route a key to the open pop-up, if any, apply the event it returns,
+    /// and return whether a pop-up consumed it (at most one pop-up is open
+    /// at a time, so the registry order only fixes which one wins if
+    /// several ever were).
     ///
-    /// The settings pop-up is handled here rather than through the registry
-    /// because its keys mutate `App`'s view-mode fields (heatmap, flow, …),
-    /// which live on `App`, not on the pop-up. The picker is modal: when it
-    /// closes, the last click is forgotten so the next click cannot chain
-    /// into a double-click with the one that opened the picker.
+    /// Esc closes the open pop-up on a press; every other key goes to the
+    /// pop-up's own handler (including its extra close key). While a pop-up
+    /// that guards mode keys is open, those keys must not auto-repeat (a
+    /// held key would cycle the modes), so they are swallowed here.
+    ///
+    /// A modal pop-up (the picker, the confirm pop-up) that closes on a key
+    /// forgets the last click, so the next click cannot chain into a
+    /// double-click with the one that opened it.
     fn route_popup_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> bool {
-        if self.settings_popup.is_open() {
-            if key.code == KeyCode::Esc && key.kind == KeyEventKind::Press {
-                self.settings_popup.close();
-            } else if key.kind == KeyEventKind::Repeat {
-                // The view-mode keys must not repeat, like everywhere else
-                if !is_mode_key(key.code) {
-                    self.handle_settings_key(key, sim);
-                }
-            } else if is_mode_key(key.code) && !self.mode_key_accepted(key.code) {
-                // Swallowed OS key-repeat of a view-mode key
-            } else {
-                self.handle_settings_key(key, sim);
+        let Some(index) = self.popups_ref().iter().position(|p| p.is_open()) else {
+            return false;
+        };
+        let was_modal = self.popups_ref()[index].is_modal();
+
+        // Esc closes the open pop-up on a press
+        if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
+            self.popups_mut()[index].close();
+        } else {
+            let guards = self.popups_ref()[index].guards_mode_keys();
+            let swallow = guards
+                && is_mode_key(key.code)
+                && (key.kind == KeyEventKind::Repeat || !self.mode_key_accepted(key.code));
+            if !swallow {
+                let event = self.popups_mut()[index].handle_key(key, sim);
+                self.apply_event(event, sim);
             }
-            return true;
         }
 
-        let picker_was_open = self.picker.is_open();
-        let mut routed = false;
-        for popup in self.popups_mut() {
-            if popup.is_open() {
-                // Esc closes any open pop-up on a press; every other key goes
-                // to the pop-up's own handler (including its extra close key)
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
-                    popup.close();
-                } else {
-                    popup.handle_key(key, sim);
-                }
-                routed = true;
-                break;
-            }
-        }
-        if picker_was_open && !self.picker.is_open() {
+        if was_modal && !self.popups_ref()[index].is_open() {
             self.last_click = None;
         }
-        routed
+        true
+    }
+
+    /// Apply the event a pop-up returned from `handle_key`/`handle_click`.
+    /// The pop-up already mutated the simulator where it operates on it
+    /// (save, load, edit); the effects on App-owned state are applied here.
+    fn apply_event(&mut self, event: PopupEvent, sim: &mut Simulator) {
+        match event {
+            PopupEvent::None => {}
+            PopupEvent::Setting(control) => self.perform_setting(control, sim),
+            PopupEvent::Confirmed(action) => match action {
+                ConfirmAction::Clear => sim.clear(),
+                ConfirmAction::Quit => self.should_quit = true,
+            },
+        }
     }
 
     /// Handle a history-scrubbing key: Left Right Home End. With Ctrl held,
@@ -611,21 +623,14 @@ impl App {
         // Moving the mouse updates the hover highlights — on any row, so
         // each highlight is cleared as soon as the cursor leaves its area
         // (the menu bar: down the next line or off an item's sides; the
-        // settings pop-up: off a control or out of the pop-up)
+        // pop-ups: off a control or out of the pop-up)
         if matches!(mouse.kind, MouseEventKind::Moved) {
             self.menu_hover = self.menu_action_at(mouse.column, mouse.row);
-            let settings_hover = if self.settings_popup.is_open() {
-                self.settings_popup.control_at(mouse.column, mouse.row)
-            } else {
-                None
-            };
-            self.settings_popup.set_hover(settings_hover);
-            let confirm_hover = if self.confirm_popup.is_open() {
-                self.confirm_popup.button_at(mouse.column, mouse.row)
-            } else {
-                None
-            };
-            self.confirm_popup.set_hover(confirm_hover);
+            for popup in self.popups_mut() {
+                if popup.is_open() {
+                    popup.handle_move(mouse.column, mouse.row);
+                }
+            }
         }
 
         // The menu bar (the top row): clicking an item runs its action
@@ -640,68 +645,41 @@ impl App {
             return;
         }
 
-        // A left click outside an open pop-up closes it — the behavior the
-        // settings pop-up always had, generalized to every pop-up. The
-        // settings and picker pop-ups are excluded here: they have their own
-        // click handling just below. When several pop-ups are open at once,
-        // every pop-up the click lies outside of closes. The click itself
-        // then continues to the main view, so a double-click made while a
-        // pop-up is open closes it and still opens what was double-clicked.
+        // A left click while pop-ups are open goes to them first: pop-ups
+        // with their own clickable controls handle it themselves; for the
+        // others, a click inside is consumed and a click outside closes
+        // them. When several pop-ups are open at once, every pop-up the
+        // click lies outside of closes. The click itself then continues to
+        // the main view, so a double-click made while a pop-up is open
+        // closes it and still opens what was double-clicked.
         if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-            self.close_popups_outside(mouse.column, mouse.row);
-        }
-
-        // While the settings pop-up is open, a click applies the control it
-        // lands on, or closes the pop-up when it lands outside of it
-        if self.settings_popup.is_open()
-            && matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
-        {
-            if let Some(control) = self.settings_popup.control_at(mouse.column, mouse.row) {
-                self.perform_setting(control, sim);
-            } else if !self.settings_popup.contains(mouse.column, mouse.row) {
-                self.settings_popup.close();
-            }
-            self.last_click = None;
-            return;
-        }
-
-        // While the picker is open, it is modal: a click on an entry
-        // applies the choice, any other click closes it without changes
-        if self.picker.is_open() {
-            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-                match self.picker.entry_at(mouse.column, mouse.row) {
-                    Some(entry) => self.picker.select_and_apply(entry, sim),
-                    None => self.picker.close(),
+            let mut event = PopupEvent::None;
+            let mut consumed = false;
+            for popup in self.popups_mut() {
+                if !popup.is_open() {
+                    continue;
                 }
-                // The picker is closed now: forget the last click so the
-                // next click cannot chain into a double-click with the one
-                // that opened the picker
-                self.last_click = None;
-            }
-            return;
-        }
-
-        // While the confirm pop-up is open, it is modal too: a click on Yes
-        // runs the pending action, any other click cancels and closes it
-        if self.confirm_popup.is_open() {
-            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-                match self.confirm_popup.button_at(mouse.column, mouse.row) {
-                    Some(ConfirmButton::Yes) => self.confirm_popup.confirm(sim),
-                    Some(ConfirmButton::No) | None => self.confirm_popup.close(),
+                if popup.handles_own_clicks() {
+                    event = popup.handle_click(mouse.column, mouse.row, sim);
+                    consumed = true;
+                } else if popup.contains(mouse.column, mouse.row) {
+                    consumed = true;
+                } else {
+                    popup.close();
                 }
-                self.last_click = None;
             }
-            return;
-        }
-
-        // While one of the other pop-ups is still open, the click landed
-        // inside it: the click is consumed by the pop-up layer and must not
-        // fall through to the main view, where it could open another pop-up
-        // on top of this one
-        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
-            && self.any_simple_popup_open()
+            self.apply_event(event, sim);
+            if consumed {
+                self.last_click = None;
+                return;
+            }
+        } else if self
+            .popups_ref()
+            .iter()
+            .any(|p| p.is_open() && p.is_modal())
         {
-            self.last_click = None;
+            // A modal pop-up (picker, confirm) swallows every other mouse
+            // event while it is open
             return;
         }
 
@@ -986,11 +964,17 @@ impl App {
         };
         self.close_all_popups();
         match action {
-            // Destructive: ask first, the confirm pop-up runs the clear
-            MenuAction::Clear => self.confirm_popup.open(ConfirmAction::Clear),
-            MenuAction::Open => self.open_popup.open(sim.source_path.as_deref()),
-            MenuAction::Save => self.save_popup.open(sim.source_path.as_deref()),
-            MenuAction::Quit => self.should_quit = true,
+            // Destructive: ask first, the confirm pop-up runs the action
+            MenuAction::Clear => self.open_confirm_popup(ConfirmAction::Clear, sim),
+            MenuAction::Open => {
+                sim.stop_flag = true; // pause while the open pop-up is up
+                self.open_popup.open(sim.source_path.as_deref());
+            }
+            MenuAction::Save => {
+                sim.stop_flag = true; // pause while the save pop-up is up
+                self.save_popup.open(sim.source_path.as_deref());
+            }
+            MenuAction::Quit => self.open_confirm_popup(ConfirmAction::Quit, sim),
             MenuAction::RunStop => sim.stop_flag = !sim.stop_flag,
             MenuAction::Step => {
                 // Same as the F10 key: pause, then execute one instruction
@@ -1018,30 +1002,15 @@ impl App {
         }
     }
 
-    /// Whether any pop-up without clickable controls (or the inline comment
-    /// editor) is open. The settings and picker pop-ups are excluded: they
-    /// handle clicks themselves in `handle_mouse`.
-    fn any_simple_popup_open(&self) -> bool {
-        self.popups_ref()
-            .iter()
-            .any(|p| p.is_open() && !p.handles_own_clicks())
-    }
-
-    /// Close every open pop-up whose rectangle does not contain the given
-    /// screen cell: a click outside a pop-up closes it. The settings and
-    /// picker pop-ups are excluded — they have clickable controls and their
-    /// own click semantics in `handle_mouse`.
-    fn close_popups_outside(&mut self, column: u16, row: u16) {
-        for popup in self.popups_mut() {
-            if popup.is_open() && !popup.handles_own_clicks() && !popup.contains(column, row) {
-                popup.close();
-            }
-        }
+    /// Open the confirmation pop-up guarding a destructive action, pausing
+    /// the machine while it is up.
+    fn open_confirm_popup(&mut self, action: ConfirmAction, sim: &mut Simulator) {
+        sim.stop_flag = true;
+        self.confirm_popup.open(action);
     }
 
     /// Apply one settings control — the single control→effect map, used by
-    /// mouse clicks on the settings pop-up and by keyboard keys through
-    /// `control_for_key`.
+    /// the main keymap and by `PopupEvent::Setting` from the settings pop-up.
     fn perform_setting(&mut self, control: SettingControl, sim: &mut Simulator) {
         match control {
             SettingControl::SpeedDown => Self::speed_down(sim),
@@ -1053,14 +1022,6 @@ impl App {
                 self.bit_representation = (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
             }
             SettingControl::Theme => self.theme = self.theme.cycle(),
-        }
-    }
-
-    /// Handle a key press while the settings pop-up is open: the same
-    /// key→control map as the main keymap, applied through `perform_setting`.
-    fn handle_settings_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
-        if let Some(control) = control_for_key(key.code) {
-            self.perform_setting(control, sim);
         }
     }
 

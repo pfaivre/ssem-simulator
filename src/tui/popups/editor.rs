@@ -355,14 +355,15 @@ impl Popup for EditorPopup {
     fn frame_mut(&mut self) -> &mut PopupFrame {
         &mut self.frame
     }
-    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) {
+    fn handle_key(&mut self, key: KeyEvent, sim: &mut Simulator) -> PopupEvent {
         // E closes the pop-up (on a press, like every close key; Esc is
         // closed centrally by App::route_popup_key)
         if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('e' | 'E')) {
             self.close();
-            return;
+            return PopupEvent::None;
         }
         EditorPopup::handle_key(self, key, sim);
+        PopupEvent::None
     }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
         EditorPopup::draw(self, f, ctx);

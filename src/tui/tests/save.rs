@@ -289,6 +289,16 @@ pub(super) fn keys_go_to_the_popup_not_the_app_while_it_is_open() {
 }
 
 #[test]
+pub(super) fn opening_the_save_popup_pauses_a_running_machine() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    sim.stop_flag = false; // running
+
+    open_save_popup(&mut app, &mut sim);
+    assert!(sim.stop_flag, "the save pop-up pauses the machine");
+}
+
+#[test]
 pub(super) fn save_popup_without_open_file_starts_in_cwd_with_empty_name() {
     let mut app = App::new();
     let mut sim = Simulator::new(); // no source file
