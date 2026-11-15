@@ -1,5 +1,5 @@
 use crate::ssem::Opcode;
-use crate::ssem::history::{History, MachineState};
+use crate::ssem::history::{History, MAX_CAPACITY, MachineState};
 use crate::ssem::simulator::LastInstruction;
 
 fn state(ci: i32) -> MachineState {
@@ -13,9 +13,39 @@ fn state(ci: i32) -> MachineState {
 
 #[test]
 fn machine_state_size_is_stable() {
-    // The ring buffer pre-allocates capacity × size_of::<MachineState>();
-    // keep the documented memory budget in sync with the real size.
+    // MAX_CAPACITY's documented memory budget assumes this size; keep it
+    // in sync with the real one.
     assert_eq!(148, std::mem::size_of::<MachineState>());
+}
+
+#[test]
+fn new_allocates_nothing_and_grows_on_demand() {
+    // A history at the maximum capacity must not pre-allocate: memory
+    // follows the cycles actually recorded.
+    let mut h = History::new(MAX_CAPACITY);
+    assert_eq!(0, h.allocated());
+
+    h.record(0, state(0));
+    h.record(1, state(1));
+    h.record(2, state(2));
+    assert!(
+        h.allocated() <= 8,
+        "a handful of records stays tiny, got {}",
+        h.allocated()
+    );
+    assert_eq!(Some(&state(2)), h.get(2));
+    assert_eq!(None, h.get(3));
+}
+
+#[test]
+fn first_record_at_an_arbitrary_cycle_grows_past_the_slot() {
+    let mut h = History::new(8);
+    h.record(5, state(5));
+    assert_eq!(6, h.allocated(), "grown past the slot, once");
+    assert_eq!(1, h.len());
+    assert_eq!(5, h.start());
+    assert_eq!(5, h.head());
+    assert_eq!(Some(&state(5)), h.get(5));
 }
 
 #[test]

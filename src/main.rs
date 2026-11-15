@@ -38,7 +38,7 @@ struct Args {
 
     /// Number of past machine states kept for time-travel in the interactive
     /// interface (0 to disable)
-    #[arg(long, value_name = "NUM", default_value_t = 100_000)]
+    #[arg(long, value_name = "NUM", default_value_t = 1_000_000)]
     history_size: usize,
 
     /// Color theme of the interactive interface, overriding the one saved in
