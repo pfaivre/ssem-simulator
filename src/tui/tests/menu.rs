@@ -3,7 +3,7 @@
 
 use super::super::popups::{ConfirmButton, SettingControl};
 use super::*;
-use crate::ssem::simulator::Breakpoint;
+use crate::ssem::simulator::{Breakpoint, BreakpointCondition};
 
 /// Send a character key press.
 fn press(app: &mut App, sim: &mut Simulator, c: char) {
@@ -797,10 +797,8 @@ pub(super) fn status_bar_shows_left_and_right_groups_on_the_bottom_row() {
     let mut store = [0; 32];
     store[2] = Store::parse_word("SUB 10").unwrap();
     let mut snap = pointer_snapshot(2, store);
-    snap.breakpoints.push(Breakpoint::CiValue {
-        address: 5,
-        was_met: false,
-    });
+    snap.breakpoints
+        .push(Breakpoint::new(BreakpointCondition::CiValue { address: 5 }));
 
     let mut app = App::new();
     app.heatmap = HeatmapMode::Exec;

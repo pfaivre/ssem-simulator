@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use crate::ssem::Opcode;
 use crate::ssem::Store;
-use crate::ssem::simulator::{Breakpoint, Simulator};
+use crate::ssem::simulator::{Breakpoint, BreakpointCondition, Simulator};
 
 use super::app::{BIT_REPRESENTATIONS, control_for_key, keymap};
 use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH};

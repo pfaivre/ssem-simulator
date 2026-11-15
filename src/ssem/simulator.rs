@@ -27,70 +27,50 @@ impl fmt::Display for LastInstruction {
     }
 }
 
-/// A condition that pauses the machine when it becomes true.
+/// What a breakpoint watches: a store word's value, or the program counter.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BreakpointCondition {
+    /// Pause when the word at `address` holds `value`.
+    WordValue { address: usize, value: i32 },
+    /// Pause when the program counter holds `address`.
+    CiValue { address: i32 },
+}
+
+/// A condition that pauses the machine when it becomes true, plus its
+/// edge-detection state.
 ///
 /// Breakpoints trigger on a rising edge: the machine pauses when the
 /// condition turns true, and the breakpoint stays armed — it triggers
 /// again only after the condition has turned false at least once.
 #[derive(Debug, Clone)]
-pub enum Breakpoint {
-    /// Pause when the word at `address` holds `value`.
-    WordValue {
-        address: usize,
-        value: i32,
-        was_met: bool,
-    },
-    /// Pause when the program counter holds `address`.
-    CiValue { address: i32, was_met: bool },
+pub struct Breakpoint {
+    pub condition: BreakpointCondition,
+    was_met: bool,
 }
 
-/// Two breakpoints are equal when they describe the same condition,
+/// Two breakpoints are equal when they watch the same condition,
 /// regardless of their edge-detection state.
 impl PartialEq for Breakpoint {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                Breakpoint::WordValue {
-                    address: a1,
-                    value: v1,
-                    ..
-                },
-                Breakpoint::WordValue {
-                    address: a2,
-                    value: v2,
-                    ..
-                },
-            ) => a1 == a2 && v1 == v2,
-            (Breakpoint::CiValue { address: a1, .. }, Breakpoint::CiValue { address: a2, .. }) => {
-                a1 == a2
-            }
-            _ => false,
-        }
+        self.condition == other.condition
     }
 }
 
 impl Breakpoint {
-    fn was_met(&self) -> bool {
-        match self {
-            Breakpoint::WordValue { was_met, .. } => *was_met,
-            Breakpoint::CiValue { was_met, .. } => *was_met,
-        }
-    }
-
-    fn set_was_met(&mut self, value: bool) {
-        match self {
-            Breakpoint::WordValue { was_met, .. } => *was_met = value,
-            Breakpoint::CiValue { was_met, .. } => *was_met = value,
+    pub fn new(condition: BreakpointCondition) -> Self {
+        Breakpoint {
+            condition,
+            was_met: false,
         }
     }
 
     /// Human-readable description shown in the breakpoint pop-up.
     pub fn description(&self) -> String {
-        match self {
-            Breakpoint::WordValue { address, value, .. } => {
+        match &self.condition {
+            BreakpointCondition::WordValue { address, value } => {
                 ts!("breakpoint.word", address = address : {:02}, value = value)
             }
-            Breakpoint::CiValue { address, .. } => {
+            BreakpointCondition::CiValue { address } => {
                 ts!("breakpoint.ci", address = address : {:02})
             }
         }
@@ -426,12 +406,14 @@ impl Simulator {
 
         let mut should_stop = false;
         for bp in &mut self.breakpoints {
-            let met = match bp {
-                Breakpoint::WordValue { address, value, .. } => store_words[*address] == *value,
-                Breakpoint::CiValue { address, .. } => ci == *address,
+            let met = match &bp.condition {
+                BreakpointCondition::WordValue { address, value } => {
+                    store_words[*address] == *value
+                }
+                BreakpointCondition::CiValue { address } => ci == *address,
             };
-            let triggered = met && !bp.was_met();
-            bp.set_was_met(met);
+            let triggered = met && !bp.was_met;
+            bp.was_met = met;
             if triggered {
                 should_stop = true;
             }

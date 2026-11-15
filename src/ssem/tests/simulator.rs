@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 
 use super::{TempFile, instr};
 use crate::ssem::Opcode;
-use crate::ssem::simulator::{Breakpoint, LastInstruction, Simulator, TYPICAL_SPEED};
+use crate::ssem::simulator::{
+    Breakpoint, BreakpointCondition, LastInstruction, Simulator, TYPICAL_SPEED,
+};
 
 #[test]
 fn new_and_default() {
@@ -505,67 +507,54 @@ fn speed_defaults_to_typical() {
 
 #[test]
 fn breakpoint_description_word_value() {
-    let bp = Breakpoint::WordValue {
+    let bp = Breakpoint::new(BreakpointCondition::WordValue {
         address: 5,
         value: -42,
-        was_met: false,
-    };
+    });
     assert_eq!("Word 05 = -42", bp.description());
 }
 
 #[test]
 fn breakpoint_description_ci_value() {
-    let bp = Breakpoint::CiValue {
-        address: 10,
-        was_met: false,
-    };
+    let bp = Breakpoint::new(BreakpointCondition::CiValue { address: 10 });
     assert_eq!("CI = 10", bp.description());
 }
 
 #[test]
 fn breakpoint_equality_ignores_was_met() {
-    let bp1 = Breakpoint::WordValue {
+    let bp = Breakpoint::new(BreakpointCondition::WordValue {
         address: 5,
         value: 42,
-        was_met: false,
-    };
-    let bp2 = Breakpoint::WordValue {
-        address: 5,
-        value: 42,
-        was_met: true,
-    };
-    assert_eq!(bp1, bp2);
+    });
 
-    let bp3 = Breakpoint::WordValue {
+    // Firing the breakpoint flips its internal edge state, but equality
+    // compares the condition only
+    let mut sim = Simulator::new();
+    sim.store.words[5] = 42;
+    sim.breakpoints.push(bp.clone());
+    sim.check_breakpoints();
+    assert_eq!(bp, sim.breakpoints[0]);
+
+    let other_value = Breakpoint::new(BreakpointCondition::WordValue {
         address: 5,
         value: 43,
-        was_met: false,
-    };
-    assert_ne!(bp1, bp3);
+    });
+    assert_ne!(bp, other_value);
 
-    let ci1 = Breakpoint::CiValue {
-        address: 3,
-        was_met: false,
-    };
-    let ci2 = Breakpoint::CiValue {
-        address: 3,
-        was_met: true,
-    };
-    assert_eq!(ci1, ci2);
-
-    // Different kinds are never equal
-    assert_ne!(bp1, ci1);
+    // Different conditions are never equal
+    let ci = Breakpoint::new(BreakpointCondition::CiValue { address: 3 });
+    assert_ne!(bp, ci);
 }
 
 #[test]
 fn check_breakpoints_word_value_triggers_on_match() {
     let mut sim = Simulator::new();
     sim.store.words[5] = 42;
-    sim.breakpoints.push(Breakpoint::WordValue {
-        address: 5,
-        value: 42,
-        was_met: false,
-    });
+    sim.breakpoints
+        .push(Breakpoint::new(BreakpointCondition::WordValue {
+            address: 5,
+            value: 42,
+        }));
 
     sim.check_breakpoints();
     assert!(sim.stop_flag, "should stop when word matches");
@@ -575,11 +564,11 @@ fn check_breakpoints_word_value_triggers_on_match() {
 fn check_breakpoints_word_value_does_not_trigger_on_mismatch() {
     let mut sim = Simulator::new();
     sim.store.words[5] = 10;
-    sim.breakpoints.push(Breakpoint::WordValue {
-        address: 5,
-        value: 42,
-        was_met: false,
-    });
+    sim.breakpoints
+        .push(Breakpoint::new(BreakpointCondition::WordValue {
+            address: 5,
+            value: 42,
+        }));
 
     sim.check_breakpoints();
     assert!(!sim.stop_flag, "should not stop when word does not match");
@@ -589,10 +578,8 @@ fn check_breakpoints_word_value_does_not_trigger_on_mismatch() {
 fn check_breakpoints_ci_value_triggers_on_match() {
     let mut sim = Simulator::new();
     sim.ci = 7;
-    sim.breakpoints.push(Breakpoint::CiValue {
-        address: 7,
-        was_met: false,
-    });
+    sim.breakpoints
+        .push(Breakpoint::new(BreakpointCondition::CiValue { address: 7 }));
 
     sim.check_breakpoints();
     assert!(sim.stop_flag, "should stop when CI matches");
@@ -602,11 +589,11 @@ fn check_breakpoints_ci_value_triggers_on_match() {
 fn check_breakpoints_edge_triggered() {
     let mut sim = Simulator::new();
     sim.store.words[5] = 42;
-    sim.breakpoints.push(Breakpoint::WordValue {
-        address: 5,
-        value: 42,
-        was_met: false,
-    });
+    sim.breakpoints
+        .push(Breakpoint::new(BreakpointCondition::WordValue {
+            address: 5,
+            value: 42,
+        }));
 
     // First check: condition is met, rising edge -> stop
     sim.check_breakpoints();
@@ -644,11 +631,11 @@ fn run_stops_at_breakpoint() {
     // Line 2: STP
     sim.store.words[2] = instr(Opcode::STP, 0);
     // Breakpoint: word 5 becomes 0 (which it already is, so it triggers on first check)
-    sim.breakpoints.push(Breakpoint::WordValue {
-        address: 5,
-        value: 0,
-        was_met: false,
-    });
+    sim.breakpoints
+        .push(Breakpoint::new(BreakpointCondition::WordValue {
+            address: 5,
+            value: 0,
+        }));
 
     let cycles = sim.run(100);
     // The breakpoint on word 5 = 0 triggers after the first cycle (STO 5 writes 0)
@@ -828,10 +815,8 @@ fn clear_wipes_store_heatmap_and_history() {
     sim.enable_history(100);
     sim.run(3); // LDN 6, SUB 7, STO 8
     std::sync::Arc::make_mut(&mut sim.store.comments)[6] = Some("operand".into());
-    sim.breakpoints.push(Breakpoint::CiValue {
-        address: 2,
-        was_met: false,
-    });
+    sim.breakpoints
+        .push(Breakpoint::new(BreakpointCondition::CiValue { address: 2 }));
     assert!(sim.exec_counts.iter().any(|&c| c > 0));
     assert!(sim.read_counts.iter().any(|&c| c > 0));
     assert!(sim.write_counts.iter().any(|&c| c > 0));
@@ -907,10 +892,8 @@ fn load_file_replaces_the_state_and_keeps_the_history() {
     let mut sim = history_test_program();
     sim.enable_history(100);
     sim.run(3);
-    sim.breakpoints.push(Breakpoint::CiValue {
-        address: 2,
-        was_met: false,
-    });
+    sim.breakpoints
+        .push(Breakpoint::new(BreakpointCondition::CiValue { address: 2 }));
     assert_eq!(3, sim.cycle_count);
 
     sim.load_file(Path::new("samples/factorct.asm")).unwrap();
