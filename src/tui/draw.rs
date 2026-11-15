@@ -350,9 +350,12 @@ impl App {
             } else {
                 Cow::Borrowed(label.as_str())
             };
-            // No brackets: the button is the label padded with one cell
-            // on each side in the block color
-            let text = format!(" {label} ");
+            // No brackets: the button is its icon (if any) and label padded
+            // with one cell on each side in the block color
+            let text = match action.icon(snap.stop_flag) {
+                Some(icon) => format!(" {icon} {label} "),
+                None => format!(" {label} "),
+            };
             let is_active = matches!(action, MenuAction::Settings if self.settings_popup.is_open())
                 || matches!(action, MenuAction::Help if self.help_popup.is_open())
                 || matches!(action, MenuAction::Clear if confirm_action == Some(ConfirmAction::Clear))

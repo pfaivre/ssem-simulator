@@ -76,6 +76,20 @@ pub(super) enum MenuAction {
     Help,
 }
 
+impl MenuAction {
+    /// The icon drawn in front of the button's label, if any. Icons are
+    /// symbols, not translated text; Run/Stop's icon follows the machine
+    /// state (play when stopped, stop when running).
+    pub(super) fn icon(self, stop_flag: bool) -> Option<&'static str> {
+        match self {
+            MenuAction::RunStop if stop_flag => Some("▸"),
+            MenuAction::RunStop => Some("■"),
+            MenuAction::Step => Some("»"),
+            _ => None,
+        }
+    }
+}
+
 /// The menu bar items (the top row), with localized labels.
 /// The locale is fixed at startup, so the table is built once.
 static MENU_ITEMS: LazyLock<Vec<(String, MenuAction)>> = LazyLock::new(|| {
