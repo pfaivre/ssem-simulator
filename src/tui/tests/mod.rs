@@ -13,6 +13,7 @@ mod popups;
 mod render;
 mod save;
 mod timeline;
+mod welcome;
 
 use super::app::{App, BIT_REPRESENTATIONS, MenuAction};
 use super::draw::{ARROW_EXTRA_WIDTH, flow_gutter_width};
@@ -65,6 +66,7 @@ fn snapshot_with_history(cycle_count: u64) -> Snapshot {
         history_start: 0,
         history_head: 99,
         history_len: 100,
+        source_file: None,
     }
 }
 

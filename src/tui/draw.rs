@@ -233,6 +233,12 @@ impl App {
                 // Anchor the picker just right of the store text (past the
                 // heatmap bars), next to the mnemonic/data fields being edited
                 picker_anchor_col: store_view_width(heatmap) as u16,
+                timeline_area: self.timeline_area,
+                run_stop_button: self
+                    .menu_items
+                    .iter()
+                    .find(|(_, action)| matches!(action, MenuAction::RunStop))
+                    .map(|(rect, _)| *rect),
             };
             for popup in self.popups_mut() {
                 if popup.is_open() {

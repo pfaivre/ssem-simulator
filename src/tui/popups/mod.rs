@@ -14,7 +14,9 @@ use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, BreakpointCondition, Simulator};
 
 use super::app::{BIT_REPRESENTATIONS, control_for_key, keymap};
-use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH};
+use super::layout::{
+    CHROME_HEIGHT, FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, timeline_bar_geometry,
+};
 use super::palette::{Palette, Theme};
 use super::snapshot::Snapshot;
 
@@ -177,6 +179,12 @@ pub(super) struct PopupDrawCtx<'a> {
     pub settings_view: SettingsView,
     /// Screen column just right of the store text, where the picker anchors.
     pub picker_anchor_col: u16,
+    /// Screen area of the history timeline bar (from the last draw), so the
+    /// welcome tour can point at it.
+    pub timeline_area: Rect,
+    /// Screen rect of the Run/Stop menu button (from the last menu-bar
+    /// draw), so the welcome tour can point at it.
+    pub run_stop_button: Option<Rect>,
 }
 
 /// What a pop-up did in response to an input event, for `App` to apply.
@@ -267,6 +275,7 @@ mod field;
 mod help;
 mod picker;
 mod settings;
+mod welcome;
 
 pub use breakpoint::BreakpointPopup;
 pub use comment::CommentEditor;
@@ -276,6 +285,7 @@ pub use field::{FieldKind, FieldPopup};
 pub use help::HelpPopup;
 pub use picker::PickerPopup;
 pub use settings::{SettingControl, SettingsPopup, SettingsView};
+pub use welcome::WelcomePopup;
 
 // Reached into directly by the shared test module.
 #[cfg(test)]

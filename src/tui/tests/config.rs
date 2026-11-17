@@ -36,6 +36,7 @@ pub(super) fn from_parts_restores_the_saved_modes() {
         comments: false,
         bit_representation: 4,
         language: Language::Fr,
+        welcome_seen: true,
     };
     let app = App::from_parts(config, None, None);
     assert_eq!(Theme::Monokai, app.theme);
@@ -43,6 +44,7 @@ pub(super) fn from_parts_restores_the_saved_modes() {
     assert_eq!(HeatmapMode::Exec, app.heatmap);
     assert!(!app.show_comments);
     assert_eq!(4, app.bit_representation);
+    assert!(app.welcome_seen);
 }
 
 #[test]

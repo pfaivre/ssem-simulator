@@ -22,6 +22,7 @@ use super::palette::{Palette, Theme};
 use super::popups::{
     BreakpointPopup, CommentEditor, ConfirmAction, ConfirmPopup, EditorPopup, FieldKind,
     FieldPopup, HelpPopup, PickerPopup, Popup, PopupEvent, SettingControl, SettingsPopup,
+    WelcomePopup,
 };
 use crate::i18n::Language;
 use crate::ssem::history::History;
@@ -176,6 +177,8 @@ pub(super) struct App {
     pub(super) last_cycles: u64,
 
     pub(super) help_popup: HelpPopup,
+    /// The first-run welcome pop-up (shown once, when `welcome_seen` is false).
+    pub(super) welcome_popup: WelcomePopup,
     pub(super) breakpoint_popup: BreakpointPopup,
     pub(super) editor_popup: EditorPopup,
     /// The save pop-up, opened from the menu bar (or the S key).
@@ -225,6 +228,10 @@ pub(super) struct App {
     /// the config file, or the environment); this is that startup language
     /// without a `--lang` override, saved so the choice survives restarts.
     pub(super) language: Language,
+
+    /// Whether the first-run welcome pop-up was already shown, persisted in
+    /// the config file so it is displayed only once.
+    pub(super) welcome_seen: bool,
 
     /// Where to save the view modes when the application closes
     /// (None in tests: persistence disabled).
@@ -284,6 +291,7 @@ impl App {
             last_refresh_time: now,
             last_cycles: 0,
             help_popup: HelpPopup::new(),
+            welcome_popup: WelcomePopup::new(),
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
             save_popup: FieldPopup::new(FieldKind::Save),
@@ -300,6 +308,7 @@ impl App {
             show_comments: config.comments,
             theme: theme_override.unwrap_or(config.theme),
             language: config.language,
+            welcome_seen: config.welcome_seen,
             config_path,
             config_error: None,
             last_mode_key: None,
@@ -325,6 +334,7 @@ impl App {
             comments: self.show_comments,
             bit_representation: self.bit_representation,
             language: self.language,
+            welcome_seen: self.welcome_seen,
         };
         if let Err(e) = config.save(path) {
             self.config_error = Some(ts!(
@@ -343,9 +353,10 @@ impl App {
     /// All pop-ups in one fixed order. This is the single list of pop-ups:
     /// every key, mouse, close and draw site iterates it, so adding a pop-up
     /// means adding one field here and one entry in this array.
-    pub(super) fn popups_mut(&mut self) -> [&mut dyn Popup; 9] {
+    pub(super) fn popups_mut(&mut self) -> [&mut dyn Popup; 10] {
         [
             &mut self.help_popup,
+            &mut self.welcome_popup,
             &mut self.breakpoint_popup,
             &mut self.editor_popup,
             &mut self.save_popup,
@@ -367,9 +378,10 @@ impl App {
     }
 
     /// Shared-borrow counterpart of `popups_mut`.
-    fn popups_ref(&self) -> [&dyn Popup; 9] {
+    fn popups_ref(&self) -> [&dyn Popup; 10] {
         [
             &self.help_popup,
+            &self.welcome_popup,
             &self.breakpoint_popup,
             &self.editor_popup,
             &self.save_popup,
@@ -379,6 +391,17 @@ impl App {
             &self.comment_editor,
             &self.picker,
         ]
+    }
+
+    /// Open the welcome pop-up on the first run (no `welcome_seen` in the
+    /// config file yet) and mark it as seen, so it is shown only once. Called
+    /// by the runner at startup, not by `from_parts`, so tests (which build
+    /// the app through `from_parts`) never start with a pop-up open.
+    pub(super) fn show_welcome_on_first_run(&mut self) {
+        if !self.welcome_seen {
+            self.welcome_seen = true;
+            self.welcome_popup.open();
+        }
     }
 
     /// Update the smoothed speed display value from the latest cycle count.
