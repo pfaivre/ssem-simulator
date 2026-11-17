@@ -264,6 +264,8 @@ fn run_app(
     // UI thread (main thread)
     let (config, config_path) = startup_config(store, language);
     let mut app = App::from_parts(config, theme, config_path);
+    // First run (no welcome_seen in the config yet): greet the user
+    app.show_welcome_on_first_run();
 
     loop {
         // Handle input (non-blocking with a short timeout)

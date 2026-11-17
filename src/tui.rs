@@ -15,8 +15,9 @@
 //!
 //! The screen is four stacked areas — menu bar, main body (CI, accumulator,
 //! store words, with an optional heatmap/flow gutter and comment column),
-//! history scrub bar, status bar — with pop-ups (help, breakpoints, word
-//! editor, save, settings, inline comment editor, value picker) drawn on top.
+//! history scrub bar, status bar — with pop-ups (first-run welcome, help,
+//! breakpoints, word editor, save, settings, inline comment editor, value
+//! picker) drawn on top.
 //!
 //! # Working in this module
 //!

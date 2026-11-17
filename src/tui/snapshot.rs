@@ -32,6 +32,9 @@ pub(super) struct Snapshot {
     pub(super) history_start: u64,
     pub(super) history_head: u64,
     pub(super) history_len: u64,
+    /// The file the machine state was loaded from, if any (shown by the
+    /// first-run welcome pop-up).
+    pub(super) source_file: Option<String>,
 }
 
 impl Snapshot {
@@ -57,6 +60,7 @@ impl Snapshot {
             history_start,
             history_head,
             history_len,
+            source_file: sim.source_path.as_ref().map(|p| p.display().to_string()),
         }
     }
 }
