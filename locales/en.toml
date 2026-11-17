@@ -221,7 +221,7 @@ data_title = " Data [%{address}] "
 footer = "Click or ENTER apply · ESC close"
 
 [popup.welcome]
-title = " Welcome to ssem-simulator v%{version} "
+title = " Welcome to the SSEM simulator v%{version} "
 about = "The SSEM (\"Manchester Baby\", 1948) was the first stored-program computer:"
 about2 = "32 words of 32 bits in the store, one accumulator A, one instruction pointer CI."
 loaded = "Program loaded: %{file}"

@@ -14,9 +14,7 @@ use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, BreakpointCondition, Simulator};
 
 use super::app::{BIT_REPRESENTATIONS, control_for_key, keymap};
-use super::layout::{
-    CHROME_HEIGHT, FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, timeline_bar_geometry,
-};
+use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, timeline_bar_geometry};
 use super::palette::{Palette, Theme};
 use super::snapshot::Snapshot;
 
@@ -179,6 +177,8 @@ pub(super) struct PopupDrawCtx<'a> {
     pub settings_view: SettingsView,
     /// Screen column just right of the store text, where the picker anchors.
     pub picker_anchor_col: u16,
+    /// Screen area of the main body (the store view), from the last draw.
+    pub body_area: Rect,
     /// Screen area of the history timeline bar (from the last draw), so the
     /// welcome tour can point at it.
     pub timeline_area: Rect,

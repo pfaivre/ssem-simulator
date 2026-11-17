@@ -134,13 +134,14 @@ pub(super) fn click_outside_the_welcome_popup_closes_it() {
     let mut app = App::new();
     let mut sim = Simulator::new();
     app.show_welcome_on_first_run();
-    let buffer = render(&mut app, &snapshot_with_history(0), 100, 40);
+    // The render is needed only for its side effect: recording the pop-up's
+    // last-drawn rect for the hit-test below
+    let _ = render(&mut app, &snapshot_with_history(0), 100, 40);
     // A cell outside the pop-up's last-drawn rect
     let (col, row) = (0..100u16)
         .flat_map(|c| (1..40u16).map(move |r| (c, r)))
         .find(|&(c, r)| !app.welcome_popup.contains(c, r))
         .expect("the pop-up does not cover the whole screen");
-    let _ = buffer;
     app.handle_mouse(
         MouseEvent {
             column: col,
@@ -211,14 +212,16 @@ pub(super) fn welcome_tour_presents_each_element_with_an_arrow() {
         text.contains('\u{25b2}'),
         "the store step points up: {text}"
     );
+    let body = app.body_area;
+    let side_row = body.y + 4;
     assert_eq!(
         "\u{2502}",
-        buffer[(0, 5)].symbol(),
+        buffer[(body.x, side_row)].symbol(),
         "side bar on the body's left edge"
     );
     assert_eq!(
         "\u{2502}",
-        buffer[(99, 5)].symbol(),
+        buffer[(body.right() - 1, side_row)].symbol(),
         "side bar on the body's right edge"
     );
 
@@ -247,10 +250,7 @@ pub(super) fn welcome_tour_presents_each_element_with_an_arrow() {
     assert!(text.contains("Run the machine"), "{text}");
     assert!(text.contains("4/4"), "{text}");
     let run_button = app
-        .menu_items
-        .iter()
-        .find(|(_, action)| matches!(action, MenuAction::RunStop))
-        .map(|(rect, _)| *rect)
+        .menu_item_rect(MenuAction::RunStop)
         .expect("the menu bar records the Run/Stop button");
     let button_center = run_button.x + run_button.width / 2;
     assert!(
@@ -264,6 +264,31 @@ pub(super) fn welcome_tour_presents_each_element_with_an_arrow() {
         buffer[(button_center, 1)].symbol(),
         "the arrow on the pop-up's top border points at the button"
     );
+}
+
+#[test]
+pub(super) fn welcome_tour_renders_at_degenerate_terminal_sizes() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    let snap = snapshot_with_history(0);
+    // No minimum terminal size: every step must render without panicking,
+    // even on a 0-cell or 1-2-column screen (the arrow is simply dropped
+    // when the pop-up is too small to carry one)
+    for &(w, h) in &[
+        (0u16, 0u16),
+        (1, 10),
+        (2, 40),
+        (3, 5),
+        (10, 3),
+        (10, 0),
+        (100, 40),
+    ] {
+        app.welcome_popup.open();
+        for _ in 0..4 {
+            let _ = render(&mut app, &snap, w, h);
+            press(&mut app, &mut sim, KeyCode::Right);
+        }
+    }
 }
 
 #[test]

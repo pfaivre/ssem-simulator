@@ -43,17 +43,6 @@ pub struct WelcomePopup {
     step: usize,
 }
 
-/// The main body rect (the store view): between the menu bar and the
-/// timeline bar.
-fn body_rect(area: Rect) -> Rect {
-    Rect::new(
-        area.x,
-        area.y + 1,
-        area.width,
-        area.height.saturating_sub(CHROME_HEIGHT),
-    )
-}
-
 /// A pop-up rect of the given size with (hint_x, hint_y) as its desired
 /// top-left cell, clamped into `area` (and shrunk to fit it).
 fn placed(width: u16, height: u16, hint_x: i32, hint_y: i32, area: Rect) -> Rect {
@@ -70,10 +59,23 @@ fn placed(width: u16, height: u16, hint_x: i32, hint_y: i32, area: Rect) -> Rect
     Rect::new(x, y, width, height)
 }
 
-/// Clamp `x` into the pop-up's border row/column, keeping one cell away from
-/// the corners so the arrow replaces a border segment, not a corner.
-fn arrow_cell(x: i32, rect: Rect) -> u16 {
-    x.clamp(rect.x as i32 + 1, rect.right().saturating_sub(2) as i32) as u16
+/// The arrow for a pop-up rect at border row `y`, or None when the rect is
+/// too small to carry one (narrower than 3 cells or zero rows — a degenerate
+/// terminal size): there is then no border segment between the corners to
+/// replace, and no cell to draw on.
+fn arrow_for(rect: Rect, x: i32, y: u16, glyph: &'static str) -> Option<Arrow> {
+    if rect.width < 3 || rect.height < 1 {
+        return None;
+    }
+    // Keep one cell away from the corners so the arrow replaces a border
+    // segment, not a corner. Order-safe for any rect width.
+    let lo = rect.x as i32 + 1;
+    let hi = (rect.right().saturating_sub(2) as i32).max(lo);
+    Some(Arrow {
+        x: x.clamp(lo, hi) as u16,
+        y,
+        glyph,
+    })
 }
 
 impl WelcomePopup {
@@ -93,6 +95,11 @@ impl WelcomePopup {
     #[cfg(test)]
     pub fn step(&self) -> usize {
         self.step
+    }
+
+    /// The current tour step, clamped to the tour's range.
+    fn current_step(&self) -> TourStep {
+        TOUR_STEPS[self.step.min(TOUR_STEPS.len() - 1)]
     }
 
     /// One quick-start row: the key in a highlighted chip, then its action.
@@ -122,13 +129,12 @@ impl WelcomePopup {
     /// present, with an arrow on the border facing it.
     fn placement(&self, width: u16, height: u16, ctx: &PopupDrawCtx) -> (Rect, Option<Arrow>) {
         let area = ctx.area;
-        let step = TOUR_STEPS[self.step.min(TOUR_STEPS.len() - 1)];
         let center_x = area.x as i32 + area.width as i32 / 2;
-        match step {
+        match self.current_step() {
             TourStep::Intro => (popup_rect(height, width, area), None),
             TourStep::Store => {
                 // At the bottom of the store view, arrow up into the store
-                let body = body_rect(area);
+                let body = ctx.body_area;
                 let rect = placed(
                     width,
                     height,
@@ -136,12 +142,8 @@ impl WelcomePopup {
                     body.bottom() as i32 - height as i32,
                     area,
                 );
-                let arrow = Arrow {
-                    x: arrow_cell(center_x, rect),
-                    y: rect.y,
-                    glyph: "\u{25b2}", // ▲
-                };
-                (rect, Some(arrow))
+                let arrow = arrow_for(rect, center_x, rect.y, "\u{25b2}"); // ▲
+                (rect, arrow)
             }
             TourStep::History => {
                 // Just above the timeline bar, arrow down at the bar
@@ -156,12 +158,13 @@ impl WelcomePopup {
                     timeline.y as i32 - height as i32,
                     area,
                 );
-                let arrow = Arrow {
-                    x: arrow_cell(bar_center, rect),
-                    y: rect.bottom().saturating_sub(1),
-                    glyph: "\u{25bc}", // ▼
-                };
-                (rect, Some(arrow))
+                let arrow = arrow_for(
+                    rect,
+                    bar_center,
+                    rect.bottom().saturating_sub(1),
+                    "\u{25bc}",
+                ); // ▼
+                (rect, arrow)
             }
             TourStep::Run => {
                 // Just below the Run/Stop button, arrow up at it
@@ -175,12 +178,8 @@ impl WelcomePopup {
                 };
                 let hint_y = button.map_or(1, |b| b.bottom()) as i32;
                 let rect = placed(width, height, hint_x, hint_y, area);
-                let arrow = Arrow {
-                    x: arrow_cell(arrow_x, rect),
-                    y: rect.y,
-                    glyph: "\u{25b2}", // ▲
-                };
-                (rect, Some(arrow))
+                let arrow = arrow_for(rect, arrow_x, rect.y, "\u{25b2}"); // ▲
+                (rect, arrow)
             }
         }
     }
@@ -190,8 +189,7 @@ impl WelcomePopup {
     /// the Run/Stop button. The intro highlights nothing.
     fn draw_highlight(&self, f: &mut Frame, ctx: &PopupDrawCtx) {
         let palette = ctx.palette;
-        let step = TOUR_STEPS[self.step.min(TOUR_STEPS.len() - 1)];
-        match step {
+        match self.current_step() {
             TourStep::Intro => {}
             TourStep::Store => {
                 // Side bars only: a full border would overwrite the CI row
@@ -199,7 +197,7 @@ impl WelcomePopup {
                 let block = Block::default()
                     .borders(Borders::LEFT | Borders::RIGHT)
                     .border_style(Style::default().fg(palette.highlight));
-                f.render_widget(block, body_rect(ctx.area));
+                f.render_widget(block, ctx.body_area);
             }
             TourStep::History => {
                 f.buffer_mut().set_style(

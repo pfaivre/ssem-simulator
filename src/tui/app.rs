@@ -255,6 +255,10 @@ pub(super) struct App {
     /// follows the cursor 1:1. None when not dragging.
     pub(super) scrollbar_grab: Option<i32>,
 
+    /// Screen area of the main body (the store view), for mouse hit-testing
+    /// and pop-up anchoring.
+    pub(super) body_area: Rect,
+
     /// Screen area of the timeline bar, for mouse hit-testing.
     pub(super) timeline_area: Rect,
 
@@ -315,6 +319,7 @@ impl App {
             mode_key_guard: MODE_KEY_REPEAT_GUARD,
             scrubbing: false,
             scrollbar_grab: None,
+            body_area: Rect::default(),
             timeline_area: Rect::default(),
             should_quit: false,
         }
@@ -993,6 +998,15 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// The screen rect of a menu-bar item, recorded by the last
+    /// `draw_menu_bar`.
+    pub(super) fn menu_item_rect(&self, action: MenuAction) -> Option<Rect> {
+        self.menu_items
+            .iter()
+            .find(|(_, a)| *a == action)
+            .map(|(rect, _)| *rect)
     }
 
     /// The menu action whose item contains the given screen cell, if any

@@ -209,6 +209,7 @@ impl App {
         ])
         .split(area);
 
+        self.body_area = chunks[1];
         self.timeline_area = chunks[2];
         self.draw_menu_bar(f, chunks[0], snap);
         self.draw_main_body(f, chunks[1], snap, heatmap, comment_width);
@@ -233,12 +234,9 @@ impl App {
                 // Anchor the picker just right of the store text (past the
                 // heatmap bars), next to the mnemonic/data fields being edited
                 picker_anchor_col: store_view_width(heatmap) as u16,
+                body_area: self.body_area,
                 timeline_area: self.timeline_area,
-                run_stop_button: self
-                    .menu_items
-                    .iter()
-                    .find(|(_, action)| matches!(action, MenuAction::RunStop))
-                    .map(|(rect, _)| *rect),
+                run_stop_button: self.menu_item_rect(MenuAction::RunStop),
             };
             for popup in self.popups_mut() {
                 if popup.is_open() {
