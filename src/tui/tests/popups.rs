@@ -4,6 +4,7 @@
 //! and when several pop-ups are open, each one the click lies outside of
 //! closes.
 
+use super::super::palette::blend;
 use super::*;
 
 /// Send a left-button press at (column, row).
@@ -405,5 +406,53 @@ pub(super) fn the_wheel_over_the_help_popup_scrolls_its_text() {
         scroll,
         app.help_popup.scroll(),
         "a wheel outside does not scroll the help text"
+    );
+}
+
+#[test]
+pub(super) fn an_open_popup_dims_the_app_behind_it() {
+    let mut app = plain_app();
+    let sim = Simulator::new();
+    let snap = Snapshot::from_sim(&sim);
+    let palette = app.palette();
+    // The same screen without the pop-up, to compare cell styles against
+    let plain = render(&mut app, &snap, 100, 40);
+
+    app.help_popup.open();
+    let buffer = render(&mut app, &snap, 100, 40);
+    // The chrome around the pop-up is dimmed: dim foreground, DIM
+    // modifier, and the bar background receded halfway toward the base bg.
+    // The corners are outside the centered pop-up at this terminal size
+    for (x, y) in [(0u16, 0u16), (99, 0), (0, 39), (99, 39)] {
+        let cell = &buffer[(x, y)];
+        assert!(
+            cell.modifier.contains(Modifier::DIM),
+            "cell ({x}, {y}) is dimmed"
+        );
+        assert_eq!(palette.dim, cell.fg, "cell ({x}, {y}) foreground");
+        assert_eq!(
+            blend(plain[(x, y)].bg, palette.bg, 1, 2),
+            cell.bg,
+            "cell ({x}, {y}) background recedes toward the base bg"
+        );
+    }
+    // The pop-up's own rect is cleared on top of the dimming
+    let (col, row) = cell_where(|c, r| app.help_popup.contains(c, r));
+    assert!(
+        !buffer[(col, row)].modifier.contains(Modifier::DIM),
+        "the pop-up itself is not dimmed"
+    );
+}
+
+#[test]
+pub(super) fn the_inline_comment_editor_does_not_dim_the_app() {
+    let mut app = plain_app();
+    let sim = sim_with_comments();
+    app.comment_editor.open_for(1, Some(" A = -a"));
+    let snap = Snapshot::from_sim(&sim);
+    let buffer = render(&mut app, &snap, 100, 40);
+    assert!(
+        !buffer[(0, 0)].modifier.contains(Modifier::DIM),
+        "the menu bar keeps full brightness while the inline editor is open"
     );
 }

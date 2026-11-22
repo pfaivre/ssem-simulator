@@ -17,7 +17,7 @@ use super::app::{BIT_REPRESENTATIONS, KeyRepeatGuard, control_for_key, keymap};
 use super::layout::{
     FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, timeline_bar_geometry, timeline_filled_len,
 };
-use super::palette::{Palette, Theme};
+use super::palette::{Palette, Theme, blend};
 use super::snapshot::Snapshot;
 
 /// The folder a source file lives in: its parent, or `.` for a bare file
@@ -182,6 +182,61 @@ pub(super) fn display_width(s: impl AsRef<str>) -> usize {
     s.as_ref().chars().count()
 }
 
+/// How an open pop-up dims the app behind it: the whole screen, or
+/// everything outside a spotlight rect that stays at full brightness.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Backdrop {
+    /// Dim the whole screen.
+    Full,
+    /// Dim everything outside this rect.
+    Spotlight(Rect),
+}
+
+/// Dim the app behind a pop-up over `area`, so the pop-up — which clears
+/// its own rect right after — stands out. With `Backdrop::Spotlight`, the
+/// rect is left at full brightness. Each dimmed cell's foreground goes to
+/// the dim color with the DIM modifier, and its background is blended
+/// halfway toward the base background, so the solid bars (menu, status)
+/// recede as well while keeping a hint of their block structure.
+pub(super) fn dim_background(f: &mut Frame, area: Rect, backdrop: Backdrop, palette: &Palette) {
+    let spotlight = match backdrop {
+        Backdrop::Full => None,
+        Backdrop::Spotlight(rect) => Some(rect),
+    };
+    let hole = spotlight
+        .map(|r| r.intersection(area))
+        .filter(|r| r.width > 0 && r.height > 0)
+        .unwrap_or(Rect::new(area.x, area.y, 0, 0));
+    // The up-to-four strips around the hole: above, below, left, right
+    let strips = [
+        Rect::new(area.x, area.y, area.width, hole.y.saturating_sub(area.y)),
+        Rect::new(
+            area.x,
+            hole.bottom(),
+            area.width,
+            area.bottom().saturating_sub(hole.bottom()),
+        ),
+        Rect::new(area.x, hole.y, hole.x.saturating_sub(area.x), hole.height),
+        Rect::new(
+            hole.right(),
+            hole.y,
+            area.right().saturating_sub(hole.right()),
+            hole.height,
+        ),
+    ];
+    let buf = f.buffer_mut();
+    for strip in strips {
+        for y in strip.y..strip.bottom() {
+            for x in strip.x..strip.right() {
+                let cell = &mut buf[(x, y)];
+                cell.fg = palette.dim;
+                cell.modifier.insert(Modifier::DIM);
+                cell.bg = blend(cell.bg, palette.bg, 1, 2);
+            }
+        }
+    }
+}
+
 /// The screen anchors the welcome tour points at: the main UI elements,
 /// recorded by the last draw. Built once per frame in `draw.rs`, after the
 /// menu bar is drawn, so `run_button` is always present.
@@ -261,6 +316,15 @@ pub(super) trait Popup {
     /// confirm pop-up, the open browser, and the welcome tour).
     fn is_modal(&self) -> bool {
         false
+    }
+    /// How the app behind this pop-up is dimmed while it is open. The draw
+    /// loop applies it just before the pop-up's `draw` (which clears the
+    /// pop-up's own rect on top of it). Overlay pop-ups dim the whole
+    /// screen by default; the inline comment editor, drawn by the main
+    /// body rather than as an overlay, opts out, and the welcome tour
+    /// spotlights the element its current step presents.
+    fn backdrop(&self, _ctx: &PopupDrawCtx) -> Option<Backdrop> {
+        Some(Backdrop::Full)
     }
     /// Whether view-mode keys (T/F/M/C/D) must not auto-repeat while this
     /// pop-up is open — a held key would otherwise cycle the modes. Only

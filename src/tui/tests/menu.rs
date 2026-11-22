@@ -1,6 +1,7 @@
 //! Tests for the menu bar (the top row), the settings pop-up it opens, and
 //! the status bar (the bottom row).
 
+use super::super::palette::blend;
 use super::super::popups::{ConfirmButton, SettingControl};
 use super::*;
 use crate::ssem::simulator::{Breakpoint, BreakpointCondition};
@@ -554,19 +555,23 @@ pub(super) fn confirm_popup_highlights_the_menu_item_of_its_action() {
     let snap = Snapshot::from_sim(&sim);
     let _ = render(&mut app, &snap, 100, 40);
 
-    // The Quit confirmation highlights the Quit item, not Clear
+    // The Quit confirmation highlights the Quit item, not Clear. While the
+    // confirm pop-up is open the menu bar is dimmed, so the highlighted
+    // item shows the hover color receded halfway toward the base background
+    let palette = app.palette();
+    let dimmed_hover = blend(palette.hover, palette.bg, 1, 2);
     let (qcol, qrow) = menu_item_cell(&app, MenuAction::Quit);
     click(&mut app, &mut sim, qcol, qrow);
     assert!(app.confirm_popup.is_open());
     let buffer = render(&mut app, &snap, 100, 40);
     assert_eq!(
-        app.palette().hover,
+        dimmed_hover,
         buffer[(qcol, qrow)].bg,
         "the Quit item must be highlighted"
     );
     let (ccol, crow) = menu_item_cell(&app, MenuAction::Clear);
     assert_ne!(
-        app.palette().hover,
+        dimmed_hover,
         buffer[(ccol, crow)].bg,
         "the Clear item must not be highlighted during a quit confirmation"
     );
@@ -578,13 +583,13 @@ pub(super) fn confirm_popup_highlights_the_menu_item_of_its_action() {
     assert!(app.confirm_popup.is_open());
     let buffer = render(&mut app, &snap, 100, 40);
     assert_eq!(
-        app.palette().hover,
+        dimmed_hover,
         buffer[(ccol, crow)].bg,
         "the Clear item must be highlighted"
     );
     let (qcol, qrow) = menu_item_cell(&app, MenuAction::Quit);
     assert_ne!(
-        app.palette().hover,
+        dimmed_hover,
         buffer[(qcol, qrow)].bg,
         "the Quit item must not be highlighted during a clear confirmation"
     );

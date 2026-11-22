@@ -65,47 +65,6 @@ fn placed(width: u16, height: u16, hint_x: i32, hint_y: i32, area: Rect) -> Rect
     Rect::new(x, y, width, height)
 }
 
-/// Dim everything in `area` outside `spotlight` (all of it when None), so
-/// the highlighted element — and the pop-up, which clears its own rect
-/// right after — stands out. Each cell's foreground goes to the dim color
-/// with the DIM modifier, and its background is blended halfway toward the
-/// base background, so the solid bars (menu, status) recede as well while
-/// keeping a hint of their block structure.
-fn dim_spotlight(f: &mut Frame, area: Rect, spotlight: Option<Rect>, palette: &Palette) {
-    let hole = spotlight
-        .map(|r| r.intersection(area))
-        .filter(|r| r.width > 0 && r.height > 0)
-        .unwrap_or(Rect::new(area.x, area.y, 0, 0));
-    // The up-to-four strips around the hole: above, below, left, right
-    let strips = [
-        Rect::new(area.x, area.y, area.width, hole.y.saturating_sub(area.y)),
-        Rect::new(
-            area.x,
-            hole.bottom(),
-            area.width,
-            area.bottom().saturating_sub(hole.bottom()),
-        ),
-        Rect::new(area.x, hole.y, hole.x.saturating_sub(area.x), hole.height),
-        Rect::new(
-            hole.right(),
-            hole.y,
-            area.right().saturating_sub(hole.right()),
-            hole.height,
-        ),
-    ];
-    let buf = f.buffer_mut();
-    for strip in strips {
-        for y in strip.y..strip.bottom() {
-            for x in strip.x..strip.right() {
-                let cell = &mut buf[(x, y)];
-                cell.fg = palette.dim;
-                cell.modifier.insert(Modifier::DIM);
-                cell.bg = blend(cell.bg, palette.bg, 1, 2);
-            }
-        }
-    }
-}
-
 /// Fill `rect` with the tour color (its text in the base background color),
 /// bold: the marker drawn on the element the current step presents.
 fn fill_highlight(f: &mut Frame, rect: Rect, palette: &Palette) {
@@ -281,22 +240,15 @@ impl WelcomePopup {
         }
     }
 
-    /// Highlight the element the current step presents: a spotlight dims
-    /// everything else on screen, then the element itself is marked in the
-    /// tour color — the one-row timeline bar glows, with its empty track in
-    /// a dimmer variant, and the Run/Stop button is filled. The store needs
-    /// no drawn marker: the spotlight alone frames it (a border would
-    /// overwrite the store's text), and the intro highlights nothing but
-    /// the pop-up itself (the whole screen is dimmed).
+    /// Highlight the element the current step presents in the tour color:
+    /// the one-row timeline bar glows, with its empty track in a dimmer
+    /// variant, and the Run/Stop button is filled. The store needs no
+    /// drawn marker: the spotlight alone frames it (a border would
+    /// overwrite the store's text), and the intro highlights nothing (the
+    /// whole screen is dimmed). The dimming itself is the pop-up's
+    /// `backdrop`, applied by the draw loop before this.
     fn draw_highlight(&self, f: &mut Frame, ctx: &PopupDrawCtx) {
         let palette = ctx.palette;
-        let spotlight = match self.current_step() {
-            TourStep::Intro => None,
-            TourStep::Store => Some(ctx.tour.body),
-            TourStep::History => Some(ctx.tour.timeline),
-            TourStep::Run => Some(ctx.tour.run_button),
-        };
-        dim_spotlight(f, ctx.area, spotlight, palette);
         match self.current_step() {
             TourStep::Intro | TourStep::Store => {}
             TourStep::History => highlight_timeline(f, ctx.tour.timeline, ctx.snap, palette),
@@ -431,6 +383,16 @@ impl Popup for WelcomePopup {
         // While the tour is open, the menu bar stays inert: a click anywhere
         // only advances or closes the tour, it never triggers the UI behind
         true
+    }
+    fn backdrop(&self, ctx: &PopupDrawCtx) -> Option<Backdrop> {
+        // The intro dims the whole screen; the other steps spotlight the
+        // element they present
+        Some(match self.current_step() {
+            TourStep::Intro => Backdrop::Full,
+            TourStep::Store => Backdrop::Spotlight(ctx.tour.body),
+            TourStep::History => Backdrop::Spotlight(ctx.tour.timeline),
+            TourStep::Run => Backdrop::Spotlight(ctx.tour.run_button),
+        })
     }
     fn handle_key(&mut self, key: KeyEvent, _sim: &mut Simulator) -> PopupEvent {
         // Enter/Space/Right advance the tour (closing it on the last step),
