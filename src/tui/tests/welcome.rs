@@ -421,8 +421,7 @@ pub(super) fn welcome_tour_history_track_uses_a_dim_highlight_variant() {
     let buffer = render(&mut app, &snap, 100, 40);
     let timeline = app.timeline_area;
     let (bar_x, bar_width) = timeline_bar_geometry(timeline, snap.history_start, snap.history_head);
-    let filled = ((snap.history_len * u64::from(bar_width) / snap.history_capacity) as usize)
-        .min(usize::from(bar_width));
+    let filled = timeline_filled_len(bar_width, snap.history_len, snap.history_capacity);
     assert!(
         filled > 0 && filled < usize::from(bar_width),
         "need both fill and track"

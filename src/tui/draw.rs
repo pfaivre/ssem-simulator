@@ -16,9 +16,10 @@ use super::graph::{GRAPH_EXTRA_WIDTH, GraphGutter};
 use super::layout::{
     A_ROW, CHROME_HEIGHT, CI_ROW, CONTENT_HEIGHT, FlowMode, HEATMAP_BAR_WIDTH, HeatmapMode,
     MAX_COMMENT_WIDTH, MIN_COMMENT_WIDTH, RW_BAR_WIDTH, STORE_ROW_OFFSET, STORE_TEXT_WIDTH,
-    comment_column_width, store_view_width, timeline_bar_geometry, timeline_marker_offset,
+    comment_column_width, store_view_width, timeline_bar_geometry, timeline_filled_len,
+    timeline_marker_offset,
 };
-use super::popups::{ConfirmAction, Popup, PopupDrawCtx, SettingsView};
+use super::popups::{ConfirmAction, Popup, PopupDrawCtx, SettingsView, TourAnchors};
 use super::snapshot::Snapshot;
 use crate::ssem::Store;
 
@@ -234,9 +235,15 @@ impl App {
                 // Anchor the picker just right of the store text (past the
                 // heatmap bars), next to the mnemonic/data fields being edited
                 picker_anchor_col: store_view_width(heatmap) as u16,
-                body_area: self.body_area,
-                timeline_area: self.timeline_area,
-                run_stop_button: self.menu_item_rect(MenuAction::RunStop),
+                // The anchors the welcome tour points at, recorded by the
+                // draws above (the menu bar, so the Run button is always here)
+                tour: TourAnchors {
+                    body: self.body_area,
+                    timeline: self.timeline_area,
+                    run_button: self
+                        .menu_item_rect(MenuAction::RunStop)
+                        .expect("the menu bar is drawn before the pop-ups"),
+                },
             };
             for popup in self.popups_mut() {
                 if popup.is_open() {
@@ -637,7 +644,7 @@ impl App {
         let (_, bar_width) = timeline_bar_geometry(area, snap.history_start, snap.history_head);
 
         // Filled portion = fraction of the capacity still retained
-        let filled = (snap.history_len * u64::from(bar_width) / snap.history_capacity) as usize;
+        let filled = timeline_filled_len(bar_width, snap.history_len, snap.history_capacity);
 
         // Marker at the current position (the tip, or the scrub position)
         let marker = timeline_marker_offset(
@@ -660,7 +667,6 @@ impl App {
             // clamped inverted.
             let bar_width = usize::from(bar_width);
             let marker = marker.unwrap_or(0).min(bar_width - 1);
-            let filled = filled.min(bar_width);
             let marker_style = Style::default()
                 .fg(palette.timeline_marker)
                 .add_modifier(Modifier::BOLD);

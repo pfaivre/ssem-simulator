@@ -154,7 +154,7 @@ pub(super) fn mode_keys_do_not_repeat_when_held() {
 pub(super) fn mode_keys_swallow_os_repeat_but_not_human_double_press() {
     let mut sim = Simulator::new();
     let mut app = App::from_parts(Config::default(), None, None);
-    app.mode_key_guard = Duration::from_millis(100);
+    app.mode_key_guard.set_interval(Duration::from_millis(100));
 
     app.handle_key(press(KeyCode::Char('m')), &mut sim);
     assert_eq!(HeatmapMode::Exec, app.heatmap);

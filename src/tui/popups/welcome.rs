@@ -1,7 +1,8 @@
 use super::*;
 use crate::tui::palette::blend;
 use rust_i18n::t;
-use std::time::{Duration, Instant};
+#[cfg(test)]
+use std::time::Duration;
 
 /// The steps of the first-run tour, in order: an intro, then one step per
 /// main element, each pointing at it on screen.
@@ -43,12 +44,9 @@ pub struct WelcomePopup {
     pub(super) frame: PopupFrame,
     /// The current tour step; reset to the intro when the pop-up opens.
     step: usize,
-    /// The last tour-navigation key press (key, time), to swallow OS
-    /// key-repeat on terminals that report it as plain presses.
-    last_nav_key: Option<(KeyCode, Instant)>,
-    /// Minimum interval between two presses of the same navigation key for
-    /// the second to count (zeroed in tests).
-    nav_key_guard: Duration,
+    /// Swallows OS key-repeat on the tour's navigation keys (its interval
+    /// is zeroed in tests).
+    nav_key_guard: KeyRepeatGuard,
 }
 
 /// A pop-up rect of the given size with (hint_x, hint_y) as its desired
@@ -131,9 +129,7 @@ fn highlight_timeline(f: &mut Frame, area: Rect, snap: &Snapshot, palette: &Pale
     if snap.history_capacity == 0 || bar_width == 0 {
         return;
     }
-    // Same filled-fraction computation as `draw_timeline`
-    let filled = ((snap.history_len * u64::from(bar_width) / snap.history_capacity) as usize)
-        .min(usize::from(bar_width));
+    let filled = timeline_filled_len(bar_width, snap.history_len, snap.history_capacity);
     let dim_highlight = blend(palette.highlight, palette.bg, 1, 2);
     let buf = f.buffer_mut();
     for y in area.y..area.bottom() {
@@ -167,15 +163,14 @@ impl WelcomePopup {
         WelcomePopup {
             frame: PopupFrame::new(),
             step: 0,
-            last_nav_key: None,
-            nav_key_guard: KEY_REPEAT_GUARD,
+            nav_key_guard: KeyRepeatGuard::default(),
         }
     }
 
     pub fn open(&mut self) {
         self.frame.open = true;
         self.step = 0;
-        self.last_nav_key = None;
+        self.nav_key_guard.reset();
     }
 
     /// The current tour step (0 = intro).
@@ -188,7 +183,7 @@ impl WelcomePopup {
     /// succession on purpose and zero it).
     #[cfg(test)]
     pub fn set_nav_key_guard(&mut self, guard: Duration) {
-        self.nav_key_guard = guard;
+        self.nav_key_guard.set_interval(guard);
     }
 
     /// Advance the tour to the next step, closing it on the last step.
@@ -198,20 +193,6 @@ impl WelcomePopup {
         } else {
             self.step += 1;
         }
-    }
-
-    /// Whether a tour-navigation key press should be acted on: false when
-    /// it is an OS key-repeat arriving less than the guard after the
-    /// previous press of the same key — the same rule as the view-mode
-    /// keys. The last-press time is updated on every event, so a whole
-    /// burst of repeats is swallowed.
-    fn nav_key_accepted(&mut self, code: KeyCode) -> bool {
-        let now = Instant::now();
-        let accepted = self
-            .last_nav_key
-            .is_none_or(|(last, at)| last != code || now.duration_since(at) >= self.nav_key_guard);
-        self.last_nav_key = Some((code, now));
-        accepted
     }
 
     /// The current tour step, clamped to the tour's range.
@@ -251,7 +232,7 @@ impl WelcomePopup {
             TourStep::Intro => (popup_rect(height, width, area), None),
             TourStep::Store => {
                 // At the bottom of the store view, arrow up into the store
-                let body = ctx.body_area;
+                let body = ctx.tour.body;
                 let rect = placed(
                     width,
                     height,
@@ -264,7 +245,7 @@ impl WelcomePopup {
             }
             TourStep::History => {
                 // Just above the timeline bar, arrow down at the bar
-                let timeline = ctx.timeline_area;
+                let timeline = ctx.tour.timeline;
                 let (bar_x, bar_width) =
                     timeline_bar_geometry(timeline, ctx.snap.history_start, ctx.snap.history_head);
                 let bar_center = bar_x as i32 + bar_width as i32 / 2;
@@ -285,17 +266,16 @@ impl WelcomePopup {
             }
             TourStep::Run => {
                 // Just below the Run/Stop button, arrow up at it
-                let button = ctx.run_stop_button;
-                let (hint_x, arrow_x) = match button {
-                    Some(b) => (
-                        b.x as i32 + b.width as i32 / 2 - width as i32 / 2,
-                        b.x as i32 + b.width as i32 / 2,
-                    ),
-                    None => (center_x - width as i32 / 2, center_x),
-                };
-                let hint_y = button.map_or(1, |b| b.bottom()) as i32;
-                let rect = placed(width, height, hint_x, hint_y, area);
-                let arrow = arrow_for(rect, arrow_x, rect.y, "\u{25b2}"); // ▲
+                let button = ctx.tour.run_button;
+                let button_center = button.x as i32 + button.width as i32 / 2;
+                let rect = placed(
+                    width,
+                    height,
+                    button_center - width as i32 / 2,
+                    button.bottom() as i32,
+                    area,
+                );
+                let arrow = arrow_for(rect, button_center, rect.y, "\u{25b2}"); // ▲
                 (rect, arrow)
             }
         }
@@ -312,19 +292,15 @@ impl WelcomePopup {
         let palette = ctx.palette;
         let spotlight = match self.current_step() {
             TourStep::Intro => None,
-            TourStep::Store => Some(ctx.body_area),
-            TourStep::History => Some(ctx.timeline_area),
-            TourStep::Run => ctx.run_stop_button,
+            TourStep::Store => Some(ctx.tour.body),
+            TourStep::History => Some(ctx.tour.timeline),
+            TourStep::Run => Some(ctx.tour.run_button),
         };
         dim_spotlight(f, ctx.area, spotlight, palette);
         match self.current_step() {
             TourStep::Intro | TourStep::Store => {}
-            TourStep::History => highlight_timeline(f, ctx.timeline_area, ctx.snap, palette),
-            TourStep::Run => {
-                if let Some(button) = ctx.run_stop_button {
-                    fill_highlight(f, button, palette);
-                }
-            }
+            TourStep::History => highlight_timeline(f, ctx.tour.timeline, ctx.snap, palette),
+            TourStep::Run => fill_highlight(f, ctx.tour.run_button, palette),
         }
     }
 
@@ -464,11 +440,11 @@ impl Popup for WelcomePopup {
         if key.kind == KeyEventKind::Press {
             match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Right
-                    if self.nav_key_accepted(key.code) =>
+                    if self.nav_key_guard.accepted(key.code) =>
                 {
                     self.advance();
                 }
-                KeyCode::Left if self.nav_key_accepted(key.code) => {
+                KeyCode::Left if self.nav_key_guard.accepted(key.code) => {
                     self.step = self.step.saturating_sub(1);
                 }
                 _ => {}

@@ -13,8 +13,10 @@ use crate::ssem::Opcode;
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, BreakpointCondition, Simulator};
 
-use super::app::{BIT_REPRESENTATIONS, KEY_REPEAT_GUARD, control_for_key, keymap};
-use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, timeline_bar_geometry};
+use super::app::{BIT_REPRESENTATIONS, KeyRepeatGuard, control_for_key, keymap};
+use super::layout::{
+    FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, timeline_bar_geometry, timeline_filled_len,
+};
 use super::palette::{Palette, Theme};
 use super::snapshot::Snapshot;
 
@@ -166,6 +168,18 @@ pub(super) fn display_width(s: impl AsRef<str>) -> usize {
     s.as_ref().chars().count()
 }
 
+/// The screen anchors the welcome tour points at: the main UI elements,
+/// recorded by the last draw. Built once per frame in `draw.rs`, after the
+/// menu bar is drawn, so `run_button` is always present.
+pub(super) struct TourAnchors {
+    /// The main body (the store view).
+    pub body: Rect,
+    /// The history timeline bar.
+    pub timeline: Rect,
+    /// The Run/Stop menu-bar button.
+    pub run_button: Rect,
+}
+
 /// Everything a pop-up's `draw` needs besides the frame, bundled so all
 /// pop-ups can be drawn through one uniform `Popup::draw(f, ctx)` call.
 /// Built once per frame in `draw.rs`.
@@ -177,14 +191,8 @@ pub(super) struct PopupDrawCtx<'a> {
     pub settings_view: SettingsView,
     /// Screen column just right of the store text, where the picker anchors.
     pub picker_anchor_col: u16,
-    /// Screen area of the main body (the store view), from the last draw.
-    pub body_area: Rect,
-    /// Screen area of the history timeline bar (from the last draw), so the
-    /// welcome tour can point at it.
-    pub timeline_area: Rect,
-    /// Screen rect of the Run/Stop menu button (from the last menu-bar
-    /// draw), so the welcome tour can point at it.
-    pub run_stop_button: Option<Rect>,
+    /// The anchors the welcome tour points at.
+    pub tour: TourAnchors,
 }
 
 /// What a pop-up did in response to an input event, for `App` to apply.

@@ -127,9 +127,52 @@ const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 
 /// Minimum interval between two presses of the same guarded key for the
 /// second press to count. OS key-repeat fires every ~30 ms, so a held key
-/// is swallowed; a human double-press (~100 ms apart) always counts. Guards
-/// the view-mode keys (T/F/M/C/D) and the welcome tour's navigation keys.
-pub(super) const KEY_REPEAT_GUARD: Duration = Duration::from_millis(50);
+/// is swallowed; a human double-press (~100 ms apart) always counts.
+const KEY_REPEAT_GUARD: Duration = Duration::from_millis(50);
+
+/// Swallows OS key-repeat for a set of keys: a press of the same key within
+/// the guard interval of the previous one is ignored. The last-press time
+/// is updated on every event, so a whole burst of repeats is swallowed.
+/// Used for the view-mode keys (T/F/M/C/D) and the welcome tour's
+/// navigation keys.
+pub(super) struct KeyRepeatGuard {
+    last: Option<(KeyCode, Instant)>,
+    interval: Duration,
+}
+
+impl KeyRepeatGuard {
+    /// Whether a press of `code` should be acted on.
+    pub(super) fn accepted(&mut self, code: KeyCode) -> bool {
+        let now = Instant::now();
+        let accepted = self
+            .last
+            .is_none_or(|(last, at)| last != code || now.duration_since(at) >= self.interval);
+        self.last = Some((code, now));
+        accepted
+    }
+
+    /// Forget the last press (e.g. when the pop-up the guard belongs to
+    /// is reopened).
+    pub(super) fn reset(&mut self) {
+        self.last = None;
+    }
+
+    /// Change the guard interval (tests press keys in quick succession on
+    /// purpose and zero it).
+    #[cfg(test)]
+    pub(super) fn set_interval(&mut self, interval: Duration) {
+        self.interval = interval;
+    }
+}
+
+impl Default for KeyRepeatGuard {
+    fn default() -> Self {
+        Self {
+            last: None,
+            interval: KEY_REPEAT_GUARD,
+        }
+    }
+}
 
 /// The settings control a key activates, if any — the single key→control
 /// map shared by the main keymap and the settings pop-up. `+`/`=`/`-` adjust
@@ -241,12 +284,9 @@ pub(super) struct App {
     /// The last config-save failure, reported when the TUI exits.
     pub(super) config_error: Option<String>,
 
-    /// The last view-mode key press (key, time), to swallow OS key-repeat.
-    pub(super) last_mode_key: Option<(KeyCode, Instant)>,
-
-    /// Minimum interval between two presses of the same view-mode key for the
-    /// second one to count (tests set it to zero).
-    pub(super) mode_key_guard: Duration,
+    /// Swallows OS key-repeat for the view-mode keys (T/F/M/C/D), so a held
+    /// key does not cycle the modes (tests set its interval to zero).
+    pub(super) mode_key_guard: KeyRepeatGuard,
 
     /// Whether the user is currently dragging the timeline scrubber.
     pub(super) scrubbing: bool,
@@ -272,7 +312,7 @@ impl App {
     pub(super) fn new() -> Self {
         let mut app = Self::from_parts(Config::default(), None, None);
         // Tests press the same key in quick succession on purpose
-        app.mode_key_guard = Duration::ZERO;
+        app.mode_key_guard.set_interval(Duration::ZERO);
         app.welcome_popup.set_nav_key_guard(Duration::ZERO);
         app
     }
@@ -317,8 +357,7 @@ impl App {
             welcome_seen: config.welcome_seen,
             config_path,
             config_error: None,
-            last_mode_key: None,
-            mode_key_guard: KEY_REPEAT_GUARD,
+            mode_key_guard: KeyRepeatGuard::default(),
             scrubbing: false,
             scrollbar_grab: None,
             body_area: Rect::default(),
@@ -465,7 +504,7 @@ impl App {
         // key fires a press every ~30 ms, which must not cycle the modes.
         // This is what makes the no-repeat rule hold on every terminal,
         // without relying on the kitty keyboard protocol.
-        if is_mode_key(key.code) && !self.mode_key_accepted(key.code) {
+        if is_mode_key(key.code) && !self.mode_key_guard.accepted(key.code) {
             return;
         }
 
@@ -518,19 +557,6 @@ impl App {
         }
     }
 
-    /// Whether a view-mode key press should be acted on: false when it is an
-    /// OS key-repeat arriving less than `mode_key_guard` after the previous
-    /// press of the same key. The last-press time is updated on every event,
-    /// so a whole burst of repeats is swallowed.
-    fn mode_key_accepted(&mut self, code: KeyCode) -> bool {
-        let now = Instant::now();
-        let accepted = self
-            .last_mode_key
-            .is_none_or(|(last, at)| last != code || now.duration_since(at) >= self.mode_key_guard);
-        self.last_mode_key = Some((code, now));
-        accepted
-    }
-
     /// Route a key to the open pop-up, if any, apply the event it returns,
     /// and return whether a pop-up consumed it (at most one pop-up is open
     /// at a time, so the registry order only fixes which one wins if
@@ -557,7 +583,7 @@ impl App {
             let guards = self.popups_ref()[index].guards_mode_keys();
             let swallow = guards
                 && is_mode_key(key.code)
-                && (key.kind == KeyEventKind::Repeat || !self.mode_key_accepted(key.code));
+                && (key.kind == KeyEventKind::Repeat || !self.mode_key_guard.accepted(key.code));
             if !swallow {
                 let event = self.popups_mut()[index].handle_key(key, sim);
                 self.apply_event(event, sim);
