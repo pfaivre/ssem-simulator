@@ -22,6 +22,12 @@ impl HelpPopup {
         self.scroll = 0;
     }
 
+    /// The current scroll offset (tests only).
+    #[cfg(test)]
+    pub fn scroll(&self) -> usize {
+        self.scroll
+    }
+
     /// Scroll by `delta` lines (negative goes up), clamped to the content.
     pub fn scroll_by(&mut self, delta: i32) {
         self.scroll = (self.scroll as i64 + delta as i64).clamp(0, self.max_scroll as i64) as usize;
@@ -240,6 +246,11 @@ impl Popup for HelpPopup {
         }
         HelpPopup::handle_key(self, key);
         PopupEvent::None
+    }
+    fn handle_scroll(&mut self, up: bool, _column: u16, _row: u16) {
+        // Dispatched only when the cursor is over the pop-up (it is not
+        // modal), so scroll unconditionally
+        self.scroll_by(if up { -1 } else { 1 });
     }
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
         HelpPopup::draw(self, f, ctx);

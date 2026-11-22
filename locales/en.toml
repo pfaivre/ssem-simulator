@@ -186,11 +186,8 @@ preview_instr = "→ %{word}  (%{opcode} %{data})"
 
 [popup.open]
 title = " Open "
-explanation = "Load a .asm or .snp file into the machine (the current state is replaced)"
-file = "File: %{buffer}_"
-footer = "ENTER open · ESC close"
-chars_allowed = "Only A-Z 0-9 - _ . / allowed"
-type_name = "Type a file path"
+footer = "↑↓/wheel move · PgUp/PgDn page · ENTER open · ←/⌫ up · ESC close  %{shown}/%{total}"
+empty = "(no .asm or .snp files in this folder)"
 error = "Error: %{error}"
 
 [popup.save]

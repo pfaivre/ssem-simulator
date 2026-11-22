@@ -20,8 +20,8 @@ use super::layout::{
 };
 use super::palette::{Palette, Theme};
 use super::popups::{
-    BreakpointPopup, CommentEditor, ConfirmAction, ConfirmPopup, EditorPopup, FieldKind,
-    FieldPopup, HelpPopup, PickerPopup, Popup, PopupEvent, SettingControl, SettingsPopup,
+    BreakpointPopup, CommentEditor, ConfirmAction, ConfirmPopup, EditorPopup, FieldPopup,
+    HelpPopup, OpenPopup, PickerPopup, Popup, PopupEvent, SettingControl, SettingsPopup,
     WelcomePopup,
 };
 use crate::i18n::Language;
@@ -227,9 +227,9 @@ pub(super) struct App {
     pub(super) editor_popup: EditorPopup,
     /// The save pop-up, opened from the menu bar (or the S key).
     pub(super) save_popup: FieldPopup,
-    /// The open pop-up, opened from the menu bar (or the O key) to load a
-    /// .asm/.snp file into the machine.
-    pub(super) open_popup: FieldPopup,
+    /// The open pop-up (a file browser), opened from the menu bar (or the O
+    /// key) to load a .asm/.snp file into the machine.
+    pub(super) open_popup: OpenPopup,
     /// The confirmation pop-up, opened from the menu bar before a
     /// destructive action (Clear).
     pub(super) confirm_popup: ConfirmPopup,
@@ -340,8 +340,8 @@ impl App {
             welcome_popup: WelcomePopup::new(),
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
-            save_popup: FieldPopup::new(FieldKind::Save),
-            open_popup: FieldPopup::new(FieldKind::Open),
+            save_popup: FieldPopup::new(),
+            open_popup: OpenPopup::new(),
             confirm_popup: ConfirmPopup::new(),
             settings_popup: SettingsPopup::new(),
             menu_items: Vec::new(),
@@ -718,6 +718,28 @@ impl App {
             }
         }
 
+        // The wheel scrolls an open pop-up that owns the mouse: a modal
+        // pop-up (the open browser's file list) wherever the cursor is, a
+        // non-modal one (the help pop-up's text) only under the cursor.
+        // A claimed event stops here instead of reaching the main view
+        if matches!(
+            mouse.kind,
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+        ) {
+            let up = matches!(mouse.kind, MouseEventKind::ScrollUp);
+            let mut claimed = false;
+            for popup in self.popups_mut() {
+                if popup.is_open() && (popup.is_modal() || popup.contains(mouse.column, mouse.row))
+                {
+                    popup.handle_scroll(up, mouse.column, mouse.row);
+                    claimed = true;
+                }
+            }
+            if claimed {
+                return;
+            }
+        }
+
         // The menu bar (the top row): clicking an item runs its action —
         // unless a modal pop-up is open, in which case the click belongs
         // to the pop-up (routed below) and the menu stays inert
@@ -764,23 +786,6 @@ impl App {
         } else if self.any_modal_popup_open() {
             // A modal pop-up (picker, confirm) swallows every other mouse
             // event while it is open
-            return;
-        }
-
-        // The wheel over the help pop-up scrolls its text
-        if self.help_popup.is_open()
-            && matches!(
-                mouse.kind,
-                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-            )
-            && self.help_popup.contains(mouse.column, mouse.row)
-        {
-            let delta = if matches!(mouse.kind, MouseEventKind::ScrollUp) {
-                -1
-            } else {
-                1
-            };
-            self.help_popup.scroll_by(delta);
             return;
         }
 

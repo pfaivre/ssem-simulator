@@ -182,11 +182,8 @@ preview_instr = "→ %{word}  (%{opcode} %{data})"
 
 [popup.open]
 title = " Ouvrir "
-explanation = "Charger un fichier .asm ou .snp dans la machine (l'état actuel est remplacé)"
-file = "Fichier : %{buffer}_"
-footer = "ENTRÉE ouvrir · ÉCHAP fermer"
-chars_allowed = "Seuls A-Z 0-9 - _ . / sont autorisés"
-type_name = "Tapez un chemin de fichier"
+footer = "↑↓/molette · PgUp/PgDn page · ENTRÉE ouvrir · ←/⌫ haut · ÉCHAP fermer  %{shown}/%{total}"
+empty = "(aucun fichier .asm ou .snp dans ce dossier)"
 error = "Erreur : %{error}"
 
 [popup.save]

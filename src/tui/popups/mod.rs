@@ -20,6 +20,22 @@ use super::layout::{
 use super::palette::{Palette, Theme};
 use super::snapshot::Snapshot;
 
+/// The folder a source file lives in: its parent, or `.` for a bare file
+/// name (whose parent is the empty path).
+pub(super) fn parent_dir_of(path: &Path) -> PathBuf {
+    path.parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Canonicalize a folder so it is shown and used as absolute, falling back
+/// to the path as given when it cannot be resolved (e.g. it no longer
+/// exists).
+pub(super) fn canonical_dir(dir: PathBuf) -> PathBuf {
+    std::fs::canonicalize(&dir).unwrap_or(dir)
+}
+
 /// Compute a centered, clamped pop-up rectangle within the given area.
 pub(super) fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
     let height = height.min(area.height);
@@ -38,8 +54,8 @@ pub(super) fn popup_rect(height: u16, width: u16, area: Rect) -> Rect {
 /// character plus the SHIFT modifier (the shifted key is only reported with
 /// the kitty "alternate keys" flag, which we do not enable), so the AZERTY
 /// digit keys deliver `& é " ' ( - è _ ç à` + Shift, which we translate back
-/// to `1 2 3 4 5 6 7 8 9 0`. With `path_chars`, `;`/`:` + Shift also map to
-/// `.`/`/` so file paths can be typed in the save pop-up.
+/// to `1 2 3 4 5 6 7 8 9 0`. With `path_chars`, `;` + Shift also maps to
+/// `.` so a dot can be typed in the save pop-up's file name.
 pub(super) fn shifted_char_of(key: &KeyEvent, path_chars: bool) -> Option<char> {
     let KeyCode::Char(c) = key.code else {
         return None;
@@ -62,14 +78,12 @@ pub(super) fn shifted_char_of(key: &KeyEvent, path_chars: bool) -> Option<char> 
         '\u{e7}' => '9', // ç
         '\u{e0}' => '0', // à
         ';' if path_chars => '.',
-        ':' if path_chars => '/',
         _ => return None,
     })
 }
 
 /// The character a key event represents when it is a digit, if any
-/// (AZERTY top row included), plus the `.`/`/` path characters for the
-/// save pop-up.
+/// (AZERTY top row included), plus `.` for the save pop-up's file name.
 pub(super) fn digit_of(key: &KeyEvent) -> Option<char> {
     shifted_char_of(key, true)
 }
@@ -234,17 +248,17 @@ pub(super) trait Popup {
     fn contains(&self, column: u16, row: u16) -> bool {
         self.frame().contains(column, row)
     }
-    /// Pop-ups with their own clickable controls (settings, picker, confirm)
-    /// handle mouse clicks themselves through `handle_click`; for the others
-    /// a click inside is consumed and a click outside closes them. The
-    /// welcome tour also handles its own clicks: a click outside advances
-    /// to the next step instead of closing it.
+    /// Pop-ups with their own clickable controls (settings, picker, confirm,
+    /// open browser) handle mouse clicks themselves through `handle_click`;
+    /// for the others a click inside is consumed and a click outside closes
+    /// them. The welcome tour also handles its own clicks: a click outside
+    /// advances to the next step instead of closing it.
     fn handles_own_clicks(&self) -> bool {
         false
     }
     /// Whether the pop-up is modal: while it is open, the menu bar stays
     /// inert and every non-click mouse event is swallowed (the picker, the
-    /// confirm pop-up, and the welcome tour).
+    /// confirm pop-up, the open browser, and the welcome tour).
     fn is_modal(&self) -> bool {
         false
     }
@@ -271,6 +285,14 @@ pub(super) trait Popup {
     fn handle_move(&mut self, column: u16, row: u16) {
         let _ = (column, row);
     }
+    /// Handle a mouse-wheel scroll while the pop-up is open (`true` for
+    /// ScrollUp). Dispatched in `App::handle_mouse` to every open pop-up
+    /// that owns the mouse — a modal one wherever the cursor is, a
+    /// non-modal one only under the cursor. The open browser scrolls its
+    /// list, the help pop-up its text; the default ignores the wheel.
+    fn handle_scroll(&mut self, up: bool, column: u16, row: u16) {
+        let _ = (up, column, row);
+    }
     /// Draw the pop-up as an overlay. The inline comment editor is drawn by
     /// the main body, not as an overlay, so its impl is a no-op.
     fn draw(&mut self, f: &mut Frame, ctx: &PopupDrawCtx) {
@@ -279,6 +301,7 @@ pub(super) trait Popup {
 }
 
 mod breakpoint;
+mod browser;
 mod comment;
 mod confirm;
 mod editor;
@@ -289,10 +312,11 @@ mod settings;
 mod welcome;
 
 pub use breakpoint::BreakpointPopup;
+pub use browser::OpenPopup;
 pub use comment::CommentEditor;
 pub use confirm::{ConfirmAction, ConfirmPopup};
 pub use editor::EditorPopup;
-pub use field::{FieldKind, FieldPopup};
+pub use field::FieldPopup;
 pub use help::HelpPopup;
 pub use picker::PickerPopup;
 pub use settings::{SettingControl, SettingsPopup, SettingsView};
