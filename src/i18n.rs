@@ -199,35 +199,6 @@ mod tests {
         assert_eq!(missing, t!(missing, locale = "fr"));
     }
 
-    /// The field pop-ups resolve their keys dynamically as
-    /// `format!("{prefix}.{suffix}")` (see popups/field.rs), which the literal
-    /// scan below does not see — check them explicitly: an unknown key falls
-    /// back to the key itself.
-    #[test]
-    fn dynamic_field_popup_keys_exist_in_the_catalog() {
-        use rust_i18n::t;
-        let common = [
-            "title",
-            "explanation",
-            "file",
-            "footer",
-            "chars_allowed",
-            "type_name",
-            "error",
-        ];
-        let save_only = ["dir", "saved_to"];
-        for prefix in ["popup.save", "popup.open"] {
-            for suffix in common {
-                let key = format!("{prefix}.{suffix}");
-                assert_ne!(key, t!(&key, locale = "en"), "missing key: {key}");
-            }
-        }
-        for suffix in save_only {
-            let key = format!("popup.save.{suffix}");
-            assert_ne!(key, t!(&key, locale = "en"), "missing key: {key}");
-        }
-    }
-
     #[test]
     fn every_language_catalog_has_exactly_the_english_keys() {
         let en = catalog_keys(include_str!("../locales/en.toml"));

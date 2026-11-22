@@ -20,8 +20,8 @@ use super::layout::{
 };
 use super::palette::{Palette, Theme};
 use super::popups::{
-    BreakpointPopup, CommentEditor, ConfirmAction, ConfirmPopup, EditorPopup, FieldKind,
-    FieldPopup, HelpPopup, PickerPopup, Popup, PopupEvent, SettingControl, SettingsPopup,
+    BreakpointPopup, CommentEditor, ConfirmAction, ConfirmPopup, EditorPopup, FieldPopup,
+    HelpPopup, OpenPopup, PickerPopup, Popup, PopupEvent, SettingControl, SettingsPopup,
     WelcomePopup,
 };
 use crate::i18n::Language;
@@ -227,9 +227,9 @@ pub(super) struct App {
     pub(super) editor_popup: EditorPopup,
     /// The save pop-up, opened from the menu bar (or the S key).
     pub(super) save_popup: FieldPopup,
-    /// The open pop-up, opened from the menu bar (or the O key) to load a
-    /// .asm/.snp file into the machine.
-    pub(super) open_popup: FieldPopup,
+    /// The open pop-up (a file browser), opened from the menu bar (or the O
+    /// key) to load a .asm/.snp file into the machine.
+    pub(super) open_popup: OpenPopup,
     /// The confirmation pop-up, opened from the menu bar before a
     /// destructive action (Clear).
     pub(super) confirm_popup: ConfirmPopup,
@@ -340,8 +340,8 @@ impl App {
             welcome_popup: WelcomePopup::new(),
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
-            save_popup: FieldPopup::new(FieldKind::Save),
-            open_popup: FieldPopup::new(FieldKind::Open),
+            save_popup: FieldPopup::new(),
+            open_popup: OpenPopup::new(),
             confirm_popup: ConfirmPopup::new(),
             settings_popup: SettingsPopup::new(),
             menu_items: Vec::new(),
@@ -714,6 +714,21 @@ impl App {
             for popup in self.popups_mut() {
                 if popup.is_open() {
                     popup.handle_move(mouse.column, mouse.row);
+                }
+            }
+        }
+
+        // The wheel scrolls an open pop-up that handles scrolling (the open
+        // browser's file list); when a modal pop-up is open, the event is
+        // swallowed further below instead of reaching the main view
+        if matches!(
+            mouse.kind,
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+        ) {
+            let up = matches!(mouse.kind, MouseEventKind::ScrollUp);
+            for popup in self.popups_mut() {
+                if popup.is_open() {
+                    popup.handle_scroll(up);
                 }
             }
         }
