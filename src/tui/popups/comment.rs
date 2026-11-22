@@ -263,6 +263,10 @@ impl Popup for CommentEditor {
         CommentEditor::handle_key(self, key, sim);
         PopupEvent::None
     }
+    fn backdrop(&self, _ctx: &PopupDrawCtx) -> Option<Backdrop> {
+        // Drawn inline by the main body, not as an overlay: no dimming
+        None
+    }
     // No `draw`: the text box is drawn inline in the comment column.
 }
 

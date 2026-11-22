@@ -19,7 +19,9 @@ use super::layout::{
     comment_column_width, store_view_width, timeline_bar_geometry, timeline_filled_len,
     timeline_marker_offset,
 };
-use super::popups::{ConfirmAction, Popup, PopupDrawCtx, SettingsView, TourAnchors};
+use super::popups::{
+    ConfirmAction, Popup, PopupDrawCtx, SettingsView, TourAnchors, dim_background,
+};
 use super::snapshot::Snapshot;
 use crate::ssem::Store;
 
@@ -247,6 +249,11 @@ impl App {
             };
             for popup in self.popups_mut() {
                 if popup.is_open() {
+                    // Dim the app behind the pop-up (at most one is open at
+                    // a time); its own draw clears its rect on top of the dim
+                    if let Some(backdrop) = popup.backdrop(&ctx) {
+                        dim_background(f, area, backdrop, ctx.palette);
+                    }
                     popup.draw(f, &ctx);
                 }
             }
