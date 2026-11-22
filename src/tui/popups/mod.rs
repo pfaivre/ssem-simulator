@@ -286,11 +286,12 @@ pub(super) trait Popup {
         let _ = (column, row);
     }
     /// Handle a mouse-wheel scroll while the pop-up is open (`true` for
-    /// ScrollUp). Only the open browser scrolls its list; the default
-    /// ignores the wheel. Dispatched to every open pop-up before the modal
-    /// swallow in `App::handle_mouse`.
-    fn handle_scroll(&mut self, up: bool) {
-        let _ = up;
+    /// ScrollUp). Dispatched in `App::handle_mouse` to every open pop-up
+    /// that owns the mouse — a modal one wherever the cursor is, a
+    /// non-modal one only under the cursor. The open browser scrolls its
+    /// list, the help pop-up its text; the default ignores the wheel.
+    fn handle_scroll(&mut self, up: bool, column: u16, row: u16) {
+        let _ = (up, column, row);
     }
     /// Draw the pop-up as an overlay. The inline comment editor is drawn by
     /// the main body, not as an overlay, so its impl is a no-op.

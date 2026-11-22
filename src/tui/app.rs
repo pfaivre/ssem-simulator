@@ -718,18 +718,25 @@ impl App {
             }
         }
 
-        // The wheel scrolls an open pop-up that handles scrolling (the open
-        // browser's file list); when a modal pop-up is open, the event is
-        // swallowed further below instead of reaching the main view
+        // The wheel scrolls an open pop-up that owns the mouse: a modal
+        // pop-up (the open browser's file list) wherever the cursor is, a
+        // non-modal one (the help pop-up's text) only under the cursor.
+        // A claimed event stops here instead of reaching the main view
         if matches!(
             mouse.kind,
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
         ) {
             let up = matches!(mouse.kind, MouseEventKind::ScrollUp);
+            let mut claimed = false;
             for popup in self.popups_mut() {
-                if popup.is_open() {
-                    popup.handle_scroll(up);
+                if popup.is_open() && (popup.is_modal() || popup.contains(mouse.column, mouse.row))
+                {
+                    popup.handle_scroll(up, mouse.column, mouse.row);
+                    claimed = true;
                 }
+            }
+            if claimed {
+                return;
             }
         }
 
@@ -779,23 +786,6 @@ impl App {
         } else if self.any_modal_popup_open() {
             // A modal pop-up (picker, confirm) swallows every other mouse
             // event while it is open
-            return;
-        }
-
-        // The wheel over the help pop-up scrolls its text
-        if self.help_popup.is_open()
-            && matches!(
-                mouse.kind,
-                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-            )
-            && self.help_popup.contains(mouse.column, mouse.row)
-        {
-            let delta = if matches!(mouse.kind, MouseEventKind::ScrollUp) {
-                -1
-            } else {
-                1
-            };
-            self.help_popup.scroll_by(delta);
             return;
         }
 

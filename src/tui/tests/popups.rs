@@ -19,6 +19,23 @@ fn click(app: &mut App, sim: &mut Simulator, column: u16, row: u16) {
     );
 }
 
+/// Send a mouse wheel event at (column, row).
+fn wheel(app: &mut App, sim: &mut Simulator, column: u16, row: u16, up: bool) {
+    app.handle_mouse(
+        MouseEvent {
+            column,
+            row,
+            kind: if up {
+                MouseEventKind::ScrollUp
+            } else {
+                MouseEventKind::ScrollDown
+            },
+            modifiers: KeyModifiers::NONE,
+        },
+        sim,
+    );
+}
+
 /// Double-click: two presses at the same cell within the threshold.
 fn double_click(app: &mut App, sim: &mut Simulator, column: u16, row: u16) {
     click(app, sim, column, row);
@@ -361,4 +378,32 @@ pub(super) fn a_click_on_the_timeline_while_a_popup_is_open_closes_it_and_scrubs
     assert!(!app.help_popup.is_open());
     assert!(app.scrubbing, "the click fell through to the timeline");
     assert_ne!(10, sim.cycle_count, "the history was scrubbed");
+}
+
+#[test]
+pub(super) fn the_wheel_over_the_help_popup_scrolls_its_text() {
+    let mut app = plain_app();
+    let mut sim = Simulator::new();
+    app.help_popup.open();
+    let snap = Snapshot::from_sim(&sim);
+    // A short screen, so the help text overflows and can scroll
+    let _ = render(&mut app, &snap, 100, 20);
+    assert_eq!(0, app.help_popup.scroll());
+
+    let (col, row) = cell_where(|c, r| app.help_popup.contains(c, r));
+    wheel(&mut app, &mut sim, col, row, false);
+    assert!(
+        app.help_popup.scroll() > 0,
+        "the wheel over the help pop-up scrolls its text"
+    );
+
+    // A wheel outside the help pop-up leaves its scroll alone
+    let scroll = app.help_popup.scroll();
+    let (col, row) = cell_where(|c, r| !app.help_popup.contains(c, r));
+    wheel(&mut app, &mut sim, col, row, false);
+    assert_eq!(
+        scroll,
+        app.help_popup.scroll(),
+        "a wheel outside does not scroll the help text"
+    );
 }

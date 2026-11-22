@@ -205,6 +205,23 @@ pub(super) fn long_lists_scroll_and_the_footer_counts_the_entries() {
 }
 
 #[test]
+pub(super) fn the_footer_count_reflects_the_rows_that_fit_on_a_short_screen() {
+    let root = big_fixture("short");
+    let mut app = App::new();
+    let sim = Simulator::new();
+    app.open_popup.open(Some(&root.join("alpha.asm")));
+    let snap = Snapshot::from_sim(&sim);
+    // 36 entries want a 24-row pop-up; a 15-row screen fits 11 entry rows
+    let buffer = render(&mut app, &snap, 200, 15);
+    let all = screen_text(&buffer);
+    assert!(
+        all.contains("11/36"),
+        "footer counts the visible rows: {all}"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 pub(super) fn arrows_move_and_enter_loads_the_highlighted_file() {
     let root = fixture("load");
     let mut app = App::new();

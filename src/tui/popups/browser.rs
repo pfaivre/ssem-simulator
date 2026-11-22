@@ -143,10 +143,8 @@ impl OpenPopup {
                     };
                     (if is_dir { &mut dirs } else { &mut files }).push(entry);
                 }
-                let by_name =
-                    |a: &Entry, b: &Entry| a.name.to_lowercase().cmp(&b.name.to_lowercase());
-                dirs.sort_by(by_name);
-                files.sort_by(by_name);
+                dirs.sort_by_cached_key(|e| e.name.to_lowercase());
+                files.sort_by_cached_key(|e| e.name.to_lowercase());
                 self.entries.extend(dirs);
                 self.entries.extend(files);
             }
@@ -174,18 +172,24 @@ impl OpenPopup {
         }
     }
 
-    /// Scroll the list view by `delta` rows (negative scrolls up), clamped
-    /// to the list; the highlight is kept inside the visible window.
-    fn scroll_by(&mut self, delta: isize) {
+    /// Clamp the highlight into the visible window `[scroll, scroll + view)`.
+    fn clamp_selected_into_window(&mut self) {
         let view = self.view_rows.max(1);
-        let max_scroll = self.entries.len().saturating_sub(view);
-        self.scroll = (self.scroll as isize + delta).clamp(0, max_scroll as isize) as usize;
         if self.selected < self.scroll {
             self.selected = self.scroll;
         }
         if self.selected >= self.scroll + view {
             self.selected = self.scroll + view - 1;
         }
+    }
+
+    /// Scroll the list view by `delta` rows (negative scrolls up), clamped
+    /// to the list; the highlight is kept inside the visible window.
+    fn scroll_by(&mut self, delta: isize) {
+        let view = self.view_rows.max(1);
+        let max_scroll = self.entries.len().saturating_sub(view);
+        self.scroll = (self.scroll as isize + delta).clamp(0, max_scroll as isize) as usize;
+        self.clamp_selected_into_window();
     }
 
     /// Go up one folder, highlighting the folder just left.
@@ -280,14 +284,20 @@ impl OpenPopup {
         let palette = ctx.palette;
         let title = t!("popup.open.title");
         let dir_text = self.dir.display().to_string();
-        let total = self.entries.len();
-        let footer = t!(
-            "popup.open.footer",
-            shown = total.min(MAX_LIST_ROWS),
-            total = total
-        );
         let empty = t!("popup.open.empty");
         let has_files = self.entries.iter().any(|e| !e.is_dir);
+        let total = self.entries.len();
+        // The content rows below the list: message + footer (+ the hint)
+        let non_list = 2 + usize::from(!has_files);
+        // The height the pop-up wants (list capped at MAX_LIST_ROWS), and the
+        // entry rows that still fit once popup_rect clamps it to the area
+        let height = (total.min(MAX_LIST_ROWS) + non_list) as u16 + 2;
+        let fitting = height.min(area.height).saturating_sub(2 + non_list as u16) as usize;
+        let footer = t!(
+            "popup.open.footer",
+            shown = total.min(fitting),
+            total = total
+        );
 
         // The widest list row (" > name/"), the title with the current path,
         // the hint, the message, and the footer all size the pop-up
@@ -303,10 +313,6 @@ impl OpenPopup {
             .max(if has_files { 0 } else { display_width(&empty) })
             .max(display_width(&title) + display_width(&dir_text));
         let width = popup_width(content_width);
-        // Entry rows (capped) + hint (when no files) + message + footer,
-        // plus the 2 border rows
-        let visible = self.entries.len().min(MAX_LIST_ROWS);
-        let height = (visible + 2 + usize::from(!has_files)) as u16 + 2;
 
         let rect = popup_rect(height, width, area);
         let content = self.frame.begin_popup(
@@ -318,8 +324,7 @@ impl OpenPopup {
         );
 
         // The entry rows that fit above the hint/message/footer lines
-        let non_list = (2 + usize::from(!has_files)) as u16;
-        let view_rows = content.height.saturating_sub(non_list) as usize;
+        let view_rows = content.height.saturating_sub(non_list as u16) as usize;
         self.view_rows = view_rows.max(1);
         self.ensure_visible();
 
@@ -405,7 +410,7 @@ impl Popup for OpenPopup {
         }
         PopupEvent::None
     }
-    fn handle_scroll(&mut self, up: bool) {
+    fn handle_scroll(&mut self, up: bool, _column: u16, _row: u16) {
         // One row per wheel notch, like the help pop-up and the store view
         self.scroll_by(if up { -1 } else { 1 });
     }
