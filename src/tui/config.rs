@@ -5,7 +5,9 @@
 //! platform's config directory (`$XDG_CONFIG_HOME`, or `$HOME/.config` when
 //! unset, on Linux and macOS; `%APPDATA%`, or `%USERPROFILE%\AppData\Roaming`
 //! when unset, on Windows) when the application closes, and restored on the
-//! next start. There is no settings menu: the file is written once, on exit.
+//! next start. The `welcome_seen` flag (the first-run welcome pop-up was
+//! already shown) is persisted the same way. There is no settings menu: the
+//! file is written once, on exit.
 //!
 //! A missing file means defaults; an unreadable or invalid file is reported
 //! as a warning and ignored. Every key is optional in the file, so partial
@@ -37,6 +39,9 @@ pub(super) struct Config {
     /// overrides it for the session), and saved back with the language the
     /// app started with, so the choice survives restarts.
     pub language: Language,
+    /// Whether the first-run welcome pop-up was already shown. Starts false
+    /// (no config file yet) and is saved once the pop-up has been displayed.
+    pub welcome_seen: bool,
 }
 
 impl Default for Config {
@@ -48,6 +53,7 @@ impl Default for Config {
             comments: true,
             bit_representation: 0,
             language: Language::En,
+            welcome_seen: false,
         }
     }
 }
@@ -167,6 +173,7 @@ mod tests {
             comments: false,
             bit_representation: 3,
             language: Language::Fr,
+            welcome_seen: true,
         };
         config.save(&path).unwrap();
         let text = fs::read_to_string(&path).unwrap();
@@ -183,6 +190,7 @@ mod tests {
         assert_eq!(HeatmapMode::Off, parsed.heatmap);
         assert!(parsed.comments);
         assert_eq!(0, parsed.bit_representation);
+        assert!(!parsed.welcome_seen);
     }
 
     #[test]

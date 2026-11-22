@@ -22,6 +22,7 @@ use super::palette::{Palette, Theme};
 use super::popups::{
     BreakpointPopup, CommentEditor, ConfirmAction, ConfirmPopup, EditorPopup, FieldKind,
     FieldPopup, HelpPopup, PickerPopup, Popup, PopupEvent, SettingControl, SettingsPopup,
+    WelcomePopup,
 };
 use crate::i18n::Language;
 use crate::ssem::history::History;
@@ -124,10 +125,54 @@ const SPEED_SMOOTHING: f64 = 0.5;
 /// Maximum time between two left-clicks for them to count as a double-click.
 const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 
-/// Minimum interval between two presses of the same view-mode key (T/F/M/C/D)
-/// for the second press to count. OS key-repeat fires every ~30 ms, so a held
-/// key is swallowed; a human double-press (~100 ms apart) always counts.
-const MODE_KEY_REPEAT_GUARD: Duration = Duration::from_millis(50);
+/// Minimum interval between two presses of the same guarded key for the
+/// second press to count. OS key-repeat fires every ~30 ms, so a held key
+/// is swallowed; a human double-press (~100 ms apart) always counts.
+const KEY_REPEAT_GUARD: Duration = Duration::from_millis(50);
+
+/// Swallows OS key-repeat for a set of keys: a press of the same key within
+/// the guard interval of the previous one is ignored. The last-press time
+/// is updated on every event, so a whole burst of repeats is swallowed.
+/// Used for the view-mode keys (T/F/M/C/D) and the welcome tour's
+/// navigation keys.
+pub(super) struct KeyRepeatGuard {
+    last: Option<(KeyCode, Instant)>,
+    interval: Duration,
+}
+
+impl KeyRepeatGuard {
+    /// Whether a press of `code` should be acted on.
+    pub(super) fn accepted(&mut self, code: KeyCode) -> bool {
+        let now = Instant::now();
+        let accepted = self
+            .last
+            .is_none_or(|(last, at)| last != code || now.duration_since(at) >= self.interval);
+        self.last = Some((code, now));
+        accepted
+    }
+
+    /// Forget the last press (e.g. when the pop-up the guard belongs to
+    /// is reopened).
+    pub(super) fn reset(&mut self) {
+        self.last = None;
+    }
+
+    /// Change the guard interval (tests press keys in quick succession on
+    /// purpose and zero it).
+    #[cfg(test)]
+    pub(super) fn set_interval(&mut self, interval: Duration) {
+        self.interval = interval;
+    }
+}
+
+impl Default for KeyRepeatGuard {
+    fn default() -> Self {
+        Self {
+            last: None,
+            interval: KEY_REPEAT_GUARD,
+        }
+    }
+}
 
 /// The settings control a key activates, if any — the single key→control
 /// map shared by the main keymap and the settings pop-up. `+`/`=`/`-` adjust
@@ -176,6 +221,8 @@ pub(super) struct App {
     pub(super) last_cycles: u64,
 
     pub(super) help_popup: HelpPopup,
+    /// The first-run welcome pop-up (shown once, when `welcome_seen` is false).
+    pub(super) welcome_popup: WelcomePopup,
     pub(super) breakpoint_popup: BreakpointPopup,
     pub(super) editor_popup: EditorPopup,
     /// The save pop-up, opened from the menu bar (or the S key).
@@ -226,6 +273,10 @@ pub(super) struct App {
     /// without a `--lang` override, saved so the choice survives restarts.
     pub(super) language: Language,
 
+    /// Whether the first-run welcome pop-up was already shown, persisted in
+    /// the config file so it is displayed only once.
+    pub(super) welcome_seen: bool,
+
     /// Where to save the view modes when the application closes
     /// (None in tests: persistence disabled).
     pub(super) config_path: Option<PathBuf>,
@@ -233,12 +284,9 @@ pub(super) struct App {
     /// The last config-save failure, reported when the TUI exits.
     pub(super) config_error: Option<String>,
 
-    /// The last view-mode key press (key, time), to swallow OS key-repeat.
-    pub(super) last_mode_key: Option<(KeyCode, Instant)>,
-
-    /// Minimum interval between two presses of the same view-mode key for the
-    /// second one to count (tests set it to zero).
-    pub(super) mode_key_guard: Duration,
+    /// Swallows OS key-repeat for the view-mode keys (T/F/M/C/D), so a held
+    /// key does not cycle the modes (tests set its interval to zero).
+    pub(super) mode_key_guard: KeyRepeatGuard,
 
     /// Whether the user is currently dragging the timeline scrubber.
     pub(super) scrubbing: bool,
@@ -247,6 +295,10 @@ pub(super) struct App {
     /// cursor's row and the thumb's top row at grab time, so the thumb
     /// follows the cursor 1:1. None when not dragging.
     pub(super) scrollbar_grab: Option<i32>,
+
+    /// Screen area of the main body (the store view), for mouse hit-testing
+    /// and pop-up anchoring.
+    pub(super) body_area: Rect,
 
     /// Screen area of the timeline bar, for mouse hit-testing.
     pub(super) timeline_area: Rect,
@@ -260,7 +312,8 @@ impl App {
     pub(super) fn new() -> Self {
         let mut app = Self::from_parts(Config::default(), None, None);
         // Tests press the same key in quick succession on purpose
-        app.mode_key_guard = Duration::ZERO;
+        app.mode_key_guard.set_interval(Duration::ZERO);
+        app.welcome_popup.set_nav_key_guard(Duration::ZERO);
         app
     }
 
@@ -284,6 +337,7 @@ impl App {
             last_refresh_time: now,
             last_cycles: 0,
             help_popup: HelpPopup::new(),
+            welcome_popup: WelcomePopup::new(),
             breakpoint_popup: BreakpointPopup::new(),
             editor_popup: EditorPopup::new(),
             save_popup: FieldPopup::new(FieldKind::Save),
@@ -300,12 +354,13 @@ impl App {
             show_comments: config.comments,
             theme: theme_override.unwrap_or(config.theme),
             language: config.language,
+            welcome_seen: config.welcome_seen,
             config_path,
             config_error: None,
-            last_mode_key: None,
-            mode_key_guard: MODE_KEY_REPEAT_GUARD,
+            mode_key_guard: KeyRepeatGuard::default(),
             scrubbing: false,
             scrollbar_grab: None,
+            body_area: Rect::default(),
             timeline_area: Rect::default(),
             should_quit: false,
         }
@@ -325,6 +380,7 @@ impl App {
             comments: self.show_comments,
             bit_representation: self.bit_representation,
             language: self.language,
+            welcome_seen: self.welcome_seen,
         };
         if let Err(e) = config.save(path) {
             self.config_error = Some(ts!(
@@ -343,9 +399,10 @@ impl App {
     /// All pop-ups in one fixed order. This is the single list of pop-ups:
     /// every key, mouse, close and draw site iterates it, so adding a pop-up
     /// means adding one field here and one entry in this array.
-    pub(super) fn popups_mut(&mut self) -> [&mut dyn Popup; 9] {
+    pub(super) fn popups_mut(&mut self) -> [&mut dyn Popup; 10] {
         [
             &mut self.help_popup,
+            &mut self.welcome_popup,
             &mut self.breakpoint_popup,
             &mut self.editor_popup,
             &mut self.save_popup,
@@ -367,9 +424,10 @@ impl App {
     }
 
     /// Shared-borrow counterpart of `popups_mut`.
-    fn popups_ref(&self) -> [&dyn Popup; 9] {
+    fn popups_ref(&self) -> [&dyn Popup; 10] {
         [
             &self.help_popup,
+            &self.welcome_popup,
             &self.breakpoint_popup,
             &self.editor_popup,
             &self.save_popup,
@@ -379,6 +437,17 @@ impl App {
             &self.comment_editor,
             &self.picker,
         ]
+    }
+
+    /// Open the welcome pop-up on the first run (no `welcome_seen` in the
+    /// config file yet) and mark it as seen, so it is shown only once. Called
+    /// by the runner at startup, not by `from_parts`, so tests (which build
+    /// the app through `from_parts`) never start with a pop-up open.
+    pub(super) fn show_welcome_on_first_run(&mut self) {
+        if !self.welcome_seen {
+            self.welcome_seen = true;
+            self.welcome_popup.open();
+        }
     }
 
     /// Update the smoothed speed display value from the latest cycle count.
@@ -435,7 +504,7 @@ impl App {
         // key fires a press every ~30 ms, which must not cycle the modes.
         // This is what makes the no-repeat rule hold on every terminal,
         // without relying on the kitty keyboard protocol.
-        if is_mode_key(key.code) && !self.mode_key_accepted(key.code) {
+        if is_mode_key(key.code) && !self.mode_key_guard.accepted(key.code) {
             return;
         }
 
@@ -488,19 +557,6 @@ impl App {
         }
     }
 
-    /// Whether a view-mode key press should be acted on: false when it is an
-    /// OS key-repeat arriving less than `mode_key_guard` after the previous
-    /// press of the same key. The last-press time is updated on every event,
-    /// so a whole burst of repeats is swallowed.
-    fn mode_key_accepted(&mut self, code: KeyCode) -> bool {
-        let now = Instant::now();
-        let accepted = self
-            .last_mode_key
-            .is_none_or(|(last, at)| last != code || now.duration_since(at) >= self.mode_key_guard);
-        self.last_mode_key = Some((code, now));
-        accepted
-    }
-
     /// Route a key to the open pop-up, if any, apply the event it returns,
     /// and return whether a pop-up consumed it (at most one pop-up is open
     /// at a time, so the registry order only fixes which one wins if
@@ -527,7 +583,7 @@ impl App {
             let guards = self.popups_ref()[index].guards_mode_keys();
             let swallow = guards
                 && is_mode_key(key.code)
-                && (key.kind == KeyEventKind::Repeat || !self.mode_key_accepted(key.code));
+                && (key.kind == KeyEventKind::Repeat || !self.mode_key_guard.accepted(key.code));
             if !swallow {
                 let event = self.popups_mut()[index].handle_key(key, sim);
                 self.apply_event(event, sim);
@@ -972,6 +1028,15 @@ impl App {
         }
     }
 
+    /// The screen rect of a menu-bar item, recorded by the last
+    /// `draw_menu_bar`.
+    pub(super) fn menu_item_rect(&self, action: MenuAction) -> Option<Rect> {
+        self.menu_items
+            .iter()
+            .find(|(_, a)| *a == action)
+            .map(|(rect, _)| *rect)
+    }
+
     /// The menu action whose item contains the given screen cell, if any
     /// (the rects are recorded by the last `draw_menu_bar`).
     fn menu_action_at(&self, column: u16, row: u16) -> Option<MenuAction> {
@@ -1050,6 +1115,12 @@ impl App {
                 self.bit_representation = (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
             }
             SettingControl::Theme => self.theme = self.theme.cycle(),
+            SettingControl::Tour => {
+                // Not a view-mode setting: leave the settings pop-up and
+                // replay the welcome tour from its first step
+                self.settings_popup.close();
+                self.welcome_popup.open();
+            }
         }
     }
 

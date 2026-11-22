@@ -13,8 +13,10 @@ use crate::ssem::Opcode;
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, BreakpointCondition, Simulator};
 
-use super::app::{BIT_REPRESENTATIONS, control_for_key, keymap};
-use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH};
+use super::app::{BIT_REPRESENTATIONS, KeyRepeatGuard, control_for_key, keymap};
+use super::layout::{
+    FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, timeline_bar_geometry, timeline_filled_len,
+};
 use super::palette::{Palette, Theme};
 use super::snapshot::Snapshot;
 
@@ -166,6 +168,18 @@ pub(super) fn display_width(s: impl AsRef<str>) -> usize {
     s.as_ref().chars().count()
 }
 
+/// The screen anchors the welcome tour points at: the main UI elements,
+/// recorded by the last draw. Built once per frame in `draw.rs`, after the
+/// menu bar is drawn, so `run_button` is always present.
+pub(super) struct TourAnchors {
+    /// The main body (the store view).
+    pub body: Rect,
+    /// The history timeline bar.
+    pub timeline: Rect,
+    /// The Run/Stop menu-bar button.
+    pub run_button: Rect,
+}
+
 /// Everything a pop-up's `draw` needs besides the frame, bundled so all
 /// pop-ups can be drawn through one uniform `Popup::draw(f, ctx)` call.
 /// Built once per frame in `draw.rs`.
@@ -177,6 +191,8 @@ pub(super) struct PopupDrawCtx<'a> {
     pub settings_view: SettingsView,
     /// Screen column just right of the store text, where the picker anchors.
     pub picker_anchor_col: u16,
+    /// The anchors the welcome tour points at.
+    pub tour: TourAnchors,
 }
 
 /// What a pop-up did in response to an input event, for `App` to apply.
@@ -220,12 +236,15 @@ pub(super) trait Popup {
     }
     /// Pop-ups with their own clickable controls (settings, picker, confirm)
     /// handle mouse clicks themselves through `handle_click`; for the others
-    /// a click inside is consumed and a click outside closes them.
+    /// a click inside is consumed and a click outside closes them. The
+    /// welcome tour also handles its own clicks: a click outside advances
+    /// to the next step instead of closing it.
     fn handles_own_clicks(&self) -> bool {
         false
     }
-    /// Whether the pop-up is modal: while it is open, every mouse event is
-    /// swallowed (the picker and the confirm pop-up).
+    /// Whether the pop-up is modal: while it is open, the menu bar stays
+    /// inert and every non-click mouse event is swallowed (the picker, the
+    /// confirm pop-up, and the welcome tour).
     fn is_modal(&self) -> bool {
         false
     }
@@ -267,6 +286,7 @@ mod field;
 mod help;
 mod picker;
 mod settings;
+mod welcome;
 
 pub use breakpoint::BreakpointPopup;
 pub use comment::CommentEditor;
@@ -276,6 +296,7 @@ pub use field::{FieldKind, FieldPopup};
 pub use help::HelpPopup;
 pub use picker::PickerPopup;
 pub use settings::{SettingControl, SettingsPopup, SettingsView};
+pub use welcome::WelcomePopup;
 
 // Reached into directly by the shared test module.
 #[cfg(test)]

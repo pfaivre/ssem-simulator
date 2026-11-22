@@ -36,6 +36,7 @@ pub(super) fn from_parts_restores_the_saved_modes() {
         comments: false,
         bit_representation: 4,
         language: Language::Fr,
+        welcome_seen: true,
     };
     let app = App::from_parts(config, None, None);
     assert_eq!(Theme::Monokai, app.theme);
@@ -43,6 +44,7 @@ pub(super) fn from_parts_restores_the_saved_modes() {
     assert_eq!(HeatmapMode::Exec, app.heatmap);
     assert!(!app.show_comments);
     assert_eq!(4, app.bit_representation);
+    assert!(app.welcome_seen);
 }
 
 #[test]
@@ -152,7 +154,7 @@ pub(super) fn mode_keys_do_not_repeat_when_held() {
 pub(super) fn mode_keys_swallow_os_repeat_but_not_human_double_press() {
     let mut sim = Simulator::new();
     let mut app = App::from_parts(Config::default(), None, None);
-    app.mode_key_guard = Duration::from_millis(100);
+    app.mode_key_guard.set_interval(Duration::from_millis(100));
 
     app.handle_key(press(KeyCode::Char('m')), &mut sim);
     assert_eq!(HeatmapMode::Exec, app.heatmap);

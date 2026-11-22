@@ -13,6 +13,7 @@ mod popups;
 mod render;
 mod save;
 mod timeline;
+mod welcome;
 
 use super::app::{App, BIT_REPRESENTATIONS, MenuAction};
 use super::draw::{ARROW_EXTRA_WIDTH, flow_gutter_width};
@@ -22,7 +23,8 @@ use super::graph::{
 };
 use super::layout::{
     CONTENT_HEIGHT, FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, STORE_TEXT_WIDTH,
-    comment_column_width, store_view_width, timeline_bar_geometry, timeline_marker_offset,
+    comment_column_width, store_view_width, timeline_bar_geometry, timeline_filled_len,
+    timeline_marker_offset,
 };
 use super::popups::Popup;
 use super::snapshot::Snapshot;
@@ -65,6 +67,7 @@ fn snapshot_with_history(cycle_count: u64) -> Snapshot {
         history_start: 0,
         history_head: 99,
         history_len: 100,
+        source_file: None,
     }
 }
 

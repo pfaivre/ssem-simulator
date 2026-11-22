@@ -326,8 +326,8 @@ impl GraphGutter {
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut run = String::new();
         let mut run_style = Style::default();
-        for col in 0..GUTTER_COLS {
-            let (glyph, style) = self.cells[row][col].unwrap_or((' ', Style::default()));
+        for cell in self.cells[row].iter().take(GUTTER_COLS) {
+            let (glyph, style) = (*cell).unwrap_or((' ', Style::default()));
             if style != run_style && !run.is_empty() {
                 spans.push(Span::styled(std::mem::take(&mut run), run_style));
             }

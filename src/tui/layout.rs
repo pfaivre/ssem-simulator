@@ -31,6 +31,20 @@ pub(super) fn timeline_bar_geometry(area: Rect, start: u64, head: u64) -> (u16, 
     (area.x + offset as u16 + label_len as u16, bar_width as u16)
 }
 
+/// Number of bar cells filled by the retained history, clamped to the bar
+/// width; 0 when the history is disabled (capacity 0). The filled fraction
+/// `draw_timeline` paints and the welcome tour highlights.
+pub(super) fn timeline_filled_len(
+    bar_width: u16,
+    history_len: u64,
+    history_capacity: u64,
+) -> usize {
+    if history_capacity == 0 {
+        return 0;
+    }
+    ((history_len * u64::from(bar_width) / history_capacity) as usize).min(usize::from(bar_width))
+}
+
 /// Offset (in cells) of the current-position marker within the timeline bar:
 /// the current cycle's position between the oldest retained cycle and the
 /// tip. Returns None when there is no bar or no retained history.
