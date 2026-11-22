@@ -27,6 +27,9 @@ pub enum SettingControl {
     Comments,
     Bits,
     Theme,
+    /// Not a view-mode setting: it closes the settings pop-up and replays
+    /// the first-run welcome tour. No key maps to it (see `control_for_key`).
+    Tour,
 }
 
 /// The settings pop-up, opened from the menu bar.
@@ -90,7 +93,7 @@ impl SettingsPopup {
             BIT_REPRESENTATIONS[view.bit_representation.min(BIT_REPRESENTATIONS.len() - 1)];
         // Each row: the label, the shortcut, then its spans — a button (text
         // + control) or plain value text between the speed buttons
-        let rows: [SettingsRow; 6] = [
+        let rows: [SettingsRow; 7] = [
             (
                 ts!("popup.settings.speed"),
                 "I/K",
@@ -152,6 +155,14 @@ impl SettingsPopup {
                 vec![(
                     format!("[{}]", view.theme.label()),
                     Some(SettingControl::Theme),
+                )],
+            ),
+            (
+                ts!("popup.settings.tour"),
+                "", // no keyboard shortcut: the tour is replayed from its button
+                vec![(
+                    format!("[{}]", ts!("popup.settings.tour_button")),
+                    Some(SettingControl::Tour),
                 )],
             ),
         ];

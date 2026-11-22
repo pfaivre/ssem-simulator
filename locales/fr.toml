@@ -210,6 +210,8 @@ flow = "Mode de flux"
 comments = "Commentaires"
 bits = "Apparence des mots"
 theme = "Thème"
+tour = "Visite guidée"
+tour_button = "Rejouer"
 
 [popup.picker]
 mnemonic_title = " Mnémonique [%{address}] "

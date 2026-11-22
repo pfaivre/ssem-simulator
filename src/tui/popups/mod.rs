@@ -13,7 +13,7 @@ use crate::ssem::Opcode;
 use crate::ssem::Store;
 use crate::ssem::simulator::{Breakpoint, BreakpointCondition, Simulator};
 
-use super::app::{BIT_REPRESENTATIONS, control_for_key, keymap};
+use super::app::{BIT_REPRESENTATIONS, KEY_REPEAT_GUARD, control_for_key, keymap};
 use super::layout::{FlowMode, HeatmapMode, MAX_COMMENT_WIDTH, timeline_bar_geometry};
 use super::palette::{Palette, Theme};
 use super::snapshot::Snapshot;
@@ -228,12 +228,15 @@ pub(super) trait Popup {
     }
     /// Pop-ups with their own clickable controls (settings, picker, confirm)
     /// handle mouse clicks themselves through `handle_click`; for the others
-    /// a click inside is consumed and a click outside closes them.
+    /// a click inside is consumed and a click outside closes them. The
+    /// welcome tour also handles its own clicks: a click outside advances
+    /// to the next step instead of closing it.
     fn handles_own_clicks(&self) -> bool {
         false
     }
-    /// Whether the pop-up is modal: while it is open, every mouse event is
-    /// swallowed (the picker and the confirm pop-up).
+    /// Whether the pop-up is modal: while it is open, the menu bar stays
+    /// inert and every non-click mouse event is swallowed (the picker, the
+    /// confirm pop-up, and the welcome tour).
     fn is_modal(&self) -> bool {
         false
     }

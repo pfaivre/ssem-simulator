@@ -1,6 +1,7 @@
 use super::*;
-use ratatui::widgets::Borders;
+use crate::tui::palette::blend;
 use rust_i18n::t;
+use std::time::{Duration, Instant};
 
 /// The steps of the first-run tour, in order: an intro, then one step per
 /// main element, each pointing at it on screen.
@@ -36,11 +37,18 @@ struct Arrow {
 /// drawn as a pop-up pointing an arrow at the highlighted element. Shown once
 /// — the `welcome_seen` config flag records that it was displayed — and
 /// navigated with Enter/Space/Right (next, closing on the last step) and
-/// Left (back); Esc or a click outside closes it from any step.
+/// Left (back); Esc closes it from any step, and a click outside the pop-up
+/// advances to the next step instead of ending the tour.
 pub struct WelcomePopup {
     pub(super) frame: PopupFrame,
     /// The current tour step; reset to the intro when the pop-up opens.
     step: usize,
+    /// The last tour-navigation key press (key, time), to swallow OS
+    /// key-repeat on terminals that report it as plain presses.
+    last_nav_key: Option<(KeyCode, Instant)>,
+    /// Minimum interval between two presses of the same navigation key for
+    /// the second to count (zeroed in tests).
+    nav_key_guard: Duration,
 }
 
 /// A pop-up rect of the given size with (hint_x, hint_y) as its desired
@@ -57,6 +65,82 @@ fn placed(width: u16, height: u16, hint_x: i32, hint_y: i32, area: Rect) -> Rect
         (area.y + area.height).saturating_sub(height) as i32,
     ) as u16;
     Rect::new(x, y, width, height)
+}
+
+/// Dim everything in `area` outside `spotlight` (all of it when None), so
+/// the highlighted element — and the pop-up, which clears its own rect
+/// right after — stands out. Each cell's foreground goes to the dim color
+/// with the DIM modifier, and its background is blended halfway toward the
+/// base background, so the solid bars (menu, status) recede as well while
+/// keeping a hint of their block structure.
+fn dim_spotlight(f: &mut Frame, area: Rect, spotlight: Option<Rect>, palette: &Palette) {
+    let hole = spotlight
+        .map(|r| r.intersection(area))
+        .filter(|r| r.width > 0 && r.height > 0)
+        .unwrap_or(Rect::new(area.x, area.y, 0, 0));
+    // The up-to-four strips around the hole: above, below, left, right
+    let strips = [
+        Rect::new(area.x, area.y, area.width, hole.y.saturating_sub(area.y)),
+        Rect::new(
+            area.x,
+            hole.bottom(),
+            area.width,
+            area.bottom().saturating_sub(hole.bottom()),
+        ),
+        Rect::new(area.x, hole.y, hole.x.saturating_sub(area.x), hole.height),
+        Rect::new(
+            hole.right(),
+            hole.y,
+            area.right().saturating_sub(hole.right()),
+            hole.height,
+        ),
+    ];
+    let buf = f.buffer_mut();
+    for strip in strips {
+        for y in strip.y..strip.bottom() {
+            for x in strip.x..strip.right() {
+                let cell = &mut buf[(x, y)];
+                cell.fg = palette.dim;
+                cell.modifier.insert(Modifier::DIM);
+                cell.bg = blend(cell.bg, palette.bg, 1, 2);
+            }
+        }
+    }
+}
+
+/// Fill `rect` with the tour color (its text in the base background color),
+/// bold: the marker drawn on the element the current step presents.
+fn fill_highlight(f: &mut Frame, rect: Rect, palette: &Palette) {
+    f.buffer_mut().set_style(
+        rect,
+        Style::default()
+            .fg(palette.bg)
+            .bg(palette.highlight)
+            .add_modifier(Modifier::BOLD),
+    );
+}
+
+/// Highlight the one-row timeline bar: the whole row glows in the tour
+/// color (its text in the base background color), and the bar's empty
+/// track is painted in a dimmer variant of that color instead of the flat
+/// background, so the bar reads as part of the highlighted row. The
+/// retained fill keeps the dark foreground, contrasting on the glowing row.
+fn highlight_timeline(f: &mut Frame, area: Rect, snap: &Snapshot, palette: &Palette) {
+    fill_highlight(f, area, palette);
+    let (bar_x, bar_width) = timeline_bar_geometry(area, snap.history_start, snap.history_head);
+    if snap.history_capacity == 0 || bar_width == 0 {
+        return;
+    }
+    // Same filled-fraction computation as `draw_timeline`
+    let filled = ((snap.history_len * u64::from(bar_width) / snap.history_capacity) as usize)
+        .min(usize::from(bar_width));
+    let dim_highlight = blend(palette.highlight, palette.bg, 1, 2);
+    let buf = f.buffer_mut();
+    for y in area.y..area.bottom() {
+        for x in bar_x.saturating_add(filled as u16)..bar_x.saturating_add(bar_width) {
+            buf[(x, y)].fg = dim_highlight;
+        }
+    }
 }
 
 /// The arrow for a pop-up rect at border row `y`, or None when the rect is
@@ -83,18 +167,51 @@ impl WelcomePopup {
         WelcomePopup {
             frame: PopupFrame::new(),
             step: 0,
+            last_nav_key: None,
+            nav_key_guard: KEY_REPEAT_GUARD,
         }
     }
 
     pub fn open(&mut self) {
         self.frame.open = true;
         self.step = 0;
+        self.last_nav_key = None;
     }
 
     /// The current tour step (0 = intro).
     #[cfg(test)]
     pub fn step(&self) -> usize {
         self.step
+    }
+
+    /// Set the navigation key-repeat guard (tests press keys in quick
+    /// succession on purpose and zero it).
+    #[cfg(test)]
+    pub fn set_nav_key_guard(&mut self, guard: Duration) {
+        self.nav_key_guard = guard;
+    }
+
+    /// Advance the tour to the next step, closing it on the last step.
+    fn advance(&mut self) {
+        if self.step + 1 >= TOUR_STEPS.len() {
+            self.close();
+        } else {
+            self.step += 1;
+        }
+    }
+
+    /// Whether a tour-navigation key press should be acted on: false when
+    /// it is an OS key-repeat arriving less than the guard after the
+    /// previous press of the same key — the same rule as the view-mode
+    /// keys. The last-press time is updated on every event, so a whole
+    /// burst of repeats is swallowed.
+    fn nav_key_accepted(&mut self, code: KeyCode) -> bool {
+        let now = Instant::now();
+        let accepted = self
+            .last_nav_key
+            .is_none_or(|(last, at)| last != code || now.duration_since(at) >= self.nav_key_guard);
+        self.last_nav_key = Some((code, now));
+        accepted
     }
 
     /// The current tour step, clamped to the tour's range.
@@ -184,31 +301,28 @@ impl WelcomePopup {
         }
     }
 
-    /// Highlight the element the current step presents: side bars around the
-    /// store view, a reversed highlight on the one-row timeline bar and on
-    /// the Run/Stop button. The intro highlights nothing.
+    /// Highlight the element the current step presents: a spotlight dims
+    /// everything else on screen, then the element itself is marked in the
+    /// tour color — the one-row timeline bar glows, with its empty track in
+    /// a dimmer variant, and the Run/Stop button is filled. The store needs
+    /// no drawn marker: the spotlight alone frames it (a border would
+    /// overwrite the store's text), and the intro highlights nothing but
+    /// the pop-up itself (the whole screen is dimmed).
     fn draw_highlight(&self, f: &mut Frame, ctx: &PopupDrawCtx) {
         let palette = ctx.palette;
+        let spotlight = match self.current_step() {
+            TourStep::Intro => None,
+            TourStep::Store => Some(ctx.body_area),
+            TourStep::History => Some(ctx.timeline_area),
+            TourStep::Run => ctx.run_stop_button,
+        };
+        dim_spotlight(f, ctx.area, spotlight, palette);
         match self.current_step() {
-            TourStep::Intro => {}
-            TourStep::Store => {
-                // Side bars only: a full border would overwrite the CI row
-                // and the store's last column
-                let block = Block::default()
-                    .borders(Borders::LEFT | Borders::RIGHT)
-                    .border_style(Style::default().fg(palette.highlight));
-                f.render_widget(block, ctx.body_area);
-            }
-            TourStep::History => {
-                f.buffer_mut().set_style(
-                    ctx.timeline_area,
-                    Style::default().add_modifier(Modifier::REVERSED),
-                );
-            }
+            TourStep::Intro | TourStep::Store => {}
+            TourStep::History => highlight_timeline(f, ctx.timeline_area, ctx.snap, palette),
             TourStep::Run => {
                 if let Some(button) = ctx.run_stop_button {
-                    f.buffer_mut()
-                        .set_style(button, Style::default().add_modifier(Modifier::REVERSED));
+                    fill_highlight(f, button, palette);
                 }
             }
         }
@@ -322,6 +436,7 @@ impl WelcomePopup {
             let cell = &mut f.buffer_mut()[(arrow.x, arrow.y)];
             cell.set_symbol(arrow.glyph);
             cell.set_fg(palette.highlight);
+            cell.modifier.insert(Modifier::BOLD);
         }
     }
 }
@@ -333,24 +448,39 @@ impl Popup for WelcomePopup {
     fn frame_mut(&mut self) -> &mut PopupFrame {
         &mut self.frame
     }
+    fn handles_own_clicks(&self) -> bool {
+        true
+    }
+    fn is_modal(&self) -> bool {
+        // While the tour is open, the menu bar stays inert: a click anywhere
+        // only advances or closes the tour, it never triggers the UI behind
+        true
+    }
     fn handle_key(&mut self, key: KeyEvent, _sim: &mut Simulator) -> PopupEvent {
         // Enter/Space/Right advance the tour (closing it on the last step),
-        // Left goes back. Esc is closed centrally by App::route_popup_key,
-        // a click outside by App::handle_mouse.
+        // Left goes back — each guarded against OS key-repeat, so holding a
+        // key does not rush the tour. Esc is closed centrally by
+        // App::route_popup_key; a click outside advances via handle_click.
         if key.kind == KeyEventKind::Press {
             match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Right => {
-                    if self.step + 1 >= TOUR_STEPS.len() {
-                        self.close();
-                    } else {
-                        self.step += 1;
-                    }
+                KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Right
+                    if self.nav_key_accepted(key.code) =>
+                {
+                    self.advance();
                 }
-                KeyCode::Left => {
+                KeyCode::Left if self.nav_key_accepted(key.code) => {
                     self.step = self.step.saturating_sub(1);
                 }
                 _ => {}
             }
+        }
+        PopupEvent::None
+    }
+    fn handle_click(&mut self, column: u16, row: u16, _sim: &mut Simulator) -> PopupEvent {
+        // A click inside the pop-up is consumed; a click outside advances
+        // the tour (closing it on the last step) instead of ending it
+        if !self.frame.contains(column, row) {
+            self.advance();
         }
         PopupEvent::None
     }

@@ -125,10 +125,11 @@ const SPEED_SMOOTHING: f64 = 0.5;
 /// Maximum time between two left-clicks for them to count as a double-click.
 const DOUBLE_CLICK_THRESHOLD: Duration = Duration::from_millis(500);
 
-/// Minimum interval between two presses of the same view-mode key (T/F/M/C/D)
-/// for the second press to count. OS key-repeat fires every ~30 ms, so a held
-/// key is swallowed; a human double-press (~100 ms apart) always counts.
-const MODE_KEY_REPEAT_GUARD: Duration = Duration::from_millis(50);
+/// Minimum interval between two presses of the same guarded key for the
+/// second press to count. OS key-repeat fires every ~30 ms, so a held key
+/// is swallowed; a human double-press (~100 ms apart) always counts. Guards
+/// the view-mode keys (T/F/M/C/D) and the welcome tour's navigation keys.
+pub(super) const KEY_REPEAT_GUARD: Duration = Duration::from_millis(50);
 
 /// The settings control a key activates, if any — the single key→control
 /// map shared by the main keymap and the settings pop-up. `+`/`=`/`-` adjust
@@ -272,6 +273,7 @@ impl App {
         let mut app = Self::from_parts(Config::default(), None, None);
         // Tests press the same key in quick succession on purpose
         app.mode_key_guard = Duration::ZERO;
+        app.welcome_popup.set_nav_key_guard(Duration::ZERO);
         app
     }
 
@@ -316,7 +318,7 @@ impl App {
             config_path,
             config_error: None,
             last_mode_key: None,
-            mode_key_guard: MODE_KEY_REPEAT_GUARD,
+            mode_key_guard: KEY_REPEAT_GUARD,
             scrubbing: false,
             scrollbar_grab: None,
             body_area: Rect::default(),
@@ -1087,6 +1089,12 @@ impl App {
                 self.bit_representation = (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
             }
             SettingControl::Theme => self.theme = self.theme.cycle(),
+            SettingControl::Tour => {
+                // Not a view-mode setting: leave the settings pop-up and
+                // replay the welcome tour from its first step
+                self.settings_popup.close();
+                self.welcome_popup.open();
+            }
         }
     }
 

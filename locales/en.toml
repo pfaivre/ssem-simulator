@@ -214,6 +214,8 @@ flow = "Flow mode"
 comments = "Comments"
 bits = "Store bits"
 theme = "Theme"
+tour = "Welcome tour"
+tour_button = "Replay"
 
 [popup.picker]
 mnemonic_title = " Mnemonic [%{address}] "

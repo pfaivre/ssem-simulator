@@ -608,6 +608,8 @@ pub(super) fn settings_popup_lists_all_controls() {
         "Comments",
         "Store bits",
         "Theme",
+        "Welcome tour",
+        "[Replay]",
     ] {
         assert!(
             all.contains(text),
@@ -674,6 +676,36 @@ pub(super) fn settings_popup_controls_are_clickable() {
     let (col, row) = control_cell(&app, SettingControl::SpeedDown);
     click(&mut app, &mut sim, col, row);
     assert_eq!(speed, sim.speed, "speed down button works");
+}
+
+#[test]
+pub(super) fn settings_tour_button_replays_the_welcome_tour() {
+    let mut app = App::new();
+    let mut sim = Simulator::new();
+    let snap = Snapshot::from_sim(&sim);
+    app.settings_popup.open();
+    let _ = render(&mut app, &snap, 100, 40);
+    assert!(!app.welcome_popup.is_open());
+
+    let (col, row) = control_cell(&app, SettingControl::Tour);
+    click(&mut app, &mut sim, col, row);
+    assert!(
+        !app.settings_popup.is_open(),
+        "the settings pop-up closes when the tour starts"
+    );
+    assert!(
+        app.welcome_popup.is_open(),
+        "the tour button opens the welcome tour"
+    );
+    assert_eq!(
+        0,
+        app.welcome_popup.step(),
+        "the tour restarts at the intro"
+    );
+
+    // And the tour can be played again from there
+    press(&mut app, &mut sim, ' ');
+    assert_eq!(1, app.welcome_popup.step());
 }
 
 #[test]
