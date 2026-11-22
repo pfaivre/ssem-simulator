@@ -35,7 +35,7 @@ pub const PALETTE: Palette = Palette {
     value: rgb(0x40A02B),
     highlight: rgb(0xDF8E1D),
     next_marker: rgb(0x6C6F85),
-    dim: rgb(0x9CA0B0),
+    dim: rgb(0xB1B4C1),
     zebra_bg: blend(rgb(0xEFF1F5), rgb(0x6C6F85), 1, 16),
 
     // Opcodes (shared with the pointer arrows and the graph edges): jumps
@@ -46,7 +46,7 @@ pub const PALETTE: Palette = Palette {
     op_arithmetic: rgb(0x1E66F5),
     op_test: rgb(0x4C4F69),
     op_halt: rgb(0xD20F39),
-    op_num: rgb(0x9CA0B0),
+    op_num: rgb(0xB1B4C1),
 
     // Heatmap ramps (low, mid, high), each in the hue family of what it
     // measures: exec in the jump mauve family, reads in the memory teal
@@ -59,7 +59,7 @@ pub const PALETTE: Palette = Palette {
 
     // Control-flow graph edges: jump edges take the jump color (backward
     // edges are bold), CMP skip edges the test color, fall-through is dim
-    edge_fallthrough: rgb(0x9CA0B0),
+    edge_fallthrough: rgb(0xB1B4C1),
     edge_jump: rgb(0x8839EF),
     edge_skip: rgb(0x4C4F69),
 
