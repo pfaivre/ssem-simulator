@@ -23,7 +23,7 @@ use super::popups::{
     HelpPopup, OpenPopup, PickerPopup, Popup, PopupEvent, SettingControl, SettingsPopup,
     WelcomePopup,
 };
-use crate::i18n::Language;
+use crate::i18n::{Language, SessionLanguage};
 use crate::ssem::history::History;
 use crate::ssem::simulator::Simulator;
 
@@ -307,7 +307,7 @@ impl App {
     /// An app with the default view modes and no config file (tests).
     #[cfg(test)]
     pub(super) fn new() -> Self {
-        let mut app = Self::from_parts(Config::default(), None, None, None);
+        let mut app = Self::from_parts(Config::default(), None, None, SessionLanguage::default());
         // Tests press the same key in quick succession on purpose
         app.mode_key_guard.set_interval(Duration::ZERO);
         app.welcome_popup.set_nav_key_guard(Duration::ZERO);
@@ -315,14 +315,15 @@ impl App {
     }
 
     /// An app starting from the given persisted view modes, saving changes
-    /// back to `config_path`. The `theme_override` (from `--theme`) and the
-    /// `language_override` (from `--lang`) win over the persisted values for
-    /// this session; the persisted language is still the one saved on exit.
+    /// back to `config_path`. The `theme_override` (from `--theme`) wins
+    /// over the persisted theme for this session; `language` carries both
+    /// the active language (the startup resolution, or `--lang`) and the one
+    /// to persist on exit.
     pub(super) fn from_parts(
         config: Config,
         theme_override: Option<Theme>,
         config_path: Option<PathBuf>,
-        language_override: Option<Language>,
+        language: SessionLanguage,
     ) -> Self {
         let now = Instant::now();
         App {
@@ -352,8 +353,8 @@ impl App {
             flow: config.flow,
             show_comments: config.comments,
             theme: theme_override.unwrap_or(config.theme),
-            language: language_override.unwrap_or(config.language),
-            persisted_language: config.language,
+            language: language.active,
+            persisted_language: language.to_persist,
             welcome_seen: config.welcome_seen,
             config_path,
             config_error: None,

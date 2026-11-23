@@ -4,7 +4,7 @@
 use super::super::config::Config;
 use super::super::popups::SettingControl;
 use super::*;
-use crate::i18n::Language;
+use crate::i18n::{Language, SessionLanguage};
 use crate::tui::Theme;
 use crossterm::event::{KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
 use std::fs;
@@ -39,7 +39,7 @@ pub(super) fn from_parts_restores_the_saved_modes() {
         language: Language::Fr,
         welcome_seen: true,
     };
-    let app = App::from_parts(config, None, None, None);
+    let app = App::from_parts(config, None, None, SessionLanguage::same(config.language));
     assert_eq!(Theme::Monokai, app.theme);
     assert_eq!(FlowMode::Data, app.flow);
     assert_eq!(HeatmapMode::Exec, app.heatmap);
@@ -56,7 +56,12 @@ pub(super) fn cli_theme_overrides_the_saved_one() {
         theme: Theme::Monokai,
         ..Config::default()
     };
-    let app = App::from_parts(config, Some(Theme::Notebook), None, None);
+    let app = App::from_parts(
+        config,
+        Some(Theme::Notebook),
+        None,
+        SessionLanguage::same(config.language),
+    );
     assert_eq!(Theme::Notebook, app.theme);
 }
 
@@ -64,7 +69,12 @@ pub(super) fn cli_theme_overrides_the_saved_one() {
 pub(super) fn modes_are_saved_once_on_close_not_on_key_press() {
     let path = temp_config_path("save");
     let mut sim = Simulator::new();
-    let mut app = App::from_parts(Config::default(), None, Some(path.clone()), None);
+    let mut app = App::from_parts(
+        Config::default(),
+        None,
+        Some(path.clone()),
+        SessionLanguage::default(),
+    );
 
     app.handle_key(press(KeyCode::Char('m')), &mut sim);
     app.handle_key(press(KeyCode::Char('c')), &mut sim);
@@ -106,10 +116,16 @@ pub(super) fn startup_language_is_persisted_over_the_saved_one() {
     let (store, warning) = super::super::config::ConfigStore::load_from(Some(path.clone()));
     assert!(warning.is_none());
 
-    let (config, _) = super::super::runner::startup_config(store, Language::Fr);
-    assert_eq!(Language::Fr, config.language);
-
-    let mut app = App::from_parts(config, None, Some(path.clone()), None);
+    // Started in French from the environment while the file still says "en":
+    // the startup language (to_persist) is what gets saved, not the stale value
+    let (config, _) = store.into_parts();
+    let mut app = App::from_parts(
+        config,
+        None,
+        Some(path.clone()),
+        SessionLanguage::same(Language::Fr),
+    );
+    assert_eq!(Language::Fr, app.persisted_language);
     app.save_config();
     let saved: Config = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(Language::Fr, saved.language);
@@ -121,7 +137,12 @@ pub(super) fn startup_language_is_persisted_over_the_saved_one() {
 pub(super) fn language_chosen_in_settings_is_saved_on_close() {
     let path = temp_config_path("language-chosen");
     let mut sim = Simulator::new();
-    let mut app = App::from_parts(Config::default(), None, Some(path.clone()), None);
+    let mut app = App::from_parts(
+        Config::default(),
+        None,
+        Some(path.clone()),
+        SessionLanguage::default(),
+    );
     assert_eq!(Language::En, app.persisted_language);
 
     // No keyboard shortcut: L alone does not switch the language
@@ -168,7 +189,15 @@ pub(super) fn lang_cli_override_is_active_but_not_saved_unless_chosen() {
         language: Language::En,
         ..Config::default()
     };
-    let mut app = App::from_parts(config, None, Some(path.clone()), Some(Language::Fr));
+    let mut app = App::from_parts(
+        config,
+        None,
+        Some(path.clone()),
+        SessionLanguage {
+            active: Language::Fr,
+            to_persist: config.language,
+        },
+    );
     assert_eq!(Language::Fr, app.language, "active language follows --lang");
     assert_eq!(Language::En, app.persisted_language);
 
@@ -192,7 +221,12 @@ pub(super) fn save_failure_is_reported_in_config_error() {
     fs::write(&blocker, "not a directory").unwrap();
     let path = blocker.join("config.toml");
 
-    let mut app = App::from_parts(Config::default(), None, Some(path), None);
+    let mut app = App::from_parts(
+        Config::default(),
+        None,
+        Some(path),
+        SessionLanguage::default(),
+    );
     app.save_config();
     assert!(app.config_error.is_some());
 
@@ -223,7 +257,7 @@ pub(super) fn mode_keys_do_not_repeat_when_held() {
 #[test]
 pub(super) fn mode_keys_swallow_os_repeat_but_not_human_double_press() {
     let mut sim = Simulator::new();
-    let mut app = App::from_parts(Config::default(), None, None, None);
+    let mut app = App::from_parts(Config::default(), None, None, SessionLanguage::default());
     app.mode_key_guard.set_interval(Duration::from_millis(100));
 
     app.handle_key(press(KeyCode::Char('m')), &mut sim);

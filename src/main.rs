@@ -90,12 +90,8 @@ fn main() {
     // --help is localized. --lang is pre-scanned from the raw arguments
     // because clap's own help needs the locale before parsing.
     let config_lang = i18n::config_language();
-    let lang = i18n::resolve(i18n::prescan_lang(), config_lang);
-    rust_i18n::set_locale(lang.code());
-    // The language to persist on exit: the same resolution without the
-    // --lang override, so a one-off --lang does not rewrite the saved choice
-    // and the startup language (config file or environment) survives restarts
-    let persisted_lang = i18n::resolve(None, config_lang);
+    let lang = i18n::SessionLanguage::resolve(i18n::prescan_lang(), config_lang);
+    rust_i18n::set_locale(lang.active.code());
 
     let matches = localized_command().get_matches();
     let args = Args::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
@@ -131,7 +127,7 @@ fn main() {
             simulator.enable_history(history_size);
         }
         // Launch the interactive TUI; it returns the simulator when the user quits
-        simulator = match tui::run(simulator, args.max_cycles, args.theme, lang, persisted_lang) {
+        simulator = match tui::run(simulator, args.max_cycles, args.theme, lang) {
             Ok(sim) => sim,
             Err(e) => {
                 eprintln!("{}", t!("main.error", error = e.to_string()));

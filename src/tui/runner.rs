@@ -2,7 +2,6 @@
 //! the UI thread event loop. See the crate-level docs in `tui.rs`.
 
 use std::io;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -19,10 +18,10 @@ use ratatui::backend::CrosstermBackend;
 use rust_i18n::t;
 
 use super::app::App;
-use super::config::{Config, ConfigStore};
+use super::config::ConfigStore;
 use super::palette::Theme;
 use super::snapshot::Snapshot;
-use crate::i18n::Language;
+use crate::i18n::SessionLanguage;
 use crate::ssem::simulator::Simulator;
 
 /// Frame rate target for the UI thread.
@@ -185,17 +184,17 @@ impl Drop for TerminalGuard {
 /// Takes ownership of the simulator and returns it when the user quits,
 /// so the caller can print the final state. The interface starts from the
 /// view modes saved in the config file; `theme` (from `--theme`) and
-/// `language` (from `--lang`), when given, override the saved values for
-/// this session. The view modes are saved back to the config file when the
-/// user quits, with `persisted_language` as the saved language: the language
-/// the app started with (config file or environment), not a one-off `--lang`
-/// override — unless the user picks another language in the settings pop-up.
+/// `language.active` (from `--lang`), when given, override the saved values
+/// for this session. The view modes are saved back to the config file when
+/// the user quits, with `language.to_persist` as the saved language: the
+/// language the app started with (config file or environment), not a one-off
+/// `--lang` override — unless the user picks another language in the
+/// settings pop-up.
 pub fn run(
     simulator: Simulator,
     max_cycles: u32,
     theme: Option<Theme>,
-    language: Language,
-    persisted_language: Language,
+    language: SessionLanguage,
 ) -> io::Result<Simulator> {
     // Load the persisted view modes before touching the terminal, so a
     // warning about an invalid config file prints cleanly
@@ -218,15 +217,7 @@ pub fn run(
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
 
-    let result = run_app(
-        &mut terminal,
-        simulator,
-        max_cycles,
-        theme,
-        store,
-        language,
-        persisted_language,
-    );
+    let result = run_app(&mut terminal, simulator, max_cycles, theme, store, language);
 
     // Always restore the terminal, even on error, before printing anything
     // (a config-save failure cannot be reported while the TUI owns the terminal)
@@ -239,28 +230,13 @@ pub fn run(
     result.map(|(sim, _)| sim)
 }
 
-/// The config to start from: the saved view modes, with the language
-/// replaced by the one to persist (the language the app started with from
-/// the config file or environment, without a `--lang` override), so closing
-/// the app persists that choice and it survives restarts — even when it
-/// originally came from the environment.
-pub(super) fn startup_config(
-    store: ConfigStore,
-    persisted_language: Language,
-) -> (Config, Option<PathBuf>) {
-    let (mut config, path) = store.into_parts();
-    config.language = persisted_language;
-    (config, path)
-}
-
 fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     simulator: Simulator,
     max_cycles: u32,
     theme: Option<Theme>,
     store: ConfigStore,
-    language: Language,
-    persisted_language: Language,
+    language: SessionLanguage,
 ) -> io::Result<(Simulator, Option<String>)> {
     // Shared state between the machine and UI threads
     let sim = Arc::new(Mutex::new(simulator));
@@ -277,8 +253,8 @@ fn run_app(
     });
 
     // UI thread (main thread)
-    let (config, config_path) = startup_config(store, persisted_language);
-    let mut app = App::from_parts(config, theme, config_path, Some(language));
+    let (config, config_path) = store.into_parts();
+    let mut app = App::from_parts(config, theme, config_path, language);
     // First run (no welcome_seen in the config yet): greet the user
     app.show_welcome_on_first_run();
 

@@ -125,6 +125,49 @@ pub fn resolve(cli: Option<Language>, config: Option<Language>) -> Language {
     cli.or(config).or_else(env_language).unwrap_or(Language::En)
 }
 
+/// The two languages of one session, resolved together in `main` so they
+/// travel as a single value instead of two adjacent same-typed arguments.
+///
+/// `active` drives the locale and the settings pop-up; `to_persist` is what
+/// gets saved on exit. They differ only under a one-off `--lang` override,
+/// which changes the session but must not rewrite the saved choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionLanguage {
+    /// The active interface language (the locale set at startup, switchable
+    /// at runtime from the settings pop-up).
+    pub active: Language,
+    /// The language to save on exit: the startup language without a `--lang`
+    /// override, unless the user picks another one in the settings pop-up.
+    pub to_persist: Language,
+}
+
+impl SessionLanguage {
+    /// Resolve the session languages: `active` follows the full resolution
+    /// (`--lang` > config > env > en); `to_persist` is the same resolution
+    /// without the `--lang` override.
+    pub fn resolve(cli: Option<Language>, config: Option<Language>) -> Self {
+        Self {
+            active: resolve(cli, config),
+            to_persist: resolve(None, config),
+        }
+    }
+
+    /// A session with no `--lang` override: the active and persisted
+    /// languages are the same.
+    pub fn same(language: Language) -> Self {
+        Self {
+            active: language,
+            to_persist: language,
+        }
+    }
+}
+
+impl Default for SessionLanguage {
+    fn default() -> Self {
+        Self::same(Language::En)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +229,27 @@ mod tests {
         );
         assert_eq!(Language::Fr, resolve(None, Some(Language::Fr)));
         assert_eq!(Language::Fr, resolve(Some(Language::Fr), None));
+    }
+
+    #[test]
+    fn session_language_splits_the_override_from_what_gets_saved() {
+        // A --lang override changes the active language but not the saved one
+        let s = SessionLanguage::resolve(Some(Language::Fr), Some(Language::En));
+        assert_eq!(Language::Fr, s.active);
+        assert_eq!(
+            Language::En,
+            s.to_persist,
+            "a one-off --lang must not rewrite the saved choice"
+        );
+        // Without an override, active and to_persist are the same
+        assert_eq!(
+            SessionLanguage::same(Language::Fr),
+            SessionLanguage::resolve(None, Some(Language::Fr))
+        );
+        assert_eq!(
+            SessionLanguage::same(Language::En),
+            SessionLanguage::default()
+        );
     }
 
     #[test]

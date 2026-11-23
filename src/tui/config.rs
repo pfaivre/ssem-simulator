@@ -155,6 +155,7 @@ impl ConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::SessionLanguage;
 
     /// A unique temporary file path for a test.
     fn temp_config_path(name: &str) -> PathBuf {
@@ -250,7 +251,8 @@ mod tests {
     #[test]
     fn out_of_range_bit_representation_is_clamped_on_load() {
         let parsed: Config = toml::from_str("bit_representation = 99\n").unwrap();
-        let app = super::super::app::App::from_parts(parsed, None, None, None);
+        let app =
+            super::super::app::App::from_parts(parsed, None, None, SessionLanguage::default());
         assert_eq!(
             super::super::app::BIT_REPRESENTATIONS.len() - 1,
             app.bit_representation
