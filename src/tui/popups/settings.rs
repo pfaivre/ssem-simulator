@@ -1,4 +1,5 @@
 use super::*;
+use crate::i18n::Language;
 use rust_i18n::t;
 
 pub struct SettingsView {
@@ -10,6 +11,7 @@ pub struct SettingsView {
     pub comments: bool,
     pub bit_representation: usize,
     pub theme: Theme,
+    pub language: Language,
 }
 
 /// One row of the settings pop-up: the label, the keyboard shortcut shown
@@ -27,6 +29,9 @@ pub enum SettingControl {
     Comments,
     Bits,
     Theme,
+    /// Changed from this pop-up's row only: no key maps to it (see
+    /// `control_for_key`).
+    Language,
     /// Not a view-mode setting: it closes the settings pop-up and replays
     /// the first-run welcome tour. No key maps to it (see `control_for_key`).
     Tour,
@@ -93,7 +98,7 @@ impl SettingsPopup {
             BIT_REPRESENTATIONS[view.bit_representation.min(BIT_REPRESENTATIONS.len() - 1)];
         // Each row: the label, the shortcut, then its spans — a button (text
         // + control) or plain value text between the speed buttons
-        let rows: [SettingsRow; 7] = [
+        let rows: [SettingsRow; 8] = [
             (
                 ts!("popup.settings.speed"),
                 "I/K",
@@ -109,9 +114,7 @@ impl SettingsPopup {
                 vec![(
                     format!(
                         "[{}]",
-                        view.heatmap
-                            .label()
-                            .map_or_else(|| ts!("mode.off"), str::to_string)
+                        view.heatmap.label().unwrap_or_else(|| ts!("mode.off"))
                     ),
                     Some(SettingControl::Heatmap),
                 )],
@@ -120,12 +123,7 @@ impl SettingsPopup {
                 ts!("popup.settings.flow"),
                 "F",
                 vec![(
-                    format!(
-                        "[{}]",
-                        view.flow
-                            .label()
-                            .map_or_else(|| ts!("mode.off"), str::to_string)
-                    ),
+                    format!("[{}]", view.flow.label().unwrap_or_else(|| ts!("mode.off"))),
                     Some(SettingControl::Flow),
                 )],
             ),
@@ -155,6 +153,14 @@ impl SettingsPopup {
                 vec![(
                     format!("[{}]", view.theme.label()),
                     Some(SettingControl::Theme),
+                )],
+            ),
+            (
+                ts!("popup.settings.language"),
+                "", // no keyboard shortcut: the language is chosen from its row
+                vec![(
+                    format!("[{}]", view.language.label()),
+                    Some(SettingControl::Language),
                 )],
             ),
             (

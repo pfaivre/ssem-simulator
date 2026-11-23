@@ -613,6 +613,7 @@ pub(super) fn settings_popup_lists_all_controls() {
         "Comments",
         "Store bits",
         "Theme",
+        "Language",
         "Welcome tour",
         "[Replay]",
     ] {
@@ -621,10 +622,12 @@ pub(super) fn settings_popup_lists_all_controls() {
             "settings pop-up missing {text:?}:\n{all}"
         );
     }
-    // The current values are shown: default theme, comments on, control flow
+    // The current values are shown: default theme, comments on, control flow,
+    // English (the endonym, not a translated name)
     assert!(all.contains("[Base16 Ocean]"), "theme value: {all}");
     assert!(all.contains("[On]"), "comments value: {all}");
     assert!(all.contains("[Control]"), "flow value: {all}");
+    assert!(all.contains("[English]"), "language value: {all}");
 }
 
 #[test]
@@ -635,13 +638,14 @@ pub(super) fn settings_popup_controls_are_clickable() {
     app.settings_popup.open();
     let _ = render(&mut app, &snap, 100, 40);
 
-    // Heatmap / flow / comments / bits / theme buttons cycle their setting
+    // Heatmap / flow / comments / bits / theme / language buttons cycle their setting
     let start = (
         app.heatmap,
         app.flow,
         app.show_comments,
         app.bit_representation,
         app.theme,
+        app.language,
     );
     for control in [
         SettingControl::Heatmap,
@@ -649,6 +653,7 @@ pub(super) fn settings_popup_controls_are_clickable() {
         SettingControl::Comments,
         SettingControl::Bits,
         SettingControl::Theme,
+        SettingControl::Language,
     ] {
         let (col, row) = control_cell(&app, control);
         click(&mut app, &mut sim, col, row);
@@ -660,7 +665,8 @@ pub(super) fn settings_popup_controls_are_clickable() {
             app.flow,
             app.show_comments,
             app.bit_representation,
-            app.theme
+            app.theme,
+            app.language
         ),
         "each control changed its setting"
     );
@@ -672,6 +678,11 @@ pub(super) fn settings_popup_controls_are_clickable() {
         app.bit_representation
     );
     assert_eq!(start.4.cycle(), app.theme);
+    assert_eq!(start.5.cycle(), app.language);
+    assert_eq!(
+        app.language, app.persisted_language,
+        "clicking the language row makes the choice persistable"
+    );
 
     // The speed buttons adjust the target speed
     let speed = sim.speed;

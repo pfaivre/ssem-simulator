@@ -131,7 +131,7 @@ fn main() {
             simulator.enable_history(history_size);
         }
         // Launch the interactive TUI; it returns the simulator when the user quits
-        simulator = match tui::run(simulator, args.max_cycles, args.theme, persisted_lang) {
+        simulator = match tui::run(simulator, args.max_cycles, args.theme, lang, persisted_lang) {
             Ok(sim) => sim,
             Err(e) => {
                 eprintln!("{}", t!("main.error", error = e.to_string()));

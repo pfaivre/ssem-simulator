@@ -36,8 +36,8 @@ pub(super) struct Config {
     /// Index into `BIT_REPRESENTATIONS` (cycled with the D key).
     pub bit_representation: usize,
     /// Interface language. Read at startup to pick the locale (`--lang`
-    /// overrides it for the session), and saved back with the language the
-    /// app started with, so the choice survives restarts.
+    /// overrides it for the session), and saved back on exit: the startup
+    /// language, unless the user picked another one in the settings pop-up.
     pub language: Language,
     /// Whether the first-run welcome pop-up was already shown. Starts false
     /// (no config file yet) and is saved once the pop-up has been displayed.
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn out_of_range_bit_representation_is_clamped_on_load() {
         let parsed: Config = toml::from_str("bit_representation = 99\n").unwrap();
-        let app = super::super::app::App::from_parts(parsed, None, None);
+        let app = super::super::app::App::from_parts(parsed, None, None, None);
         assert_eq!(
             super::super::app::BIT_REPRESENTATIONS.len() - 1,
             app.bit_representation
