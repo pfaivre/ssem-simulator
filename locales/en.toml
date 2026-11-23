@@ -211,6 +211,7 @@ flow = "Flow mode"
 comments = "Comments"
 bits = "Store bits"
 theme = "Theme"
+language = "Language"
 tour = "Welcome tour"
 tour_button = "Replay"
 

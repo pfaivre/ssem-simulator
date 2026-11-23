@@ -207,6 +207,7 @@ flow = "Mode de flux"
 comments = "Commentaires"
 bits = "Apparence des mots"
 theme = "Thème"
+language = "Langue"
 tour = "Visite guidée"
 tour_button = "Rejouer"
 

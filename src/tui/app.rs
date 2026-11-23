@@ -3,7 +3,6 @@
 
 use std::borrow::Cow;
 use std::path::PathBuf;
-use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
@@ -24,7 +23,7 @@ use super::popups::{
     HelpPopup, OpenPopup, PickerPopup, Popup, PopupEvent, SettingControl, SettingsPopup,
     WelcomePopup,
 };
-use crate::i18n::Language;
+use crate::i18n::{Language, SessionLanguage};
 use crate::ssem::history::History;
 use crate::ssem::simulator::Simulator;
 
@@ -37,9 +36,9 @@ pub(super) const BIT_REPRESENTATIONS: [(char, char); 5] = [
     ('1', '0'),             // Binary digits
 ];
 
-/// The keymap: (key, help description), localized.
-/// The locale is fixed at startup, so the table is built once.
-static KEYMAP: LazyLock<Vec<(&'static str, String)>> = LazyLock::new(|| {
+/// The keymap: (key, help description), localized. Built on every call:
+/// the locale can change at runtime (the settings pop-up's language row).
+pub(super) fn keymap() -> Vec<(&'static str, String)> {
     vec![
         ("Ctrl+Q", ts!("keymap.quit.desc")),
         ("H", ts!("keymap.help.desc")),
@@ -59,10 +58,6 @@ static KEYMAP: LazyLock<Vec<(&'static str, String)>> = LazyLock::new(|| {
         ("O", ts!("keymap.open.desc")),
         ("T", ts!("keymap.theme.desc")),
     ]
-});
-
-pub(super) fn keymap() -> &'static [(&'static str, String)] {
-    &KEYMAP
 }
 
 /// An action of the menu bar (the top row), run by clicking its item.
@@ -97,9 +92,10 @@ impl MenuAction {
     }
 }
 
-/// The menu bar items (the top row), with localized labels.
-/// The locale is fixed at startup, so the table is built once.
-static MENU_ITEMS: LazyLock<Vec<(String, MenuAction)>> = LazyLock::new(|| {
+/// The menu bar items (the top row), with localized labels. Built on every
+/// call: the locale can change at runtime (the settings pop-up's language
+/// row).
+pub(super) fn menu_items() -> Vec<(String, MenuAction)> {
     vec![
         (ts!("menu.quit"), MenuAction::Quit),
         (ts!("menu.clear"), MenuAction::Clear),
@@ -110,10 +106,6 @@ static MENU_ITEMS: LazyLock<Vec<(String, MenuAction)>> = LazyLock::new(|| {
         (ts!("menu.settings"), MenuAction::Settings),
         (ts!("menu.help"), MenuAction::Help),
     ]
-});
-
-pub(super) fn menu_items() -> &'static [(String, MenuAction)] {
-    &MENU_ITEMS
 }
 
 /// How often the displayed speed is refreshed.
@@ -267,11 +259,16 @@ pub(super) struct App {
     /// or chosen with the `--theme` command-line option).
     pub(super) theme: Theme,
 
-    /// The interface language, persisted with the other view modes. The
-    /// locale itself is resolved once at startup in `main` (from `--lang`,
-    /// the config file, or the environment); this is that startup language
-    /// without a `--lang` override, saved so the choice survives restarts.
+    /// The active interface language: the one the settings pop-up shows and
+    /// cycles, and the one the locale was set to. Resolved once at startup
+    /// in `main` (from `--lang`, the config file, or the environment); the
+    /// settings pop-up's language row switches it at runtime.
     pub(super) language: Language,
+
+    /// The language to persist on exit: the startup language without a
+    /// `--lang` override, unless the user picked another one in the settings
+    /// pop-up (then it is that explicit choice).
+    pub(super) persisted_language: Language,
 
     /// Whether the first-run welcome pop-up was already shown, persisted in
     /// the config file so it is displayed only once.
@@ -310,7 +307,7 @@ impl App {
     /// An app with the default view modes and no config file (tests).
     #[cfg(test)]
     pub(super) fn new() -> Self {
-        let mut app = Self::from_parts(Config::default(), None, None);
+        let mut app = Self::from_parts(Config::default(), None, None, SessionLanguage::default());
         // Tests press the same key in quick succession on purpose
         app.mode_key_guard.set_interval(Duration::ZERO);
         app.welcome_popup.set_nav_key_guard(Duration::ZERO);
@@ -319,11 +316,14 @@ impl App {
 
     /// An app starting from the given persisted view modes, saving changes
     /// back to `config_path`. The `theme_override` (from `--theme`) wins
-    /// over the persisted theme for this session.
+    /// over the persisted theme for this session; `language` carries both
+    /// the active language (the startup resolution, or `--lang`) and the one
+    /// to persist on exit.
     pub(super) fn from_parts(
         config: Config,
         theme_override: Option<Theme>,
         config_path: Option<PathBuf>,
+        language: SessionLanguage,
     ) -> Self {
         let now = Instant::now();
         App {
@@ -353,7 +353,8 @@ impl App {
             flow: config.flow,
             show_comments: config.comments,
             theme: theme_override.unwrap_or(config.theme),
-            language: config.language,
+            language: language.active,
+            persisted_language: language.to_persist,
             welcome_seen: config.welcome_seen,
             config_path,
             config_error: None,
@@ -379,7 +380,7 @@ impl App {
             heatmap: self.heatmap,
             comments: self.show_comments,
             bit_representation: self.bit_representation,
-            language: self.language,
+            language: self.persisted_language,
             welcome_seen: self.welcome_seen,
         };
         if let Err(e) = config.save(path) {
@@ -1120,6 +1121,13 @@ impl App {
                 self.bit_representation = (self.bit_representation + 1) % BIT_REPRESENTATIONS.len();
             }
             SettingControl::Theme => self.theme = self.theme.cycle(),
+            SettingControl::Language => {
+                self.language = self.language.cycle();
+                // An explicit choice in the settings pop-up is what gets
+                // saved on exit, even under a one-off --lang override
+                self.persisted_language = self.language;
+                crate::i18n::activate(self.language);
+            }
             SettingControl::Tour => {
                 // Not a view-mode setting: leave the settings pop-up and
                 // replay the welcome tour from its first step

@@ -9,6 +9,7 @@
 use super::super::config::Config;
 use super::super::palette::blend;
 use super::*;
+use crate::i18n::SessionLanguage;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -51,7 +52,7 @@ pub(super) fn returning_user_does_not_get_the_welcome_popup() {
         welcome_seen: true,
         ..Config::default()
     };
-    let mut app = App::from_parts(config, None, None);
+    let mut app = App::from_parts(config, None, None, SessionLanguage::same(config.language));
     app.show_welcome_on_first_run();
     assert!(!app.welcome_popup.is_open());
 }
@@ -472,7 +473,12 @@ pub(super) fn welcome_tour_renders_at_degenerate_terminal_sizes() {
 #[test]
 pub(super) fn welcome_seen_is_persisted_on_save() {
     let path = temp_config_path("welcome");
-    let mut app = App::from_parts(Config::default(), None, Some(path.clone()));
+    let mut app = App::from_parts(
+        Config::default(),
+        None,
+        Some(path.clone()),
+        SessionLanguage::default(),
+    );
     app.show_welcome_on_first_run();
     app.save_config();
     let text = fs::read_to_string(&path).unwrap();

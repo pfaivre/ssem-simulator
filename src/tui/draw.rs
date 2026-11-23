@@ -233,6 +233,7 @@ impl App {
                     comments: self.show_comments,
                     bit_representation: self.bit_representation,
                     theme: self.theme,
+                    language: self.language,
                 },
                 // Anchor the picker just right of the store text (past the
                 // heatmap bars), next to the mnemonic/data fields being edited
@@ -287,9 +288,8 @@ impl App {
             .is_open()
             .then(|| self.confirm_popup.action());
         for (label, action) in menu_items() {
-            let action = *action;
             // Run/Stop's icon and label reflect the machine state
-            let (icon, label) = action.button(label, snap.stop_flag);
+            let (icon, label) = action.button(&label, snap.stop_flag);
             // No brackets: the button is its icon (if any) and label padded
             // with one cell on each side in the block color
             let icon_prefix = icon.map_or(String::new(), |icon| format!("{icon} "));

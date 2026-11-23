@@ -2,8 +2,6 @@
 //! geometry helpers, and the optional view modes (heatmap, flow) with the
 //! width they add to the store view.
 
-use std::sync::LazyLock;
-
 use ratatui::layout::Rect;
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
@@ -245,14 +243,12 @@ impl HeatmapMode {
     }
 
     /// The label shown in the top bar, or None when the heatmap is off.
-    /// The locale is fixed at startup, so the labels are built once.
-    pub(super) fn label(self) -> Option<&'static str> {
-        static EXEC: LazyLock<String> = LazyLock::new(|| ts!("mode.heatmap_exec"));
-        static RW: LazyLock<String> = LazyLock::new(|| ts!("mode.heatmap_rw"));
+    /// Resolved on every call: the locale can change at runtime.
+    pub(super) fn label(self) -> Option<String> {
         match self {
             HeatmapMode::Off => None,
-            HeatmapMode::Exec => Some(EXEC.as_str()),
-            HeatmapMode::Rw => Some(RW.as_str()),
+            HeatmapMode::Exec => Some(ts!("mode.heatmap_exec")),
+            HeatmapMode::Rw => Some(ts!("mode.heatmap_rw")),
         }
     }
 }
@@ -281,13 +277,11 @@ impl FlowMode {
     }
 
     /// The label shown in the top bar, or None when the visualization is off.
-    /// The locale is fixed at startup, so the labels are built once.
-    pub(super) fn label(self) -> Option<&'static str> {
-        static CONTROL: LazyLock<String> = LazyLock::new(|| ts!("mode.flow_control"));
-        static DATA: LazyLock<String> = LazyLock::new(|| ts!("mode.flow_data"));
+    /// Resolved on every call: the locale can change at runtime.
+    pub(super) fn label(self) -> Option<String> {
         match self {
-            FlowMode::Control => Some(CONTROL.as_str()),
-            FlowMode::Data => Some(DATA.as_str()),
+            FlowMode::Control => Some(ts!("mode.flow_control")),
+            FlowMode::Data => Some(ts!("mode.flow_data")),
             FlowMode::Off => None,
         }
     }

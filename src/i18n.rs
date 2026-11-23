@@ -5,7 +5,8 @@
 //! `t!` lookup — so tests, which never run `main()`, always see the `en`
 //! fallback. Resolution order: the `--lang` option, then the `language` key
 //! in the config file, then the `LC_ALL`/`LC_MESSAGES`/`LANG` environment
-//! variables, falling back to English.
+//! variables, falling back to English. The user can then switch language at
+//! runtime from the settings pop-up, via [`activate`].
 
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +40,35 @@ impl Language {
         let code = tag.split(['_', '-', '.']).next()?.to_lowercase();
         Self::ALL.iter().copied().find(|l| l.code() == code)
     }
+
+    /// The language's own name — an endonym, so not translated — shown in
+    /// the settings pop-up's language row.
+    pub fn label(self) -> &'static str {
+        match self {
+            Language::En => "English",
+            Language::Fr => "Français",
+        }
+    }
+
+    /// The next language in [`Language::ALL`], wrapping around.
+    pub fn cycle(self) -> Self {
+        let i = Self::ALL.iter().position(|l| *l == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
 }
+
+/// Activate a language at runtime, when the user picks one in the settings
+/// pop-up: a plain `set_locale`, since the language is already resolved.
+#[cfg(not(test))]
+pub fn activate(language: Language) {
+    rust_i18n::set_locale(language.code());
+}
+
+/// Test build: a no-op, so the tests — which run in parallel in one process
+/// and share the process-global locale — keep the `en` fallback that
+/// resolution in `main()` would have given them.
+#[cfg(test)]
+pub fn activate(_language: Language) {}
 
 /// The `--lang` value pre-scanned from the raw arguments, before clap runs,
 /// so that `--help` output can already be localized.
@@ -96,6 +125,49 @@ pub fn resolve(cli: Option<Language>, config: Option<Language>) -> Language {
     cli.or(config).or_else(env_language).unwrap_or(Language::En)
 }
 
+/// The two languages of one session, resolved together in `main` so they
+/// travel as a single value instead of two adjacent same-typed arguments.
+///
+/// `active` drives the locale and the settings pop-up; `to_persist` is what
+/// gets saved on exit. They differ only under a one-off `--lang` override,
+/// which changes the session but must not rewrite the saved choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionLanguage {
+    /// The active interface language (the locale set at startup, switchable
+    /// at runtime from the settings pop-up).
+    pub active: Language,
+    /// The language to save on exit: the startup language without a `--lang`
+    /// override, unless the user picks another one in the settings pop-up.
+    pub to_persist: Language,
+}
+
+impl SessionLanguage {
+    /// Resolve the session languages: `active` follows the full resolution
+    /// (`--lang` > config > env > en); `to_persist` is the same resolution
+    /// without the `--lang` override.
+    pub fn resolve(cli: Option<Language>, config: Option<Language>) -> Self {
+        Self {
+            active: resolve(cli, config),
+            to_persist: resolve(None, config),
+        }
+    }
+
+    /// A session with no `--lang` override: the active and persisted
+    /// languages are the same.
+    pub fn same(language: Language) -> Self {
+        Self {
+            active: language,
+            to_persist: language,
+        }
+    }
+}
+
+impl Default for SessionLanguage {
+    fn default() -> Self {
+        Self::same(Language::En)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,6 +203,24 @@ mod tests {
     }
 
     #[test]
+    fn cycle_visits_every_language_once_before_wrapping_and_labels_are_endonyms() {
+        // Starting from any language, cycling must visit every language
+        // exactly once before coming back
+        for start in Language::ALL {
+            let mut seen = vec![*start];
+            let mut next = start.cycle();
+            while next != *start {
+                assert!(!seen.contains(&next), "{next:?} visited twice");
+                seen.push(next);
+                next = next.cycle();
+            }
+            assert_eq!(Language::ALL.len(), seen.len());
+        }
+        assert_eq!("English", Language::En.label());
+        assert_eq!("Français", Language::Fr.label());
+    }
+
+    #[test]
     fn resolve_prefers_cli_then_config() {
         // Cases that do not depend on the test machine's environment
         assert_eq!(
@@ -139,6 +229,27 @@ mod tests {
         );
         assert_eq!(Language::Fr, resolve(None, Some(Language::Fr)));
         assert_eq!(Language::Fr, resolve(Some(Language::Fr), None));
+    }
+
+    #[test]
+    fn session_language_splits_the_override_from_what_gets_saved() {
+        // A --lang override changes the active language but not the saved one
+        let s = SessionLanguage::resolve(Some(Language::Fr), Some(Language::En));
+        assert_eq!(Language::Fr, s.active);
+        assert_eq!(
+            Language::En,
+            s.to_persist,
+            "a one-off --lang must not rewrite the saved choice"
+        );
+        // Without an override, active and to_persist are the same
+        assert_eq!(
+            SessionLanguage::same(Language::Fr),
+            SessionLanguage::resolve(None, Some(Language::Fr))
+        );
+        assert_eq!(
+            SessionLanguage::same(Language::En),
+            SessionLanguage::default()
+        );
     }
 
     #[test]
